@@ -121,6 +121,10 @@ uv run setu mcp-config gmail:personal > gmail.json
 yantra --provider ollama --model qwen3.8:latest --mcp-config gmail.json
 ```
 
+[TESTING.md](TESTING.md) has a step-by-step check of the whole road with a
+real mailbox: what to ask, what each answer proves, and what to do when
+something is off.
+
 ---
 
 ## Everyday commands
