@@ -73,6 +73,7 @@ class FakeGmail:
         self.scopes = set(scopes)
         self.threads = mailbox()
         self.drafts: dict[str, dict[str, Any]] = {}
+        self.sent: list[dict[str, Any]] = []
         self.calls: list[str] = []
         self.email = "me@example.com"
 
@@ -117,6 +118,15 @@ class FakeGmail:
             return 200, {"drafts": [{"id": d} for d in self.drafts]}
         if method == "GET" and rest.startswith("/drafts/"):
             return 200, self.drafts[rest.split("/")[2]]
+        if method == "POST" and rest == "/messages/send":
+            if "send" not in self.scopes:
+                return 403, {"error": {"code": 403, "message": "Request had insufficient "
+                                       "authentication scopes.",
+                                       "errors": [{"reason": "insufficientPermissions"}]}}
+            payload = json.loads(body)
+            raw = base64.urlsafe_b64decode(payload["raw"]).decode()
+            self.sent.append({"raw": raw, "threadId": payload.get("threadId")})
+            return 200, {"id": f"s{len(self.sent)}", "threadId": payload.get("threadId")}
         if method == "POST" and rest == "/drafts":
             if "compose" not in self.scopes:
                 return 403, {"error": {"code": 403, "message": "Request had insufficient "

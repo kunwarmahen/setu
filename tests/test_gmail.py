@@ -22,8 +22,16 @@ import pytest
 from conftest import TOKEN, FakeGmail
 from setu.client import EnvSource
 from setu.client import http as setu_http
-from setu_gmail.gmail import FENCE_CLOSE, FENCE_OPEN, MAX_BODY, Gmail, GmailError, flatten_html
-from setu_gmail.server import COMPOSE, build
+from setu_gmail.gmail import (
+    FENCE_CLOSE,
+    FENCE_OPEN,
+    MAX_BODY,
+    MAX_RECIPIENTS,
+    Gmail,
+    GmailError,
+    flatten_html,
+)
+from setu_gmail.server import COMPOSE, SEND, build
 
 READ = "https://www.googleapis.com/auth/gmail.readonly"
 
@@ -96,8 +104,19 @@ class TestToolsFollowTheGrant:
     def test_compose_adds_create_draft(self):
         assert "create_draft" in tool_names({READ, COMPOSE})
 
-    def test_no_tool_can_send(self):
+    def test_the_draft_level_has_no_send_tool_though_google_would_allow_it(self):
+        """gmail.compose permits sending; the connector does not lean on
+        that -- sending is offered only when sending was asked for by name."""
         assert not any("send" in name for name in tool_names({READ, COMPOSE}))
+
+    def test_the_send_grant_adds_send_message(self):
+        assert "send_message" in tool_names({READ, COMPOSE, SEND})
+
+    def test_sending_is_marked_irreversible_and_outward(self):
+        server = build(gmail(FakeGmail()), frozenset({READ, COMPOSE, SEND}))
+        tool = {t.name: t for t in asyncio.run(server.list_tools())}["send_message"]
+        assert tool.annotations.destructive_hint is True
+        assert tool.annotations.open_world_hint is True
 
     def test_read_tools_say_they_only_read(self):
         server = build(gmail(FakeGmail()), frozenset({READ, COMPOSE}))
@@ -123,7 +142,7 @@ class TestDrafting:
     def test_google_refusing_is_explained_as_a_level(self):
         """A Read only token that somehow reaches the write gets a sentence
         about levels, not an HTTP code."""
-        with pytest.raises(GmailError, match="Read only"):
+        with pytest.raises(GmailError, match="--level draft"):
             gmail(FakeGmail(scopes=("readonly",))).create_draft(
                 to="a@b.test", subject="s", body="b")
 
@@ -132,6 +151,64 @@ class TestDrafting:
         with pytest.raises(GmailError, match="not a list of email addresses"):
             gmail(fake).create_draft(to="bob", subject="s", body="b")
         assert fake.drafts == {}
+
+
+class TestSending:
+    def sender(self, **kwargs) -> tuple[Gmail, FakeGmail]:
+        fake = FakeGmail(scopes=("compose", "send"))
+        client = setu_http("https://gmail.googleapis.com", tokens=EnvSource(TOKEN),
+                           transport=fake.transport())
+        return Gmail(client, **kwargs), fake
+
+    def test_a_send_goes_out_through_messages_send(self):
+        mail, fake = self.sender()
+        out = mail.send_message(to="Priya <priya@acme.test>", subject="Paid", body="Done.")
+        assert "cannot be unsent" in out and "priya@acme.test" in out
+        assert len(fake.sent) == 1 and fake.drafts == {}
+        assert message_from_string(fake.sent[0]["raw"])["Subject"] == "Paid"
+
+    def test_a_reply_is_sent_into_its_thread(self):
+        mail, fake = self.sender()
+        mail.send_message(to="", subject="", body="Paid, thanks.", reply_to_message_id="m1")
+        sent = message_from_string(fake.sent[0]["raw"])
+        assert fake.sent[0]["threadId"] == "t1"
+        assert sent["Subject"] == "Re: Invoice 1042"
+        assert sent["In-Reply-To"] == "<m1@mail.example>"
+
+    def test_an_empty_body_is_never_sent(self):
+        mail, fake = self.sender()
+        with pytest.raises(GmailError, match="empty body"):
+            mail.send_message(to="a@b.test", subject="s", body="  ")
+        assert fake.sent == []
+
+    def test_too_many_recipients_are_refused_before_google(self):
+        mail, fake = self.sender()
+        many = ", ".join(f"p{i}@b.test" for i in range(MAX_RECIPIENTS + 1))
+        with pytest.raises(GmailError, match="recipients"):
+            mail.send_message(to=many, subject="s", body="b")
+        assert fake.sent == []
+
+    def test_bcc_counts_toward_the_recipient_limit(self):
+        mail, fake = self.sender()
+        hidden = ", ".join(f"p{i}@b.test" for i in range(MAX_RECIPIENTS))
+        with pytest.raises(GmailError, match="recipients"):
+            mail.send_message(to="a@b.test", bcc=hidden, subject="s", body="b")
+        assert fake.sent == []
+
+    def test_a_session_stops_sending_at_its_cap(self):
+        """A loop, or a tricked model, sending hundreds is the failure worth
+        fearing -- not one wrong email."""
+        mail, fake = self.sender(max_sends=2)
+        for n in range(2):
+            mail.send_message(to="a@b.test", subject=f"s{n}", body="b")
+        with pytest.raises(GmailError, match="SETU_GMAIL_MAX_SENDS=2"):
+            mail.send_message(to="a@b.test", subject="s3", body="b")
+        assert len(fake.sent) == 2
+
+    def test_without_the_send_grant_google_refuses_and_it_says_which_level(self):
+        mail = gmail(FakeGmail(scopes=("readonly", "compose")))
+        with pytest.raises(GmailError, match="--level send"):
+            mail.send_message(to="a@b.test", subject="s", body="b")
 
 
 class TestTheToken:

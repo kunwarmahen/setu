@@ -59,6 +59,15 @@ class TestTheSignInAsksForExactlyTheLevel:
         connect(FakeGoogle(scope=f"{READ} {COMPOSE}"), FileVault(), level="draft", seen=urls)
         assert parse_qs(urlparse(urls[0]).query)["scope"][0].split() == [READ, COMPOSE]
 
+    def test_the_send_level_asks_for_sending_by_name(self, home):
+        """So Google's consent screen says "Send email on your behalf"."""
+        urls: list[str] = []
+        send = "https://www.googleapis.com/auth/gmail.send"
+        entry = connect(FakeGoogle(scope=f"{READ} {COMPOSE} {send}"), FileVault(),
+                        level="send", seen=urls)
+        assert parse_qs(urlparse(urls[0]).query)["scope"][0].split() == [READ, COMPOSE, send]
+        assert entry["level"] == "send"
+
     def test_it_asks_for_a_refresh_token_every_time(self, home):
         urls: list[str] = []
         connect(FakeGoogle(), FileVault(), seen=urls)
