@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from setu import __version__, connections
+from setu import __version__, config, connections
 from setu.manifest import Manifest, ManifestError, installed
 from setu.vault import FileVault, Vault
 
@@ -41,7 +41,17 @@ def _setu_command() -> str:
     return shutil.which("setu") or "setu"
 
 
-def _connector(manifest: Manifest, connected: bool) -> dict[str, Any]:
+def _not_ready(manifest: Manifest, client_file: str | None) -> str:
+    """Why this connector cannot be signed in to yet, or "" when it can."""
+    if manifest.auth == "google" and not client_file:
+        return ("needs a Google 'Desktop app' OAuth client file "
+                "(setu config client-file PATH)")
+    return ""
+
+
+def _connector(manifest: Manifest, connected: bool,
+               client_file: str | None = None) -> dict[str, Any]:
+    not_ready = _not_ready(manifest, client_file)
     return {
         "id": manifest.id,
         "name": manifest.name,
@@ -54,6 +64,8 @@ def _connector(manifest: Manifest, connected: bool) -> dict[str, Any]:
                    for level in manifest.levels],
         "verbs": dict(manifest.verbs),
         "connected": connected,
+        "ready": not not_ready,
+        "not_ready": not_ready,
     }
 
 
@@ -65,6 +77,11 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
     except ManifestError as exc:
         manifests, problems = {}, [str(exc)]
     command = _setu_command()
+    try:
+        client_file = config.google_client_file()
+    except ValueError as exc:
+        client_file = None
+        problems.append(str(exc))
     rows = []
     for ref in vault.list():
         entry = connections.public(vault.get(ref) or {})
@@ -95,6 +112,8 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
         "version": __version__,
         "command": command,
         "connections": rows,
-        "connectors": [_connector(m, m.id in connected) for m in manifests.values()],
+        "connectors": [_connector(m, m.id in connected, client_file)
+                       for m in manifests.values()],
+        "setup": {"google_client_file": client_file},
         "problems": problems,
     }

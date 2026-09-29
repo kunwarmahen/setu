@@ -7,6 +7,7 @@
     setu mcp-config gmail:personal       the snippet a harness needs
     setu disconnect gmail:personal       revoke at Google, then forget
     setu status --json                   the same, for a harness to read
+    setu config client-file PATH         remember the client file, for every harness
 
 Every command a harness needs is ``setu run``: it is what goes in an MCP
 config's ``command``, so the harness starts Setu, Setu starts the
@@ -14,14 +15,19 @@ connector, and the key stays with Setu.
 
 ``--client-file`` is the "Desktop app" OAuth client JSON downloaded from
 the Google Cloud console. It is read once, at connect time; what the
-refresh needs is kept in the vault with the connection.
+refresh needs is kept in the vault with the connection. ``setu config
+client-file PATH`` remembers its path, so neither a person nor a
+harness has to pass it again (config.py).
+
+``setu connect --json`` is the same sign-in for a harness's page: one
+JSON object per line on stdout -- ``started``, ``url`` (the address to
+open), then ``connected`` or ``error`` -- so nothing reads prose.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import sys
 import webbrowser
@@ -29,11 +35,11 @@ from pathlib import Path
 
 import httpx
 
-from setu import connections, google, helper
+from setu import config, connections, google, helper
 from setu.manifest import ManifestError, find, installed
 from setu.vault import FileVault, VaultError
 
-ENV_CLIENT_FILE = "SETU_GOOGLE_CLIENT_FILE"
+ENV_CLIENT_FILE = config.ENV_CLIENT_FILE
 
 
 def _connectors(_args: argparse.Namespace) -> int:
@@ -51,13 +57,25 @@ def _connectors(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _emit(event: str, **fields: object) -> None:
+    """One line of ``connect --json``: flushed, so a harness sees it now."""
+    print(json.dumps({"event": event, **fields}), flush=True)
+
+
 def _connect(args: argparse.Namespace) -> int:
+    if args.json:
+        try:
+            return _connect_json(args)
+        except Exception as exc:     # every failure is a line, never a traceback
+            _emit("error", message=str(exc) or type(exc).__name__)
+            return 2
     manifest = find(args.connector)
-    path = args.client_file or os.environ.get(ENV_CLIENT_FILE)
+    path = config.google_client_file(args.client_file)
     if not path:
         print(f"error: {manifest.name} needs a Google 'Desktop app' OAuth client. "
-              f"Pass --client-file PATH (or set {ENV_CLIENT_FILE}); the README "
-              "walks through making one.", file=sys.stderr)
+              f"Pass --client-file PATH, set {ENV_CLIENT_FILE}, or remember it with "
+              "`setu config client-file PATH`; the README walks through making one.",
+              file=sys.stderr)
         return 2
     client = google.client_from_file(Path(path))
     level = manifest.level(args.level)
@@ -78,6 +96,58 @@ def _connect(args: argparse.Namespace) -> int:
         print(f"note: you asked for '{level.label}' but Google granted less, so this "
               f"connection is '{held.label}'.")
     print(f"next: setu mcp-config {ref}")
+    return 0
+
+
+def _connect_json(args: argparse.Namespace) -> int:
+    """The sign-in, as events. The browser is never opened from here: the
+    harness shows the address to the person, in the page they are using."""
+    manifest = find(args.connector)
+    path = config.google_client_file(args.client_file)
+    if not path:
+        _emit("error", message=f"{manifest.name} needs a Google 'Desktop app' OAuth "
+              "client file: `setu config client-file PATH`", setup="google_client_file")
+        return 2
+    client = google.client_from_file(Path(path))
+    level = manifest.level(args.level)
+    ref = connections.ref_for(manifest.id, args.account)
+    _emit("started", ref=ref, level=level.name, level_label=level.label,
+          scopes=list(level.scopes))
+    with httpx.Client() as http:
+        entry = connections.connect(
+            manifest, args.account, level=level.name, client=client,
+            vault=FileVault(), http=http, open_browser=None,
+            on_url=lambda url: _emit("url", url=url))
+    held = manifest.level(entry["level"])
+    _emit("connected", ref=ref, email=entry.get("email") or "", level=held.name,
+          level_label=held.label, asked_level=entry.get("asked_level", held.name))
+    return 0
+
+
+def _config(args: argparse.Namespace) -> int:
+    """``setu config`` shows the settings; ``setu config KEY VALUE`` sets
+    one; ``setu config KEY --unset`` forgets it."""
+    if not args.key:
+        data = config.load()
+        for name, key in config.KEYS.items():
+            print(f"{name}: {data.get(key) or '(not set)'}")
+        return 0
+    key = config.KEYS.get(args.key)
+    if key is None:
+        print(f"error: unknown setting {args.key!r} (known: {', '.join(config.KEYS)})",
+              file=sys.stderr)
+        return 2
+    if args.unset:
+        config.save(key, None)
+        print(f"{args.key}: forgotten")
+        return 0
+    if not args.value:
+        print(f"{args.key}: {config.load().get(key) or '(not set)'}")
+        return 0
+    path = Path(args.value).expanduser().resolve()
+    google.client_from_file(path)   # a Web client, or no file, is refused now, not at sign-in
+    config.save(key, str(path))
+    print(f"{args.key}: {path}")
     return 0
 
 
@@ -184,15 +254,17 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument("--client-file", help="the Desktop app OAuth client JSON")
     connect.add_argument("--no-browser", action="store_true",
                          help="print the address instead of opening a browser")
+    connect.add_argument("--json", action="store_true",
+                         help="events as JSON lines, for a harness's page (no browser)")
 
     sub.add_parser("list", help="your connections")
 
     run = sub.add_parser("run", help="start a connector for a connection")
     run.add_argument("ref", help="e.g. gmail:personal")
 
-    config = sub.add_parser("mcp-config", help="print the MCP config for a harness")
-    config.add_argument("ref")
-    config.add_argument("--for", dest="target", choices=["yantra", "claude"],
+    mcp_config = sub.add_parser("mcp-config", help="print the MCP config for a harness")
+    mcp_config.add_argument("ref")
+    mcp_config.add_argument("--for", dest="target", choices=["yantra", "claude"],
                         default="yantra")
 
     status = sub.add_parser("status", help="connections and connectors, for a harness")
@@ -200,12 +272,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     disconnect = sub.add_parser("disconnect", help="revoke and forget a connection")
     disconnect.add_argument("ref")
+
+    settings = sub.add_parser("config", help="show or remember a setting (never a key)")
+    settings.add_argument("key", nargs="?", help=", ".join(config.KEYS))
+    settings.add_argument("value", nargs="?")
+    settings.add_argument("--unset", action="store_true", help="forget the setting")
     return parser
 
 
 COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list,
             "run": _run, "mcp-config": _mcp_config, "status": _status,
-            "disconnect": _disconnect}
+            "disconnect": _disconnect, "config": _config}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -213,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return COMMANDS[args.command](args)
     except (connections.ConnectionFailed, google.GoogleAuthError, ManifestError,
-            VaultError) as exc:
+            VaultError, ValueError) as exc:
         # `setu run` speaks MCP on stdout, so every complaint goes to stderr.
         print(f"error: {exc}", file=sys.stderr)
         return 2

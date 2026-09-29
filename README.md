@@ -121,6 +121,17 @@ connected gmail:personal as you@gmail.com — Read only
 Want drafts too? Add `--level draft`. Sending as well? `--level send`. A second
 account? `--as work`.
 
+Tired of typing `--client-file`? Tell Setu once where the file is:
+
+```
+uv run setu config client-file ~/.config/setu/client_secret.json
+```
+
+Setu checks it is a Desktop app client right away, then remembers the
+**path** (never the file's contents) in `config.json` beside its vault. Every
+`setu connect` after that, and any app that signs in through Setu, uses it.
+`--client-file` and `SETU_GOOGLE_CLIENT_FILE` still win when given.
+
 ### 4. Give it to your agent
 
 ```
@@ -148,6 +159,13 @@ manifest — reads run, writes ask — rather than what the connector says about
 itself, and tells the model which accounts are connected and which are not.
 `setu status --json` is what it reads; any harness can read it too.
 
+**Or connect from Yantra's browser page.** Its *connections* panel lists what
+Setu has and what it could connect. Connect there runs `setu connect --json`,
+which prints each step as a line of JSON (`started`, `url`, then `connected`
+or `error`). The page shows Google's sign-in as a button. Google's answer
+comes back to Setu on this computer, so this works when the page is open on
+the same computer as Setu.
+
 [TESTING.md](TESTING.md) has a step-by-step check of the whole road with a
 real mailbox: what to ask, what each answer proves, and what to do when
 something is off.
@@ -162,6 +180,7 @@ setu connectors                    # what is installed, and exactly what each le
 setu connect gmail --level send    # change the level (signs in again on the same grant)
 setu disconnect gmail:personal     # revoke at Google, then delete the key
 setu status --json                 # everything above, for a harness to read (no keys)
+setu config client-file PATH       # remember the Google client file's path (--unset forgets)
 ```
 
 Disconnecting revokes the permission **at Google**, so the app also disappears
@@ -213,6 +232,12 @@ tests/                a fake Gmail and a fake Google, and the rules they hold th
   offers only the tools those permissions can carry out.
 * **One grant per app per Google account.** Revoking any token of a grant ends
   all of it, so Setu never revokes a grant another connection still uses.
+* **What a harness reads.** `setu status --json` (format `setu.status.v1`):
+  connections, installed connectors with their levels and tool classes,
+  whether each connector is `ready` to sign in (and `not_ready` saying why), and
+  the `setup` Setu knows (the client file's path). Never a key. For a sign-in,
+  `setu connect … --json` prints one JSON object per line and never opens a
+  browser itself.
 
 ```
 uv run pytest -q
