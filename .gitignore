@@ -1,0 +1,22 @@
+# Secrets never travel: a Google client file is a credential too.
+.env
+client_secret*.json
+
+# Python / build
+.venv/
+__pycache__/
+*.py[co]
+*.egg-info/
+dist/
+build/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+
+# Editor / assistant local config
+.claude/
+
+# Working design docs -- arguments in progress, never part of the repo
+PLAN.md
+PLAN-*.md

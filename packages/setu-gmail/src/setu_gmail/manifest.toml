@@ -1,0 +1,38 @@
+# What Setu's Gmail connector is, in words a person can check before
+# signing in. The levels are the whole promise: each names the exact
+# Google permissions it will ask for, and nothing else is ever asked.
+id = "gmail"
+name = "Gmail"
+summary = "Search and read your mail, see labels and drafts, and write drafts for you to send yourself. It has no way to send."
+road = "api"
+auth = "google"
+command = ["setu-gmail"]
+api_base = "https://gmail.googleapis.com"
+hosts = ["gmail.googleapis.com"]
+
+# Which address a new sign-in belongs to -- asked of Gmail itself, so no
+# extra "see your email address" permission is needed.
+[whoami]
+url = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
+field = "emailAddress"
+
+[levels.read]
+label = "Read only"
+description = "Search and read mail, labels and drafts. Google itself refuses anything else."
+scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
+
+[levels.draft]
+label = "Read and draft"
+description = "Everything in Read only, plus writing drafts that wait in your Drafts folder. Google's drafts permission also allows sending; this connector offers no send, so a draft goes out only when you send it in Gmail."
+scopes = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.compose",
+]
+
+[verbs]
+search_threads = "read"
+get_thread = "read"
+get_message = "read"
+list_labels = "read"
+list_drafts = "read"
+create_draft = "write"

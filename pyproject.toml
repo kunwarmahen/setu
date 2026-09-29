@@ -1,0 +1,28 @@
+# The workspace root: no package of its own, only the members below and
+# the tools that test them together. Each member publishes separately --
+# a connector has its own release cycle, and installing Gmail should not
+# pull in Shopify.
+[project]
+name = "setu-workspace"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+setu = { workspace = true }
+setu-gmail = { workspace = true }
+
+[dependency-groups]
+dev = ["pytest>=8.3", "ruff>=0.14", "setu", "setu-gmail"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100          # the prose here wraps near 79; this is the HARD ceiling
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "I", "UP"]

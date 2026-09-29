@@ -1,0 +1,22 @@
+[project]
+name = "setu-gmail"
+version = "0.1.0"
+description = "Gmail for Setu -- an MCP server that reads your mail and drafts replies, and cannot send"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = ["setu", "mcp>=2.2,<3", "httpx>=0.28"]
+
+[project.scripts]
+setu-gmail = "setu_gmail.server:main"
+
+# How `setu connect gmail` finds this connector: installing the package IS
+# the registration, the same way a Yantra tool pack arrives by pip.
+[project.entry-points."setu.connectors"]
+gmail = "setu_gmail:MANIFEST"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/setu_gmail"]
