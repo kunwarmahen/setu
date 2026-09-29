@@ -27,14 +27,16 @@ on a local model, so your mail stays on your computer.
 
    If not, follow steps 2 and 3 of the [README](README.md#set-up-about-15-minutes-once).
 
-2. **Yantra knows about it.** Either add it once in Yantra's web panel (it is
-   then saved in that folder's `.yantra/mcp.json` and loads every time you
-   start Yantra *from that folder*), or save a config file and pass it
-   explicitly:
+2. **Yantra knows where Setu is.** Put the path in Yantra's `.env`:
 
    ```
-   uv run setu mcp-config gmail:personal > gmail.json
+   YANTRA_SETU=/path/to/setu/.venv/bin/setu
    ```
+
+   Yantra then connects every Setu connection at startup, from any folder,
+   and prints `setu: gmail-personal (N tool(s))`. (Without it: add the
+   server in Yantra's web panel, or save `uv run setu mcp-config
+   gmail:personal > gmail.json` and pass `--mcp-config gmail.json`.)
 
 3. **A local model is running**, e.g. `ollama pull qwen3.8` with Ollama started.
 
@@ -136,7 +138,7 @@ not one you asked for. Refuse it.
 | You see | It means | Do |
 |---|---|---|
 | *No working Gmail sign-in* / *could not refresh* | Google signed you out — apps in Testing mode expire after 7 days | `uv run setu connect gmail --level draft --client-file ‹file›` |
-| No Gmail tools listed | Yantra was started from another folder, so its saved config did not load | start it from the folder you added the server in, or pass `--mcp-config gmail.json` |
+| No Gmail tools listed, and no `setu:` line at startup | Yantra did not find Setu | set `YANTRA_SETU=/path/to/setu/.venv/bin/setu` in Yantra's `.env` (or start with `--setu PATH`, which stops with a reason if it cannot be used) |
 | *does not have permission for that* | the connection is Read only | reconnect with `--level draft` if you want drafts |
 | *cannot start 'setu-gmail'* | Setu's environment is missing the connector | `uv sync` in the `setu` folder |
 | A draft you did not expect | — | delete it in Gmail → Drafts; nothing was sent |

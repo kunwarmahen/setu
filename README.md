@@ -132,13 +132,21 @@ prints the snippet to paste into your agent's MCP config. It always runs
 `setu run gmail:personal`: your agent starts Setu, Setu starts Gmail, and the
 key stays with Setu.
 
-With **Yantra on a local model** — nothing leaves your machine except the
-Gmail requests themselves:
+**Yantra finds your connections by itself** — no config to paste. Tell it
+where Setu is once (in Yantra's `.env`), and every connection is there at
+startup, announced in one line:
 
 ```
-uv run setu mcp-config gmail:personal > gmail.json
-yantra --provider ollama --model qwen3.8:latest --mcp-config gmail.json
+YANTRA_SETU=/path/to/setu/.venv/bin/setu      # in Yantra's .env
+yantra --provider ollama --model qwen3.8:latest
+setu: gmail-personal (7 tool(s)) -- via /path/to/setu/.venv/bin/setu
 ```
+
+With a local model like that, nothing leaves your machine except the Gmail
+requests themselves. Yantra also goes by each tool's class in Setu's
+manifest — reads run, writes ask — rather than what the connector says about
+itself, and tells the model which accounts are connected and which are not.
+`setu status --json` is what it reads; any harness can read it too.
 
 [TESTING.md](TESTING.md) has a step-by-step check of the whole road with a
 real mailbox: what to ask, what each answer proves, and what to do when
@@ -153,6 +161,7 @@ setu list                          # your connections (never shows a key)
 setu connectors                    # what is installed, and exactly what each level asks for
 setu connect gmail --level send    # change the level (signs in again on the same grant)
 setu disconnect gmail:personal     # revoke at Google, then delete the key
+setu status --json                 # everything above, for a harness to read (no keys)
 ```
 
 Disconnecting revokes the permission **at Google**, so the app also disappears

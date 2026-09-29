@@ -6,6 +6,7 @@
     setu run gmail:personal              start the connector (an MCP server)
     setu mcp-config gmail:personal       the snippet a harness needs
     setu disconnect gmail:personal       revoke at Google, then forget
+    setu status --json                   the same, for a harness to read
 
 Every command a harness needs is ``setu run``: it is what goes in an MCP
 config's ``command``, so the harness starts Setu, Setu starts the
@@ -134,6 +135,23 @@ def _setu_path() -> str:
     return shutil.which("setu") or "setu"
 
 
+def _status(args: argparse.Namespace) -> int:
+    from setu.status import report
+
+    data = report()
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 0
+    for row in data["connections"]:
+        print(f"{row['ref']:<22} {row['email']:<30} {row['level_label']}")
+    for connector in data["connectors"]:
+        if not connector["connected"]:
+            print(f"{connector['id']:<22} (installed, not connected)")
+    for problem in data["problems"]:
+        print(f"problem: {problem}")
+    return 0
+
+
 def _disconnect(args: argparse.Namespace) -> int:
     with httpx.Client() as http:
         existed, revoked = connections.disconnect(args.ref, vault=FileVault(), http=http)
@@ -177,13 +195,17 @@ def build_parser() -> argparse.ArgumentParser:
     config.add_argument("--for", dest="target", choices=["yantra", "claude"],
                         default="yantra")
 
+    status = sub.add_parser("status", help="connections and connectors, for a harness")
+    status.add_argument("--json", action="store_true", help="machine-readable, no secrets")
+
     disconnect = sub.add_parser("disconnect", help="revoke and forget a connection")
     disconnect.add_argument("ref")
     return parser
 
 
 COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list,
-            "run": _run, "mcp-config": _mcp_config, "disconnect": _disconnect}
+            "run": _run, "mcp-config": _mcp_config, "status": _status,
+            "disconnect": _disconnect}
 
 
 def main(argv: list[str] | None = None) -> int:
