@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Setu -- sign in to a site once; the agents you allow can use it, and never see the key"
 requires-python = ">=3.12"
 license = "Apache-2.0"
-dependencies = ["httpx>=0.28"]
+dependencies = ["httpx>=0.28", "cryptography>=42"]
 
 [project.scripts]
 setu = "setu.cli:main"

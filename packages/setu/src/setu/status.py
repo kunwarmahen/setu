@@ -16,6 +16,11 @@ NO SECRET IS IN IT. The report is built from ``connections.public()`` and
 the manifests; nothing in the vault's ``secret`` field is read here. A
 harness may log this, show it on a page, or put parts of it in a prompt.
 
+THE CATALOG'S WORD RIDES ALONG. When a signed index is kept
+(catalog.py), each connector carries its label, author, install count
+and -- if the installed version was withdrawn -- why; a withdrawn one is
+also a problem, so a harness that reads nothing else still sees it.
+
 The ``format`` field names the shape. A harness should refuse a format it
 does not know rather than guess at one.
 """
@@ -27,7 +32,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from setu import __version__, config, connections
+from setu import __version__, catalog, config, connections
 from setu.manifest import Manifest, ManifestError, installed
 from setu.vault import FileVault, Vault
 
@@ -54,8 +59,11 @@ def _not_ready(manifest: Manifest, setup: dict[str, Any]) -> tuple[str, str]:
 
 
 def _connector(manifest: Manifest, connected: bool,
-               setup: dict[str, Any] | None = None) -> dict[str, Any]:
+               setup: dict[str, Any] | None = None,
+               index: catalog.Index | None = None) -> dict[str, Any]:
     not_ready, needs = _not_ready(manifest, setup or {})
+    card = index.card(manifest.id) if index is not None else {
+        "label": None, "author": "", "installs": None, "yanked": ""}
     return {
         "id": manifest.id,
         "name": manifest.name,
@@ -74,6 +82,12 @@ def _connector(manifest: Manifest, connected: bool,
         "ready": not not_ready,
         "not_ready": not_ready,
         "needs_setup": needs,
+        # from the signed catalog, when one is kept: who wrote it, how many
+        # installed it, and why the installed version was withdrawn
+        "label": card["label"],
+        "author": card["author"],
+        "installs": card["installs"],
+        "yanked": card["yanked"],
     }
 
 
@@ -91,6 +105,11 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
     except ValueError as exc:
         setup = {"google_client_file": None, "homeassistant_url": None}
         problems.append(str(exc))
+    try:
+        index = catalog.kept()
+    except catalog.CatalogError as exc:
+        index = None
+        problems.append(f"catalog: {exc}")
     rows = []
     for ref in vault.list():
         entry = connections.public(vault.get(ref) or {})
@@ -122,8 +141,12 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
         "version": __version__,
         "command": command,
         "connections": rows,
-        "connectors": [_connector(m, m.id in connected, setup)
-                       for m in manifests.values()],
+        "connectors": (cards := [_connector(m, m.id in connected, setup, index)
+                                 for m in manifests.values()]),
         "setup": setup,
-        "problems": problems,
+        "catalog": ({"source": index.source, "key": index.key,
+                     "issued": index.data.get("issued", ""),
+                     "recipes": index.recipes} if index is not None else None),
+        "problems": problems + [f"{c['id']}: withdrawn by Setu -- {c['yanked']}"
+                                for c in cards if c["yanked"]],
     }

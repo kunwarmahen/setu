@@ -702,11 +702,15 @@ name = "setu"
 version = "0.1.0"
 source = { editable = "packages/setu" }
 dependencies = [
+    { name = "cryptography" },
     { name = "httpx" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "httpx", specifier = ">=0.28" }]
+requires-dist = [
+    { name = "cryptography", specifier = ">=42" },
+    { name = "httpx", specifier = ">=0.28" },
+]
 
 [[package]]
 name = "setu-gmail"

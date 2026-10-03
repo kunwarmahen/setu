@@ -248,11 +248,44 @@ setu disconnect gmail:personal     # revoke at Google, then delete the key
 setu status --json                 # everything above, for a harness to read (no keys)
 setu config client-file PATH       # remember the Google client file's path (--unset forgets)
 setu config homeassistant-url URL  # remember where your Home Assistant is
+setu catalog                       # the signed catalog: labels, installs, withdrawn versions
 ```
 
 Disconnecting revokes the permission **at Google**, so the app also disappears
 from your Google account's
 [third-party access page](https://myaccount.google.com/connections).
+
+---
+
+## The catalog: who wrote it, and what was withdrawn
+
+Setu can keep a **signed catalog**: one `index.json` (plus `index.json.sig`)
+that says, for each connector, who wrote it — **by Setu**, or **partner**
+(someone else's, reviewed and published by Setu) — how many people installed
+it, and which versions were **withdrawn** and why. A connector you installed
+that the catalog doesn't list is shown as **sideloaded**.
+
+```
+setu catalog trust setu-catalog.pub   # once: the key whose signature you accept
+setu catalog use ~/Downloads/index.json   # checks index.json.sig, then keeps it
+setu catalog                          # labels, installs, anything withdrawn
+```
+
+* **Signed, or not used at all.** If one byte of the index changed, or a key
+  you don't trust signed it, it is refused whole — and the copy you already
+  had stays in use.
+* **Withdrawn means not started.** If the version you have installed was
+  withdrawn, `setu status` says why, and Yantra won't start that connector.
+  Your connection stays, so updating the connector brings it back.
+* **Keys can change.** A new signing key arrives with the old key's signature
+  vouching for it, so you don't have to trust it by hand. Stop trusting a key
+  with `setu catalog trust --remove KEY_ID`, and anything only it vouched for
+  stops counting too.
+
+Where the catalog will be published isn't decided yet, so for now Setu reads it
+from a file you give it. To make one: `setu catalog keygen KEY` (keep the
+private half offline), write the index, `setu catalog sign index.json --key
+KEY`.
 
 ---
 
@@ -305,6 +338,13 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   change by version may say `"*" = "write"` in `[verbs]`: every tool it
   doesn't name is then asked about rather than dropped. `"*"` can never be
   `read`.
+* **The catalog** (`catalog.py`, format `setu.index.v1`): an index of
+  connectors (`id`, `label` by-setu|partner, `author`, `package`, `version`,
+  `installs`, `yanked: {version: reason}`) and recipes, signed with Ed25519
+  over its exact bytes. The `.sig` names the key and may carry a `chain` of
+  vouch links (`setu catalog vouch NEW.pub --key OLD`). The kept copy is
+  checked again on every read. `setu status` adds `label`, `author`,
+  `installs` and `yanked` to each connector, and a `catalog` block.
 * **A server of your own.** A connection may carry its own address
   (`base_url`); `setu run` hands that to the connector instead of the
   manifest's.

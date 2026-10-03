@@ -11,6 +11,8 @@
     setu connect homeassistant --as home   your Home Assistant's own login page
     setu connect homeassistant --token-stdin   or a long-lived token, pasted
     setu config homeassistant-url URL    remember where your Home Assistant is
+    setu catalog                         the signed catalog: labels, installs, withdrawn
+    setu catalog use PATH                check an index (and PATH.sig) and keep it
 
 Every command a harness needs is ``setu run``: it is what goes in an MCP
 config's ``command``, so the harness starts Setu, Setu starts the
@@ -38,7 +40,7 @@ from pathlib import Path
 
 import httpx
 
-from setu import config, connections, google, helper, homeassistant
+from setu import catalog, config, connections, google, helper, homeassistant
 from setu.manifest import ManifestError, find, installed
 from setu.vault import FileVault, VaultError
 
@@ -337,6 +339,69 @@ def _disconnect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _catalog(args: argparse.Namespace) -> int:
+    """``setu catalog``: list the kept index; ``use``, ``trust``,
+    ``keygen``, ``sign`` and ``vouch`` keep and make one."""
+    action = args.action or "list"
+    if action == "keygen":
+        pub, kid = catalog.keygen(Path(args.path).expanduser())
+        print(f"signing key {kid}: private half at {args.path} (keep it offline), "
+              f"public half at {pub}")
+        return 0
+    if action == "sign":
+        index = Path(args.path)
+        chain = json.loads(Path(args.chain).read_text()) if args.chain else []
+        sig = catalog.sign(index.read_bytes(), Path(args.key).expanduser(), chain)
+        out = Path(str(index) + ".sig")
+        out.write_text(json.dumps(sig, indent=2) + "\n")
+        print(f"signed {index} with key {sig['key']} -> {out}")
+        return 0
+    if action == "vouch":
+        link = catalog.vouch(Path(args.key).expanduser(), catalog.load_public(Path(args.path)))
+        print(json.dumps(link, indent=2))
+        return 0
+    if action == "trust":
+        if args.remove:
+            gone = catalog.distrust(args.path)
+            print(f"key {args.path}: {'no longer trusted' if gone else 'was not trusted'}")
+            return 0 if gone else 1
+        if not args.path:
+            for kid in catalog.trusted():
+                print(kid)
+            return 0
+        pub = catalog.load_public(Path(args.path))
+        catalog.trust(pub)
+        print(f"trusting catalog key {pub['id']}")
+        return 0
+    if action == "use":
+        index = catalog.use(Path(args.path).expanduser())
+        print(f"catalog from {index.source}, signed by {index.key}: "
+              f"{len(index.connectors)} connector(s), {len(index.recipes)} recipe(s)")
+        return 0
+    index = catalog.kept()
+    if index is None:
+        print("no catalog kept (setu catalog trust KEY.pub, then setu catalog use INDEX)")
+        return 0
+    known = installed()
+    print(f"catalog from {index.source}, signed by {index.key}, issued "
+          f"{index.data.get('issued') or '?'}")
+    for cid, entry in index.connectors.items():
+        card = index.card(cid)
+        mark = "installed " + card["installed_version"] if cid in known else "not installed"
+        who = "by Setu" if entry["label"] == "by-setu" else f"by {entry.get('author') or '?'}, " \
+            "reviewed and published by Setu"
+        installs = f"{entry['installs']} installs" if entry.get("installs") is not None else ""
+        print(f"  {cid:<20} {who}  {installs}  ({mark})")
+        if card["yanked"]:
+            print(f"      WITHDRAWN {card['installed_version']}: {card['yanked']}")
+    for cid in sorted(set(known) - set(index.connectors)):
+        print(f"  {cid:<20} sideloaded (not in the catalog)")
+    for recipe in index.recipes:
+        print(f"  recipe {recipe.get('name')}: needs {', '.join(recipe.get('needs') or [])} "
+              f"-- {recipe.get('author') or '?'}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="setu", description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -379,12 +444,20 @@ def build_parser() -> argparse.ArgumentParser:
     settings.add_argument("key", nargs="?", help=", ".join(config.KEYS))
     settings.add_argument("value", nargs="?")
     settings.add_argument("--unset", action="store_true", help="forget the setting")
+
+    cat = sub.add_parser("catalog", help="the signed catalog: labels, installs, withdrawn")
+    cat.add_argument("action", nargs="?",
+                     choices=["list", "use", "trust", "keygen", "sign", "vouch"])
+    cat.add_argument("path", nargs="?", help="index, key or .pub file, by action")
+    cat.add_argument("--key", help="sign/vouch: the private signing key")
+    cat.add_argument("--chain", help="sign: a JSON list of vouch links to attach")
+    cat.add_argument("--remove", action="store_true", help="trust: stop trusting key PATH")
     return parser
 
 
 COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list,
             "run": _run, "mcp-config": _mcp_config, "status": _status,
-            "disconnect": _disconnect, "config": _config}
+            "disconnect": _disconnect, "config": _config, "catalog": _catalog}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -392,7 +465,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return COMMANDS[args.command](args)
     except (connections.ConnectionFailed, google.GoogleAuthError,
-            homeassistant.HomeAssistantError, ManifestError, VaultError, ValueError) as exc:
+            homeassistant.HomeAssistantError, catalog.CatalogError, ManifestError,
+            VaultError, ValueError, OSError) as exc:
         # `setu run` speaks MCP on stdout, so every complaint goes to stderr.
         print(f"error: {exc}", file=sys.stderr)
         return 2
