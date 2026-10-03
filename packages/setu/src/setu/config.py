@@ -8,7 +8,9 @@ harness -- and the file itself stays where the person keeps it.
 
 The same goes for the address of the person's Home Assistant: a page
 signing in has nowhere to type it, so ``setu config homeassistant-url``
-remembers it (an address, not a key).
+remembers it (an address, not a key). And for sites signed in to in a
+browser window, ``setu config browser`` names which browser (a program,
+not a key) -- otherwise the first Chrome-like one on PATH.
 
 WHICH PATH WINS. ``--client-file`` beats ``SETU_GOOGLE_CLIENT_FILE``,
 which beats the remembered one: the nearer the person's hand, the
@@ -34,9 +36,11 @@ CONFIG_FILE = "config.json"
 ENV_CLIENT_FILE = "SETU_GOOGLE_CLIENT_FILE"
 
 ENV_HA_URL = "SETU_HOMEASSISTANT_URL"
+ENV_BROWSER = "SETU_BROWSER"
 
 #: The settings ``setu config`` knows, by the name a person types.
-KEYS = {"client-file": "google_client_file", "homeassistant-url": "homeassistant_url"}
+KEYS = {"client-file": "google_client_file", "homeassistant-url": "homeassistant_url",
+        "browser": "browser"}
 
 
 def path() -> Path:
@@ -82,3 +86,9 @@ def homeassistant_url(explicit: str | None = None) -> str | None:
     """The Home Assistant to sign in to: flag, environment, remembered."""
     return (explicit or os.environ.get(ENV_HA_URL)
             or load().get("homeassistant_url") or None)
+
+
+def browser(explicit: str | None = None) -> str | None:
+    """The browser to sign in to browser-road sites with."""
+    return (explicit or os.environ.get(ENV_BROWSER)
+            or load().get("browser") or None)

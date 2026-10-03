@@ -21,6 +21,13 @@ THE CATALOG'S WORD RIDES ALONG. When a signed index is kept
 and -- if the installed version was withdrawn -- why; a withdrawn one is
 also a problem, so a harness that reads nothing else still sees it.
 
+A BROWSER ROAD IS A PROFILE, NOT A SERVER. Its connection has no ``mcp``
+(nothing to run); it carries ``browser`` instead -- the profile, the
+browser that wrote it, where to start -- and its connector card carries
+the manifest's ``[browser]`` table: hosts, spending guards, pace, guide.
+A profile path is not a secret the way a key is, but it is where the
+cookies are, so it is said only to the harness, as the key's location is.
+
 The ``format`` field names the shape. A harness should refuse a format it
 does not know rather than guess at one.
 """
@@ -33,6 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from setu import __version__, catalog, config, connections
+from setu import browser as site_browser
 from setu.manifest import Manifest, ManifestError, installed
 from setu.vault import FileVault, Vault
 
@@ -56,7 +64,19 @@ def _not_ready(manifest: Manifest, setup: dict[str, Any]) -> tuple[str, str]:
             and manifest.id not in setup.get("_ha_connected", ())):
         return ("needs your Home Assistant's address "
                 "(setu config homeassistant-url URL)", "homeassistant_url")
+    if manifest.auth == "browser" and not setup.get("browser"):
+        return ("needs Chrome, Chromium, Brave or Edge to sign in with "
+                "(setu config browser PATH)", "browser")
     return "", ""
+
+
+def _browser_card(manifest: Manifest) -> dict[str, Any] | None:
+    spec = manifest.browser
+    if spec is None:
+        return None
+    return {"start_url": spec.start_url, "spend_pages": list(spec.spend_pages),
+            "spend_words": list(spec.spend_words), "pace": spec.pace,
+            "max_actions": spec.max_actions, "guide": spec.guide, "headed": spec.headed}
 
 
 def _connector(manifest: Manifest, connected: bool,
@@ -89,6 +109,8 @@ def _connector(manifest: Manifest, connected: bool,
         "author": card["author"],
         "installs": card["installs"],
         "yanked": card["yanked"],
+        # the browser road's rules, for the harness that drives the profile
+        "browser": _browser_card(manifest),
     }
 
 
@@ -102,9 +124,10 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
     command = _setu_command()
     try:
         setup = {"google_client_file": config.google_client_file(),
-                 "homeassistant_url": config.homeassistant_url()}
+                 "homeassistant_url": config.homeassistant_url(),
+                 "browser": site_browser.find_browser()}
     except ValueError as exc:
-        setup = {"google_client_file": None, "homeassistant_url": None}
+        setup = {"google_client_file": None, "homeassistant_url": None, "browser": None}
         problems.append(str(exc))
     try:
         index = catalog.kept()
@@ -134,7 +157,11 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
             "last_used": entry.get("last_used"),
             "installed": manifest is not None,
             "base_url": entry.get("base_url"),
-            "mcp": {"name": ref.replace(":", "-"), "command": command, "args": ["run", ref]},
+            "mcp": (None if entry.get("auth") == "browser" else
+                    {"name": ref.replace(":", "-"), "command": command, "args": ["run", ref]}),
+            "browser": ({"profile": entry.get("profile", ""),
+                         "executable": entry.get("browser", ""), "home": entry.get("home", "")}
+                        if entry.get("auth") == "browser" else None),
         })
     connected = {row["connector"] for row in rows}
     # a connection already knows its server, so signing in again needs no

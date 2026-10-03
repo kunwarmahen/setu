@@ -2,8 +2,8 @@
 
 **Sign in to a site once. The agents you allow can use it, and never see the key.**
 
-Setu (सेतु, "bridge") connects your accounts — Gmail and Home Assistant so
-far — to an AI agent, so you can ask *"anything from my accountant this
+Setu (सेतु, "bridge") connects your accounts — Gmail, Home Assistant, Amazon
+and X so far — to an AI agent, so you can ask *"anything from my accountant this
 week?"* or *"which lights are still on?"* and get an answer from your real
 inbox or your real home. It is built around three promises:
 
@@ -136,6 +136,56 @@ rights, and sign in as that user.
 
 ---
 
+## What you get: Amazon and X (through your own browser)
+
+Amazon offers shoppers no way for a program to see their own orders, and X
+charges money to read through its API. For sites like these Setu has no key to
+hold. Instead it keeps a **browser profile**: a folder where a real browser
+keeps that one site's sign-in.
+
+```
+uv pip install setu-sites           # the Amazon and X connectors
+setu connect amazon --as personal   # Read only, by default
+setu connect x --as personal --level write
+```
+
+A window of your own Chrome (or Chromium, Brave, Edge) opens on the site's
+sign-in page. It is an ordinary window: nothing is driving it. Sign in,
+including any code the site texts you, then **close the window**. Setu checks
+that you really signed in: it looks for the cookie the site sets only after a
+sign-in, by name. It never reads cookie values. If that cookie isn't there,
+nothing is saved. Each connection has its own profile under
+`~/.local/state/setu/profiles/`, so one site can never use another site's
+sign-in.
+
+There is no program to run for these, so `setu run` and `setu mcp-config` say
+so. Your agent's own browser opens the profile instead. In
+[Yantra](https://github.com/kunwarmahen/yantra) that gives the agent tools
+like `amazon_open`, `amazon_follow`, `amazon_scroll` and `amazon_search`, kept
+to the rules in the site's manifest:
+
+| Level | The agent can |
+|---|---|
+| **Read only** (default) | open pages, follow links, scroll, and type into a search box. It cannot click a button or type anywhere else |
+| **Read and act** (Amazon) / **Read and post** (X) | also click and type (add to cart, post, reply, like), asked about each time |
+
+At **no** level does it buy, pay, cancel, return, subscribe or delete. On those
+pages, or at those buttons, it stops and hands the page to you. It never types
+a password or card number. It stays on the site's own addresses.
+
+**X, honestly.** X's rules forbid automated access outside its paid API, and X
+locks accounts it takes for bots. That would be *your* account. So the X
+connector goes at a person's pace (3 seconds between pages, at most 10 actions
+a session) and runs in a real browser window on a screen nobody sees. Use it to
+read and for the occasional post you approve, not to automate an account.
+
+Disconnecting (`setu disconnect amazon:personal`) deletes the profile, which
+signs this computer out. The site may still list the device; remove it in
+the site's security settings if you want it gone there too. No Chrome-like
+browser on your PATH? Name one: `setu config browser /path/to/brave`.
+
+---
+
 ## Set up (about 15 minutes, once)
 
 ### 1. Install
@@ -248,6 +298,8 @@ setu disconnect gmail:personal     # revoke at Google, then delete the key
 setu status --json                 # everything above, for a harness to read (no keys)
 setu config client-file PATH       # remember the Google client file's path (--unset forgets)
 setu config homeassistant-url URL  # remember where your Home Assistant is
+setu connect amazon --as personal  # a site with no API: sign in in a window, then close it
+setu config browser PATH           # which browser that window is (default: Chrome on PATH)
 setu catalog                       # the signed catalog: labels, installs, withdrawn versions
 ```
 
@@ -319,6 +371,7 @@ reads are sent to that provider.
 packages/setu/        the core: vault, Google sign-in, connections, the token helper, setu.http()
 packages/setu-gmail/  the Gmail connector: an MCP server, and its manifest
 packages/setu-homeassistant/  two Home Assistant connectors: REST tools, and a bridge to its MCP server
+packages/setu-sites/  Amazon and X: browser-road manifests, no code
 tests/                fakes of Gmail, Google and Home Assistant, and the rules they hold the code to
 ```
 
@@ -345,6 +398,20 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   vouch links (`setu catalog vouch NEW.pub --key OLD`). The kept copy is
   checked again on every read. `setu status` adds `label`, `author`,
   `installs` and `yanked` to each connector, and a `catalog` block.
+* **The browser road** (`road = "browser"`, `auth = "browser"`): a manifest
+  with no `command` and a `[browser]` table instead: `start_url`,
+  `login_url`, `signed_in` (cookie-name globs that mean "signed in"),
+  `home_from_cookie` (take home from the store the cookie came from),
+  `spend_pages` (path globs) and `spend_words` (button words) that the agent
+  never presses, `pace`, `max_actions`, `headed` (the site refuses headless
+  browsers) and a short `guide` (`{home}` is filled in). Levels are `read` and
+  `write` only; verbs are the browser tools (`open`, `follow`, `scroll`,
+  `search`, `click`, `fill`), and `click` and `fill` are never `read`. The
+  connection is a profile (`browser.py`): a plain window of the person's
+  browser, `--password-store=basic` on both halves, the browser that wrote it
+  recorded. `setu status` gives the connection no `mcp` and a `browser` block
+  (`profile`, `executable`, `home`), and the connector card its `browser`
+  rules.
 * **A server of your own.** A connection may carry its own address
   (`base_url`); `setu run` hands that to the connector instead of the
   manifest's.

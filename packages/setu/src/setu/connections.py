@@ -42,6 +42,13 @@ Every sign-in there has its own refresh token, so the shared-grant rule
 above does not arise: a replaced one is simply revoked. Levels are the
 one chosen -- the server has no scopes to grant fewer
 (homeassistant.py).
+
+A BROWSER ROAD HOLDS NO TOKEN. Its connection is a profile directory the
+person signed in to by hand (browser.py); the entry records where it is,
+which browser wrote it, and the store it signed in to. There is nothing
+to refresh, and ``token`` refuses it. Disconnecting deletes the profile
+-- the sign-in is gone from this computer; the site may still list the
+device until the person signs it out there.
 """
 
 from __future__ import annotations
@@ -51,10 +58,12 @@ import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
 
+from setu import browser as site_browser
 from setu import google, homeassistant
 from setu.manifest import Manifest
 from setu.vault import Vault
@@ -201,6 +210,48 @@ def connect_homeassistant(manifest: Manifest, account: str, *, level: str | None
     return entry
 
 
+def connect_browser(manifest: Manifest, account: str, *, level: str | None, vault: Vault,
+                    browser: str, on_window: Callable[[Path], Any] | None = None,
+                    window: Callable[..., Any] = site_browser.window) -> dict[str, Any]:
+    """Sign in to a browser-road site: a window of ``browser`` on the
+    connection's own profile, kept only when a sign-in cookie is there."""
+    spec = manifest.browser
+    if manifest.auth != "browser" or spec is None:
+        raise ConnectionFailed(f"{manifest.id} is not signed in to in a browser")
+    ref = ref_for(manifest.id, account)
+    asked = manifest.level(level)
+    profile = site_browser.profile_dir(ref)
+    if on_window is not None:
+        on_window(profile)
+    try:
+        window(browser, profile, spec.login_url)
+    except site_browser.BrowserSignInFailed as exc:
+        raise ConnectionFailed(str(exc)) from None
+    hosts = site_browser.signed_in(profile, spec.signed_in, manifest.hosts)
+    if not hosts:
+        raise ConnectionFailed(
+            f"the window closed, but {manifest.name} has not signed you in there "
+            f"(none of {', '.join(spec.signed_in)} is set). Nothing was saved; run it "
+            "again and close the window only after signing in")
+    entry = {
+        "connector": manifest.id,
+        "account": account,
+        "auth": "browser",
+        "email": hosts[0],
+        "level": asked.name,
+        "asked_level": asked.name,
+        "scopes": [],
+        "created": _now(),
+        "last_used": None,
+        "profile": str(profile),
+        "browser": browser,
+        "home": site_browser.home(manifest, hosts),
+        "secret": {},
+    }
+    vault.put(ref, entry)
+    return entry
+
+
 def _same_grant(entry: dict[str, Any], client_id: str, email: str) -> bool:
     """Whether ``entry`` rides on the grant (client, Google account) given.
 
@@ -255,6 +306,9 @@ def token(ref: str, *, vault: Vault, http: httpx.Client, force: bool = False) ->
     if entry is None:
         raise ConnectionFailed(f"no connection {ref!r}; run `setu connect "
                                f"{ref.split(':')[0]} --as {ref.partition(':')[2] or 'personal'}`")
+    if entry.get("auth") == "browser":
+        raise ConnectionFailed(f"{ref} is a browser profile, not a token: the harness's "
+                               "browser tools open it")
     secret = entry["secret"]
     if entry.get("auth") == "homeassistant":
         return _ha_token(ref, entry, vault=vault, http=http, force=force)
@@ -324,6 +378,11 @@ def disconnect(ref: str, *, vault: Vault, http: httpx.Client) -> tuple[bool, boo
     entry = vault.get(ref)
     if entry is None:
         return False, False
+    if entry.get("auth") == "browser":
+        # nothing to revoke from here: the profile IS the sign-in
+        removed = site_browser.remove_profile(entry.get("profile") or "")
+        vault.delete(ref)
+        return True, removed
     secret = entry["secret"]
     if entry.get("auth") == "homeassistant":
         # a pasted token cannot be revoked from outside: False, and the

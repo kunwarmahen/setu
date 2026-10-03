@@ -1,0 +1,50 @@
+# X (Twitter) through your own signed-in browser. X's API charges to read,
+# so this is the browser road: you sign in in a window of your own browser,
+# on a profile kept for this connection only.
+#
+# X's rules forbid automated access outside its API, and it locks accounts
+# it thinks are bots -- YOUR account, not ours. So this connector goes at a
+# person's pace, mostly reads, caps how much one session may do, and asks
+# you before every post, reply, like or follow.
+id = "x"
+name = "X"
+summary = "Read your timeline, mentions and anyone's posts through your own signed-in browser; post and reply only when you say yes. Slow on purpose: X locks accounts that look automated."
+road = "browser"
+auth = "browser"
+hosts = ["x.com", "twitter.com"]
+
+[browser]
+start_url = "https://x.com/home"
+login_url = "https://x.com/i/flow/login"
+signed_in = ["auth_token"]
+spend_pages = ["/i/premium*", "/i/verified*", "/i/premium_sign_up*", "/settings/monetization*",
+               "/i/subscriptions*", "/settings/deactivate*"]
+# paying, and what cannot be undone
+spend_words = ["subscribe", "get verified", "upgrade", "buy", "delete", "deactivate"]
+pace = 3.0
+max_actions = 10
+# X answers a headless browser with an error page: a real window, on a
+# screen nobody sees
+headed = true
+guide = """
+Home timeline: https://x.com/home. Your mentions: https://x.com/notifications/mentions. Someone's posts: https://x.com/NAME. Search, newest first: https://x.com/search?q=WORDS&f=live. A post's own page shows its replies.
+The timeline grows as it scrolls: use scroll for more, rather than reloading.
+Posting: type into the "Post text" box with fill, then click Post. Replying, liking, reposting and following are clicks. Each is asked about.
+Go at a person's pace and read only what the question needs: X locks accounts that look automated.
+"""
+
+[levels.read]
+label = "Read only"
+description = "Read your timeline, mentions, profiles, posts and search results. Nothing is clicked or typed except a search. Kept by the harness: X has no read-only kind of sign-in."
+
+[levels.write]
+label = "Read and post"
+description = "Also post, reply, like, repost and follow -- each one asked about first, at most 10 a session. Subscriptions, payments and deleting are never done: those pages are handed to you."
+
+[verbs]
+open = "read"
+follow = "read"
+scroll = "read"
+search = "read"
+click = "write"
+fill = "write"

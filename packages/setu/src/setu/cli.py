@@ -11,6 +11,8 @@
     setu connect homeassistant --as home   your Home Assistant's own login page
     setu connect homeassistant --token-stdin   or a long-lived token, pasted
     setu config homeassistant-url URL    remember where your Home Assistant is
+    setu connect amazon --as personal    a site with no API: sign in in a window of its own
+    setu config browser PATH             which browser that window is (default: Chrome on PATH)
     setu catalog                         the signed catalog: labels, installs, withdrawn
     setu catalog use PATH                check an index (and PATH.sig) and keep it
 
@@ -40,6 +42,7 @@ from pathlib import Path
 
 import httpx
 
+from setu import browser as site_browser
 from setu import catalog, config, connections, google, helper, homeassistant
 from setu.manifest import ManifestError, find, installed
 from setu.vault import FileVault, VaultError
@@ -59,7 +62,9 @@ def _connectors(_args: argparse.Namespace) -> int:
             print(f"    {level.name:<8} {level.label}{mark}")
             for scope in level.scopes:
                 print(f"             {scope}")
-        if not manifest.scoped:
+        if manifest.road == "browser":
+            print("    (signed in in a browser window; the harness keeps to the level)")
+        elif not manifest.scoped:
             print("    (the site has no scopes: the connector keeps to the level)")
     return 0
 
@@ -79,6 +84,8 @@ def _connect(args: argparse.Namespace) -> int:
     manifest = find(args.connector)
     if manifest.auth == "homeassistant":
         return _connect_homeassistant(manifest, args)
+    if manifest.auth == "browser":
+        return _connect_browser(manifest, args)
     path = config.google_client_file(args.client_file)
     if not path:
         print(f"error: {manifest.name} needs a Google 'Desktop app' OAuth client. "
@@ -169,12 +176,53 @@ def _connect_homeassistant(manifest, args: argparse.Namespace) -> int:
     return 0
 
 
+def _site_browser(args: argparse.Namespace) -> str:
+    found = site_browser.find_browser(args.browser)
+    if not found:
+        raise connections.ConnectionFailed(
+            "no browser to sign in with: install Chrome or Chromium, or name one with "
+            "`setu config browser PATH`")
+    return found
+
+
+def _connect_browser(manifest, args: argparse.Namespace) -> int:
+    level = manifest.level(args.level)
+    ref = connections.ref_for(manifest.id, args.account)
+    found = _site_browser(args)
+    print(f"connecting {ref} at '{level.label}'.")
+    print(f"    {level.description}")
+    print(f"A window of {found} is opening on {manifest.name}'s sign-in page, on a profile "
+          "kept for this connection only.\nSign in there, then CLOSE THE WINDOW to finish.")
+    entry = connections.connect_browser(manifest, args.account, level=level.name,
+                                        vault=FileVault(), browser=found)
+    print(f"connected {ref} ({entry['email']}) — {level.label}")
+    print(f"the sign-in lives in {entry['profile']}; `setu disconnect {ref}` deletes it")
+    return 0
+
+
+def _connect_browser_json(manifest, args: argparse.Namespace) -> int:
+    level = manifest.level(args.level)
+    ref = connections.ref_for(manifest.id, args.account)
+    found = _site_browser(args)
+    _emit("started", ref=ref, level=level.name, level_label=level.label, scopes=[])
+    entry = connections.connect_browser(
+        manifest, args.account, level=level.name, vault=FileVault(), browser=found,
+        on_window=lambda profile: _emit("window", browser=found,
+                                        url=None, login_url=manifest.browser.login_url))
+    _emit("connected", ref=ref, email=entry["email"], level=level.name,
+          level_label=level.label, asked_level=level.name)
+    return 0
+
+
 def _connect_json(args: argparse.Namespace) -> int:
     """The sign-in, as events. The browser is never opened from here: the
-    harness shows the address to the person, in the page they are using."""
+    harness shows the address to the person, in the page they are using --
+    except for a site signed in to in a window of its own (``window``)."""
     manifest = find(args.connector)
     if manifest.auth == "homeassistant":
         return _connect_homeassistant_json(manifest, args)
+    if manifest.auth == "browser":
+        return _connect_browser_json(manifest, args)
     path = config.google_client_file(args.client_file)
     if not path:
         _emit("error", message=f"{manifest.name} needs a Google 'Desktop app' OAuth "
@@ -240,6 +288,10 @@ def _config(args: argparse.Namespace) -> int:
         return 0
     if key == "homeassistant_url":
         value = homeassistant.normalise_url(args.value)
+    elif key == "browser":
+        value = shutil.which(str(Path(args.value).expanduser())) or ""
+        if not value:
+            raise ValueError(f"{args.value!r} is not a program on this computer")
     else:
         path = Path(args.value).expanduser().resolve()
         google.client_from_file(path)   # a Web client, or no file, is refused now
@@ -278,6 +330,11 @@ def _run(args: argparse.Namespace) -> int:
         print(f"error: no connection {args.ref!r} (setu list)", file=sys.stderr)
         return 2
     manifest = find(entry["connector"])
+    if manifest.road == "browser":
+        print(f"error: {args.ref} is signed in to in a browser; there is no server to run. "
+              "A harness opens its profile with its own browser tools (setu status --json)",
+              file=sys.stderr)
+        return 2
     with httpx.Client() as http:
         # a server of the person's own (Home Assistant) is the connection's
         # address, not the manifest's
@@ -286,8 +343,12 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def _mcp_config(args: argparse.Namespace) -> int:
-    if FileVault().get(args.ref) is None:
+    entry = FileVault().get(args.ref)
+    if entry is None:
         print(f"error: no connection {args.ref!r} (setu list)", file=sys.stderr)
+        return 2
+    if entry.get("auth") == "browser":
+        print(f"error: {args.ref} is a browser profile, not an MCP server", file=sys.stderr)
         return 2
     name = args.ref.replace(":", "-")
     # The FULL path: a harness starts this with its own PATH, which need
@@ -330,6 +391,11 @@ def _disconnect(args: argparse.Namespace) -> int:
     if not existed:
         print(f"no connection {args.ref!r}")
         return 1
+    if entry.get("auth") == "browser":
+        print(f"disconnected {args.ref}: its browser profile is deleted, so this computer "
+              f"is signed out. {entry.get('email') or 'The site'} may still list the "
+              "device; sign it out there if you want it gone on their side too")
+        return 0
     if entry.get("auth") == "homeassistant":
         base = entry.get("base_url", "your Home Assistant")
         if (entry.get("secret") or {}).get("kind") == "long_lived":
@@ -439,6 +505,8 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument("--token-stdin", action="store_true",
                          help="Home Assistant: read a long-lived token from stdin "
                          "instead of signing in on its login page")
+    connect.add_argument("--browser", help="a site with no API: the browser to sign in "
+                         "with (default: setu config browser, else Chrome on PATH)")
 
     sub.add_parser("list", help="your connections")
 
@@ -481,6 +549,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return COMMANDS[args.command](args)
     except (connections.ConnectionFailed, google.GoogleAuthError,
+            site_browser.BrowserSignInFailed,
             homeassistant.HomeAssistantError, catalog.CatalogError, ManifestError,
             VaultError, ValueError, OSError) as exc:
         # `setu run` speaks MCP on stdout, so every complaint goes to stderr.

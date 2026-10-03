@@ -1,0 +1,57 @@
+# Amazon as a shopper. Amazon offers shoppers no API for their own orders,
+# so this is the browser road: you sign in to your Amazon in a window of
+# your own browser, on a profile kept for this connection only, and the
+# agent reads your orders through that profile.
+#
+# Amazon has no permissions to grant a website visitor, so the levels are
+# kept by the harness, which offers only the chosen level's tools -- and
+# never buys, pays, cancels or returns at any level: it stops on that page
+# and hands it to you.
+id = "amazon"
+name = "Amazon"
+summary = "Your orders, deliveries and past purchases, read through your own signed-in browser. Never buys, pays, cancels or returns: those pages are handed to you."
+road = "browser"
+auth = "browser"
+hosts = ["amazon.com", "amazon.in", "amazon.co.uk", "amazon.ca", "amazon.de", "amazon.fr",
+         "amazon.es", "amazon.it", "amazon.nl", "amazon.se", "amazon.pl", "amazon.com.au",
+         "amazon.co.jp", "amazon.com.mx", "amazon.com.br", "amazon.ae", "amazon.sa",
+         "amazon.sg", "amazon.com.tr", "amazon.eg", "amazon.com.be"]
+
+[browser]
+start_url = "https://www.amazon.com/"
+# signed out, the orders page IS the sign-in; signed in, it shows that you are
+login_url = "https://www.amazon.com/gp/css/order-history"
+# at-main (US), at-acbin (India), at-acbuk (UK)...: set only once signed in
+signed_in = ["at-*"]
+# one connector for every country: the store you signed in to is home
+home_from_cookie = true
+spend_pages = ["/gp/buy/*", "/checkout/*", "/gp/checkoutportal/*", "/gp/cart/desktop/go-to-checkout*",
+               "/returns/*", "/spr/returns/*", "/gp/css/order/edit*", "/gp/your-account/order-edit*",
+               "/gp/primecentral/*", "/hp/wlp/*", "/gp/gc/*"]
+spend_words = ["buy now", "place your order", "place order", "pay now", "proceed to pay",
+               "use this payment method", "buy with 1-click", "subscribe", "cancel items",
+               "cancel order", "request cancellation", "return or replace", "confirm return",
+               "join prime", "start your free trial", "redeem"]
+pace = 1.0
+max_actions = 20
+guide = """
+Your orders: {home}/gp/css/order-history -- add ?timeFilter=months-3 for the last three months, or ?timeFilter=year-2025 for a year. Each order has links for its details and "Track package".
+Search Amazon: {home}/s?k=WORDS, or type into the search box with search.
+Buying, paying, cancelling and returns are never yours to press: on such a page, hand it to the person.
+"""
+
+[levels.read]
+label = "Read only"
+description = "See your orders, deliveries and past purchases; search and read product pages. Nothing is clicked or typed except a search. Kept by the harness: a website has no read-only kind of sign-in."
+
+[levels.write]
+label = "Read and act"
+description = "Also click and type -- add to cart, save for later, ask about an order -- each asked about first. Buying, paying, cancelling and returns are still never done: the agent stops on that page and hands it to you."
+
+[verbs]
+open = "read"
+follow = "read"
+scroll = "read"
+search = "read"
+click = "write"
+fill = "write"

@@ -11,6 +11,7 @@ members = [
     "setu",
     "setu-gmail",
     "setu-homeassistant",
+    "setu-sites",
     "setu-workspace",
 ]
 
@@ -747,6 +748,17 @@ requires-dist = [
 ]
 
 [[package]]
+name = "setu-sites"
+version = "0.1.0"
+source = { editable = "packages/setu-sites" }
+dependencies = [
+    { name = "setu" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "setu", editable = "packages/setu" }]
+
+[[package]]
 name = "setu-workspace"
 version = "0.1.0"
 source = { virtual = "." }
@@ -758,6 +770,7 @@ dev = [
     { name = "setu" },
     { name = "setu-gmail" },
     { name = "setu-homeassistant" },
+    { name = "setu-sites" },
 ]
 
 [package.metadata]
@@ -769,6 +782,7 @@ dev = [
     { name = "setu", editable = "packages/setu" },
     { name = "setu-gmail", editable = "packages/setu-gmail" },
     { name = "setu-homeassistant", editable = "packages/setu-homeassistant" },
+    { name = "setu-sites", editable = "packages/setu-sites" },
 ]
 
 [[package]]
