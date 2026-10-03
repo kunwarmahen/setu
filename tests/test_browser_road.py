@@ -49,7 +49,8 @@ def write_cookies(profile: Path, rows: list[tuple[str, str]]) -> None:
     (profile / "Default").mkdir(parents=True, exist_ok=True)
     (profile / "Local State").write_text("{}")
     conn = sqlite3.connect(profile / "Default" / "Cookies")
-    conn.execute("create table cookies (host_key text, name text, encrypted_value blob)")
+    conn.execute("create table if not exists cookies (host_key text, name text, "
+                 "encrypted_value blob)")
     conn.executemany("insert into cookies values (?, ?, x'00')", rows)
     conn.commit()
     conn.close()
@@ -285,3 +286,125 @@ class TestSitesAddedByHand:
         example = find("example")
         assert example.local and example.default_level.name == "read"
         assert tomllib.loads(block.group(1))["browser"]["headed"] is True
+
+
+SIGNED_IN_PAGE = '<p>Hello, Ana</p><a href="/account/logout">Sign out</a>'
+SIGNED_OUT_PAGE = '<a href="/login">Sign in</a><p>Welcome</p>'
+
+
+def a_site(signed_in_rows, page, *, visitor_rows=(("www.example.com", "consent"),)):
+    """The window and the headless look, for a site nobody wrote rules
+    for: a signed-out visit gets ``visitor_rows``; the person's profile
+    gets ``signed_in_rows``, and its page reads ``page``."""
+    window, seen = a_person(list(visitor_rows) + list(signed_in_rows))
+    looked = []
+
+    def dump(browser, profile, url):
+        looked.append((profile, url))
+        if "setu-baseline-" in str(profile):
+            write_cookies(profile, list(visitor_rows))
+            return SIGNED_OUT_PAGE
+        return page
+    return window, dump, seen, looked
+
+
+def site(address="example.com", **kw):
+    kw.setdefault("level", None)
+    return connections.connect_site(address, "personal", vault=FileVault(),
+                                    browser="chrome", **kw)
+
+
+class TestAnySite:
+    def test_a_sign_in_the_page_shows_writes_the_sites_rules(self, home):
+        window, dump, seen, looked = a_site([(".example.com", "session_id"),
+                                             (".example.com", "_ga")], SIGNED_IN_PAGE)
+        entry = site("https://www.example.com/whatever", window=window, dump=dump)
+        assert seen["url"] == "https://www.example.com/"
+        assert len(looked) == 3                       # two signed-out visits, one after
+        manifest = find("example")
+        assert manifest.local and manifest.generated
+        assert manifest.hosts == ("example.com",)
+        assert manifest.browser.signed_in == ("session_id",)   # evidence, not the noise
+        assert "buy now" in manifest.browser.spend_words and manifest.browser.headed
+        assert entry["level"] == "read" and FileVault().get("example:personal")
+        card = next(c for c in status.report()["connectors"] if c["id"] == "example")
+        assert card["label"] == "local"
+
+    def test_a_page_still_showing_a_sign_in_leaves_nothing_behind(self, home):
+        window, dump, _, _ = a_site([], SIGNED_OUT_PAGE)
+        with pytest.raises(connections.ConnectionFailed, match="still shows a sign-in"):
+            site(window=window, dump=dump)
+        assert not (home / "sites" / "example.toml").exists()
+        assert not (home / "profiles" / "example-personal").exists()
+        assert FileVault().get("example:personal") is None
+
+    def test_a_page_that_cannot_tell_is_the_persons_to_answer(self, home):
+        window, dump, _, _ = a_site([], "<p>a page with nothing to go on</p>")
+        with pytest.raises(connections.ConnectionFailed, match="could not tell"):
+            site(window=window, dump=dump)                   # nobody to ask: no
+        asked = []
+        with pytest.raises(connections.ConnectionFailed):
+            site(window=window, dump=dump, ask=lambda q: asked.append(q) or False)
+        assert "Did you sign in?" in asked[0]
+        entry = site(window=window, dump=dump, ask=lambda q: True)
+        assert entry["connector"] == "example" and find("example").browser.signed_in == ()
+
+    def test_a_site_setu_already_has_is_pointed_at_its_connector(self, home):
+        window, dump, _, _ = a_site([], SIGNED_IN_PAGE)
+        with pytest.raises(connections.ConnectionFailed, match="setu connect amazon"):
+            site("amazon.in", window=window, dump=dump)
+        with pytest.raises(connections.ConnectionFailed, match="setu connect amazon"):
+            site("smile.amazon.com", window=window, dump=dump)
+
+    def test_money_stays_read_only_whatever_was_asked(self, home):
+        window, dump, _, _ = a_site([], SIGNED_IN_PAGE.replace("<p>", "<title>My Bank</title><p>"))
+        entry = site("mybank-online.com", level="write", window=window, dump=dump)
+        assert entry["level"] == "read" and "bank" in entry["note"]
+        window, dump, _, _ = a_site([], SIGNED_IN_PAGE)
+        assert site("recipes.example.org", level="write", window=window,
+                    dump=dump)["level"] == "write"
+
+    def test_signing_in_again_keeps_the_persons_edits(self, home):
+        window, dump, _, _ = a_site([], SIGNED_IN_PAGE)
+        site(window=window, dump=dump)
+        path = home / "sites" / "example.toml"
+        path.write_text(path.read_text().replace('guide = ""', 'guide = "orders: /orders"'))
+        site(window=window, dump=dump, level="write")
+        assert find("example").browser.guide == "orders: /orders"
+        assert FileVault().get("example:personal")["level"] == "write"
+
+    def test_names_come_from_the_address(self):
+        from setu import sites
+        assert sites.name_of("www.example.com") == ("example", "example.com")
+        assert sites.name_of("news.ycombinator.com") == ("ycombinator", "ycombinator.com")
+        assert sites.name_of("www.bbc.co.uk") == ("bbc", "bbc.co.uk")
+        with pytest.raises(sites.SiteError):
+            sites.draft("not an address")
+        assert sites.draft("example.com", "my-shop")["id"] == "my-shop"
+
+    def test_only_a_site_setu_wrote_may_leave_signed_in_to_the_page(self):
+        bare = {**BASE, "browser": {**BASE["browser"], "signed_in": []}}
+        with pytest.raises(ManifestError, match="signed_in"):
+            parse(bare)
+        assert parse({**bare, "generated": True}).generated
+
+    def test_the_page_check_never_says_in_beside_a_password_box(self):
+        assert site_browser.page_state('<a href="/logout">x</a>') == "in"
+        assert site_browser.page_state('<a href="/logout">x</a><input type="password">') == "out"
+        assert site_browser.page_state('<script>"<a>Sign out</a>"</script><p>hi</p>') == "unknown"
+        assert site_browser.page_state("") == "unknown"
+
+    def test_json_asks_with_an_event_and_reads_the_answer(self, home, monkeypatch, capsys):
+        import io
+        import json as jsonlib
+        window, dump, _, _ = a_site([], "<p>nothing to go on</p>")
+        real = connections.connect_site
+        monkeypatch.setattr(connections, "connect_site",
+                            lambda *a, **kw: real(*a, **kw, window=window, dump=dump))
+        monkeypatch.setattr(site_browser, "find_browser", lambda explicit=None: "chrome")
+        monkeypatch.setattr("sys.stdin", io.StringIO("yes\n"))
+        assert main(["connect", "--site", "example.com", "--json"]) == 0
+        events = [jsonlib.loads(line) for line in capsys.readouterr().out.splitlines()]
+        kinds = [e["event"] for e in events]
+        assert kinds[:2] == ["started", "window"] and "ask" in kinds
+        assert events[-1]["event"] == "connected" and events[-1]["ref"] == "example:personal"

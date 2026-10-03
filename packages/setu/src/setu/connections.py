@@ -49,10 +49,21 @@ which browser wrote it, and the store it signed in to. There is nothing
 to refresh, and ``token`` refuses it. Disconnecting deletes the profile
 -- the sign-in is gone from this computer; the site may still list the
 device until the person signs it out there.
+
+A SITE SETU WROTE THE RULES FOR is proved by its page (``connect_site``):
+nobody named its sign-in cookies, so after the window the start page is
+looked at once more, and a page that still shows a sign-in saves
+nothing. A page that says neither is the person's to answer -- they
+have just closed the window -- and with nobody to ask, nothing is saved.
+The manifest is written only after that, so a failed sign-in leaves no
+site behind, and no profile either.
 """
 
 from __future__ import annotations
 
+import re
+import shutil
+import tempfile
 import time
 import webbrowser
 from collections.abc import Callable
@@ -64,8 +75,8 @@ from typing import Any
 import httpx
 
 from setu import browser as site_browser
-from setu import google, homeassistant
-from setu.manifest import Manifest
+from setu import google, homeassistant, sites
+from setu.manifest import Manifest, installed, parse
 from setu.vault import Vault
 
 #: Refresh this long before Google would call a token expired.
@@ -212,34 +223,45 @@ def connect_homeassistant(manifest: Manifest, account: str, *, level: str | None
 
 def connect_browser(manifest: Manifest, account: str, *, level: str | None, vault: Vault,
                     browser: str, on_window: Callable[[Path], Any] | None = None,
-                    window: Callable[..., Any] = site_browser.window) -> dict[str, Any]:
+                    window: Callable[..., Any] = site_browser.window,
+                    ask: Callable[[str], bool] | None = None,
+                    dump: Callable[..., str] = site_browser.dump_dom) -> dict[str, Any]:
     """Sign in to a browser-road site: a window of ``browser`` on the
-    connection's own profile, kept only when a sign-in cookie is there."""
+    connection's own profile, kept only when a sign-in cookie is there --
+    or, for a site Setu wrote the rules for, when its page says so."""
     spec = manifest.browser
     if manifest.auth != "browser" or spec is None:
         raise ConnectionFailed(f"{manifest.id} is not signed in to in a browser")
-    ref = ref_for(manifest.id, account)
     asked = manifest.level(level)
-    profile = site_browser.profile_dir(ref)
+    profile = site_browser.profile_dir(ref_for(manifest.id, account))
     if on_window is not None:
         on_window(profile)
     try:
         window(browser, profile, spec.login_url)
     except site_browser.BrowserSignInFailed as exc:
         raise ConnectionFailed(str(exc)) from None
-    hosts = site_browser.signed_in(profile, spec.signed_in, manifest.hosts)
+    if manifest.generated:
+        _prove_by_page(manifest, browser, profile, ask, dump)
+        hosts = list(manifest.hosts[:1])
+    else:
+        hosts = site_browser.signed_in(profile, spec.signed_in, manifest.hosts)
     if not hosts:
         raise ConnectionFailed(
             f"the window closed, but {manifest.name} has not signed you in there "
             f"(none of {', '.join(spec.signed_in)} is set). Nothing was saved; run it "
             "again and close the window only after signing in")
+    return _save_browser(manifest, account, asked.name, profile, browser, hosts, vault)
+
+
+def _save_browser(manifest: Manifest, account: str, level: str, profile: Path, browser: str,
+                  hosts: list[str], vault: Vault) -> dict[str, Any]:
     entry = {
         "connector": manifest.id,
         "account": account,
         "auth": "browser",
         "email": hosts[0],
-        "level": asked.name,
-        "asked_level": asked.name,
+        "level": level,
+        "asked_level": level,
         "scopes": [],
         "created": _now(),
         "last_used": None,
@@ -248,8 +270,106 @@ def connect_browser(manifest: Manifest, account: str, *, level: str | None, vaul
         "home": site_browser.home(manifest, hosts),
         "secret": {},
     }
-    vault.put(ref, entry)
+    vault.put(ref_for(manifest.id, account), entry)
     return entry
+
+
+def _prove_by_page(manifest: Manifest, browser: str, profile: Path,
+                   ask: Callable[[str], bool] | None, dump: Callable[..., str]) -> str:
+    """The start page as the profile now sees it, once it shows a
+    sign-in did happen -- or the person, asked, says it did."""
+    assert manifest.browser is not None
+    html = dump(browser, profile, manifest.browser.start_url)
+    state = site_browser.page_state(html)
+    if state == "out":
+        raise ConnectionFailed(
+            f"the window closed, but {manifest.name}'s page still shows a sign-in. Nothing "
+            "was saved; run it again and close the window only after signing in")
+    if state == "unknown":
+        question = (f"Setu could not tell from {manifest.name}'s page whether you are signed "
+                    "in (some sites hide it, or show nothing to a browser without a window). "
+                    "Did you sign in?")
+        if ask is None or not ask(question):
+            raise ConnectionFailed(
+                f"could not tell whether you signed in to {manifest.name}, so nothing was "
+                "saved. If you did, run it again and answer yes (or pass --signed-in)")
+    return html
+
+
+#: Cookie names that read like a sign-in -- kept as evidence in the file.
+_SESSIONISH = re.compile(r"sess|auth|token|login|^sid$|_sid$|^at-|jwt|user|uid", re.I)
+
+
+def connect_site(address: str, account: str, *, level: str | None, vault: Vault,
+                 browser: str, site_id: str | None = None,
+                 ask: Callable[[str], bool] | None = None,
+                 on_window: Callable[[Path], Any] | None = None,
+                 window: Callable[..., Any] = site_browser.window,
+                 dump: Callable[..., str] = site_browser.dump_dom) -> dict[str, Any]:
+    """Sign in to a site no manifest describes, and write one for it.
+
+    The entry carries ``note`` when the level was lowered, and
+    ``connector`` names the site's new id."""
+    try:
+        data = sites.draft(address, site_id)
+    except sites.SiteError as exc:
+        raise ConnectionFailed(str(exc)) from None
+    host = sites.host_of(address)
+    for known in installed().values():
+        covers = any(host == h or host.endswith("." + h) for h in known.hosts)
+        if known.id == data["id"] or (covers and not known.generated):
+            if known.local and known.generated:
+                # signing in again to a site made here: its own rules
+                return connect_browser(known, account, level=level, vault=vault,
+                                       browser=browser, on_window=on_window, window=window,
+                                       ask=ask, dump=dump)
+            how = ("a file you wrote in sites/" if known.local
+                   else "an installed connector")
+            raise ConnectionFailed(
+                f"Setu already has {known.name} ({known.id}, {how}): run `setu connect "
+                f"{known.id}`, or pass --id to name this one differently")
+    draft = parse(data, source=f"{host} (draft)")
+    asked = draft.level(level)
+    hosts = tuple(data["hosts"])
+    start = data["browser"]["start_url"]
+    base = _baseline(browser, start, hosts, dump)
+    profile = site_browser.profile_dir(ref_for(draft.id, account))
+    if on_window is not None:
+        on_window(profile)
+    try:
+        try:
+            window(browser, profile, start)
+        except site_browser.BrowserSignInFailed as exc:
+            raise ConnectionFailed(str(exc)) from None
+        html = _prove_by_page(draft, browser, profile, ask, dump)
+    except BaseException:
+        site_browser.remove_profile(profile)
+        raise
+    new = site_browser.cookie_names(profile, hosts) - base
+    data["browser"]["signed_in"] = sorted(n for n in new if _SESSIONISH.search(n))
+    note = ""
+    held = asked.name
+    if held != "read" and sites.looks_like_money(host, site_browser.page_title(html)):
+        held = "read"
+        note = (f"{draft.name} looks like a bank or a payment service, so it is connected "
+                f"Read only. To allow more, edit {sites.path_for(draft.id)} -- with no "
+                "spending pages known, only button words would stand guard")
+    manifest = sites.write(data)
+    entry = _save_browser(manifest, account, held, profile, browser, [hosts[0]], vault)
+    return {**entry, "note": note, "manifest_path": str(sites.path_for(manifest.id))}
+
+
+def _baseline(browser: str, url: str, hosts: tuple[str, ...],
+              dump: Callable[..., str]) -> set[str]:
+    """The cookie names a signed-out visitor gets: two visits on a
+    throwaway profile, since some are set only on the second."""
+    scratch = Path(tempfile.mkdtemp(prefix="setu-baseline-"))
+    try:
+        for _ in range(2):
+            dump(browser, scratch, url)
+        return site_browser.cookie_names(scratch, hosts)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 def _same_grant(entry: dict[str, Any], client_id: str, email: str) -> bool:

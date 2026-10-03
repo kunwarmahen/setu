@@ -74,7 +74,7 @@ ANY_TOOL = "*"
 #: Auth kinds whose provider enforces scopes, so each level must name some.
 SCOPED_AUTH = ("google",)
 KNOWN_KEYS = {"id", "name", "summary", "road", "auth", "command", "api_base",
-              "hosts", "whoami", "levels", "verbs", "browser"}
+              "hosts", "whoami", "levels", "verbs", "browser", "generated"}
 #: The browser road's own keys, in its ``[browser]`` table.
 BROWSER_KEYS = {"start_url", "login_url", "signed_in", "home_from_cookie", "spend_pages",
                 "spend_words", "pace", "max_actions", "guide", "headed"}
@@ -146,6 +146,9 @@ class Manifest:
     browser: Browser | None = None
     #: Read from ``sites/`` on this computer, not from an installed package.
     local: bool = False
+    #: Written by ``setu connect --site`` with cautious defaults: no one
+    #: named its sign-in cookies, so a sign-in is proved by the page.
+    generated: bool = False
 
     @property
     def default_level(self) -> Level:
@@ -218,6 +221,7 @@ def parse(data: dict[str, Any], source: str = "manifest") -> Manifest:
         api_base=data.get("api_base", ""), hosts=tuple(data.get("hosts") or ()),
         whoami=WhoAmI(url=who["url"], field=who["field"]) if who else None,
         levels=tuple(levels), verbs=verbs, browser=browser,
+        generated=bool(data.get("generated", False)),
     )
 
 
@@ -233,9 +237,12 @@ def _browser(data: dict[str, Any], levels: list[Level], verbs: dict[str, str],
     unknown = set(spec) - BROWSER_KEYS
     if unknown:
         raise ManifestError(f"{source}: unknown [browser] key(s) {sorted(unknown)}")
-    for key in ("start_url", "signed_in"):
-        if not spec.get(key):
-            raise ManifestError(f"{source}: [browser] needs {key!r}")
+    if not spec.get("start_url"):
+        raise ManifestError(f"{source}: [browser] needs 'start_url'")
+    if "signed_in" not in spec or (not spec["signed_in"] and not data.get("generated")):
+        # a written-by-hand site names what "signed in" means; only one
+        # Setu wrote may leave it to the page
+        raise ManifestError(f"{source}: [browser] needs 'signed_in'")
     if not data.get("hosts"):
         raise ManifestError(f"{source}: a browser road names the hosts it may reach")
     for level in levels:

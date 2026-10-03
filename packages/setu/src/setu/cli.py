@@ -12,6 +12,7 @@
     setu connect homeassistant --token-stdin   or a long-lived token, pasted
     setu config homeassistant-url URL    remember where your Home Assistant is
     setu connect amazon --as personal    a site with no API: sign in in a window of its own
+    setu connect --site example.com      any other site: Setu writes its rules once you sign in
     setu config browser PATH             which browser that window is (default: Chrome on PATH)
     setu catalog                         the signed catalog: labels, installs, withdrawn
     setu catalog use PATH                check an index (and PATH.sig) and keep it
@@ -28,7 +29,9 @@ harness has to pass it again (config.py).
 
 ``setu connect --json`` is the same sign-in for a harness's page: one
 JSON object per line on stdout -- ``started``, ``url`` (the address to
-open), then ``connected`` or ``error`` -- so nothing reads prose.
+open), then ``connected`` or ``error`` -- so nothing reads prose. A
+site Setu wrote the rules for may also send ``ask`` (a question for the
+person) and then read one line, ``yes`` or ``no``, from stdin.
 """
 
 from __future__ import annotations
@@ -38,6 +41,7 @@ import json
 import shutil
 import sys
 import webbrowser
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -85,7 +89,9 @@ def _connect(args: argparse.Namespace) -> int:
         except Exception as exc:     # every failure is a line, never a traceback
             _emit("error", message=str(exc) or type(exc).__name__)
             return 2
-    manifest = find(args.connector)
+    if args.site:
+        return _connect_site(args)
+    manifest = find(_connector_named(args))
     if manifest.auth == "homeassistant":
         return _connect_homeassistant(manifest, args)
     if manifest.auth == "browser":
@@ -198,7 +204,8 @@ def _connect_browser(manifest, args: argparse.Namespace) -> int:
     print(f"A window of {found} is opening on {manifest.name}'s sign-in page, on a profile "
           "kept for this connection only.\nSign in there, then CLOSE THE WINDOW to finish.")
     entry = connections.connect_browser(manifest, args.account, level=level.name,
-                                        vault=FileVault(), browser=found)
+                                        vault=FileVault(), browser=found,
+                                        ask=_terminal_ask(args))
     print(f"connected {ref} ({entry['email']}) — {level.label}")
     print(f"the sign-in lives in {entry['profile']}; `setu disconnect {ref}` deletes it")
     return 0
@@ -212,9 +219,78 @@ def _connect_browser_json(manifest, args: argparse.Namespace) -> int:
     entry = connections.connect_browser(
         manifest, args.account, level=level.name, vault=FileVault(), browser=found,
         on_window=lambda profile: _emit("window", browser=found,
-                                        url=None, login_url=manifest.browser.login_url))
+                                        url=None, login_url=manifest.browser.login_url),
+        ask=_json_ask(args))
     _emit("connected", ref=ref, email=entry["email"], level=level.name,
           level_label=level.label, asked_level=level.name)
+    return 0
+
+
+def _connector_named(args: argparse.Namespace) -> str:
+    if not args.connector:
+        raise SystemExit("setu connect: name a connector (setu connectors lists them), "
+                         "or pass --site ADDRESS for a site Setu has none for")
+    return args.connector
+
+
+def _terminal_ask(args: argparse.Namespace) -> Callable[[str], bool] | None:
+    """The person at the terminal answers -- unless --signed-in already
+    did, or nobody is there to (then the answer is no)."""
+    if args.signed_in:
+        return lambda _question: True
+    if not sys.stdin.isatty():
+        return None
+
+    def ask(question: str) -> bool:
+        return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+    return ask
+
+
+def _json_ask(args: argparse.Namespace) -> Callable[[str], bool]:
+    """An ``ask`` event, then one line from the harness: yes or no."""
+    if args.signed_in:
+        return lambda _question: True
+
+    def ask(question: str) -> bool:
+        _emit("ask", question=question)
+        return sys.stdin.readline().strip().lower() in ("y", "yes")
+    return ask
+
+
+def _connect_site(args: argparse.Namespace) -> int:
+    found = _site_browser(args)
+    print(f"Setu takes a quick look at {args.site} signed out, then a window of {found} "
+          "opens on it, on a profile kept for this connection only.\nSign in there, then "
+          "CLOSE THE WINDOW to finish. Setu writes the site's rules once it sees you "
+          "signed in.")
+    entry = connections.connect_site(
+        args.site, args.account, level=args.level, vault=FileVault(), browser=found,
+        site_id=args.id, ask=_terminal_ask(args))
+    ref = connections.ref_for(entry["connector"], args.account)
+    manifest = find(entry["connector"])
+    print(f"connected {ref} ({entry['email']}) — {manifest.level(entry['level']).label}")
+    if entry.get("note"):
+        print(f"note: {entry['note']}")
+    if entry.get("manifest_path"):
+        print(f"its rules are in {entry['manifest_path']} -- cautious defaults; edit freely")
+    print(f"the sign-in lives in {entry['profile']}; `setu disconnect {ref}` deletes it")
+    return 0
+
+
+def _connect_site_json(args: argparse.Namespace) -> int:
+    found = _site_browser(args)
+    _emit("started", ref=None, site=args.site, level=args.level or "read", scopes=[])
+    entry = connections.connect_site(
+        args.site, args.account, level=args.level, vault=FileVault(), browser=found,
+        site_id=args.id, ask=_json_ask(args),
+        on_window=lambda _profile: _emit("window", browser=found, url=None,
+                                         login_url=None))
+    manifest = find(entry["connector"])
+    level = manifest.level(entry["level"])
+    _emit("connected", ref=connections.ref_for(entry["connector"], args.account),
+          email=entry["email"], level=level.name, level_label=level.label,
+          asked_level=args.level or level.name, note=entry.get("note", ""),
+          manifest_path=entry.get("manifest_path", ""))
     return 0
 
 
@@ -222,7 +298,9 @@ def _connect_json(args: argparse.Namespace) -> int:
     """The sign-in, as events. The browser is never opened from here: the
     harness shows the address to the person, in the page they are using --
     except for a site signed in to in a window of its own (``window``)."""
-    manifest = find(args.connector)
+    if args.site:
+        return _connect_site_json(args)
+    manifest = find(_connector_named(args))
     if manifest.auth == "homeassistant":
         return _connect_homeassistant_json(manifest, args)
     if manifest.auth == "browser":
@@ -496,7 +574,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("connectors", help="installed connectors and their access levels")
 
     connect = sub.add_parser("connect", help="sign in to a site")
-    connect.add_argument("connector", help="e.g. gmail")
+    connect.add_argument("connector", nargs="?", help="e.g. gmail")
     connect.add_argument("--as", dest="account", default="personal",
                          help="your name for this account (default: personal)")
     connect.add_argument("--level", help="access level (default: the least one)")
@@ -512,6 +590,13 @@ def build_parser() -> argparse.ArgumentParser:
                          "instead of signing in on its login page")
     connect.add_argument("--browser", help="a site with no API: the browser to sign in "
                          "with (default: setu config browser, else Chrome on PATH)")
+    connect.add_argument("--site", help="a site Setu has no connector for (example.com): "
+                         "sign in, and Setu writes cautious rules for it in sites/")
+    connect.add_argument("--id", help="with --site: the name to give it (default: from "
+                         "the address)")
+    connect.add_argument("--signed-in", action="store_true",
+                         help="if the page cannot show whether you signed in, take it "
+                         "that you did")
 
     sub.add_parser("list", help="your connections")
 

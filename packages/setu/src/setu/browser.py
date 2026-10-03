@@ -32,12 +32,21 @@ values are encrypted and never read.
 
 A profile is a credential store in plain sight, so it lives beside the
 vault (0700), never in a project folder.
+
+A SITE NOBODY HAS NAMED THE COOKIES OF is proved by its PAGE instead.
+After the window closes, the site's start page is loaded once more on
+the profile -- headless, still driven by nobody: ``--dump-dom`` prints
+the page and quits -- and read for the signs a person sees: a password
+box means signed out, a sign-out link means signed in. Cookie names that
+appeared since a signed-out visit are kept as evidence, never as proof:
+a site sets plenty of new cookies for a visitor who never signs in.
 """
 
 from __future__ import annotations
 
 import fnmatch
 import os
+import re
 import shutil
 import signal
 import sqlite3
@@ -58,6 +67,17 @@ CANDIDATES = ("google-chrome", "google-chrome-stable", "chromium", "chromium-bro
               "brave-browser", "brave", "microsoft-edge", "microsoft-edge-stable")
 #: How long a window asked to quit gets to write its cookies.
 CLOSE_SECONDS = 15.0
+#: How long a headless look at a page may take (Chrome's own, then ours).
+DUMP_MS = 10_000
+DUMP_SECONDS = 60
+
+_CODE = re.compile(r"<(script|style|noscript|template)\b.*?</\1\s*>", re.I | re.S)
+_PASSWORD = re.compile(r"<input\b[^>]*\btype\s*=\s*[\"']?password", re.I)
+_SIGN_OUT = re.compile(
+    r"\b(href|action)\s*=\s*[\"'][^\"']*(log_?out|log-out|sign_?out|sign-out|logoff)"
+    r"[^\"']*[\"']|>\s*(sign|log)\s*(out|off)\s*<", re.I)
+_SIGN_IN = re.compile(r">\s*(sign|log)\s*in\s*<", re.I)
+_TITLE = re.compile(r"<title[^>]*>(.*?)</title\s*>", re.I | re.S)
 
 
 class BrowserSignInFailed(Exception):
@@ -113,6 +133,57 @@ def signed_in(profile: Path, patterns: tuple[str, ...], hosts: tuple[str, ...]) 
             if host not in found:
                 found.append(host)
     return found
+
+
+def cookie_names(profile: Path, hosts: tuple[str, ...]) -> set[str]:
+    """Every cookie NAME on ``hosts`` in ``profile`` (values never read)."""
+    db = profile / "Default" / "Cookies"
+    if not db.exists():
+        return set()
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            rows = conn.execute("select host_key, name from cookies").fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return set()
+    return {str(name) for host_key, name in rows
+            if any(str(host_key).lstrip(".") == h or str(host_key).lstrip(".").endswith("." + h)
+                   for h in hosts)}
+
+
+def dump_dom(browser: str, profile: Path, url: str,
+             run: Callable[..., Any] = subprocess.run) -> str:
+    """The page at ``url`` as ``profile`` sees it, from a headless run of
+    ``browser`` that prints it and quits. Empty when the site refuses a
+    headless browser or the page never came."""
+    argv = [browser, "--headless=new", f"--user-data-dir={profile}", "--no-first-run",
+            "--no-default-browser-check", COOKIE_KEY_ARG, f"--timeout={DUMP_MS}",
+            "--dump-dom", url]
+    try:
+        done = run(argv, capture_output=True, text=True, timeout=DUMP_SECONDS)
+    except (subprocess.TimeoutExpired, OSError):
+        return ""
+    return done.stdout or ""
+
+
+def page_state(html: str) -> str:
+    """``in``, ``out`` or ``unknown``, from what a person would see on the
+    page: never ``in`` while a password box is showing."""
+    html = _CODE.sub("", html)
+    password = bool(_PASSWORD.search(html))
+    sign_out = bool(_SIGN_OUT.search(html))
+    if sign_out and not password:
+        return "in"
+    if password or _SIGN_IN.search(html):
+        return "out"
+    return "unknown"
+
+
+def page_title(html: str) -> str:
+    found = _TITLE.search(html)
+    return re.sub(r"\s+", " ", found.group(1)).strip() if found else ""
 
 
 def _close(proc: subprocess.Popen) -> None:

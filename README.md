@@ -184,10 +184,42 @@ signs this computer out. The site may still list the device; remove it in
 the site's security settings if you want it gone there too. No Chrome-like
 browser on your PATH? Name one: `setu config browser /path/to/brave`.
 
+### Any other site
+
+Amazon and X come ready-made. For another site, name its address:
+
+```
+setu connect --site example.com --as personal
+```
+
+Setu first takes a quick look at the site signed out, with no window, to
+note which cookies any visitor gets. Then the usual window opens: sign in
+and close it. Setu looks at the site's front page once more. A sign-out
+link there means you are signed in. A password box means you aren't, and
+nothing is saved. If the page shows neither, Setu asks you. (`--signed-in`
+answers yes in advance.)
+
+Then Setu writes the site's rules to `~/.local/state/setu/sites/example.toml`.
+Nobody has studied this site, so the rules are cautious:
+
+- it is connected at Read only;
+- it waits 2 seconds between pages and stops after 10 actions a session;
+- it runs in a real window on a screen nobody sees;
+- it refuses a long list of buttons that spend money or can't be undone
+  (buy, pay, checkout, subscribe, delete, transfer…), on top of the pages
+  that Amazon's and X's rules name.
+
+A site that looks like a bank or a payment service stays Read only even
+if you ask for more. The cookies that appeared when you signed in are
+noted in the file. You can edit it, and signing in again never overwrites
+it. `--id` picks the name (the default comes from the address:
+`news.ycombinator.com` becomes `ycombinator`). A site Setu already has a
+connector for gets pointed at that connector instead.
+
 ### Another site, by hand
 
-Amazon and X come ready-made. For another site, you can write the same kind
-of file yourself. It holds no code, only the site's rules. Save it as
+You can also write the file yourself. It holds no code, only the site's
+rules. Save it as
 `~/.local/state/setu/sites/<id>.toml`; the file's name must be its `id`:
 
 ```toml
@@ -461,6 +493,16 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   recorded. `setu status` gives the connection no `mcp` and a `browser` block
   (`profile`, `executable`, `home`), and the connector card its `browser`
   rules.
+* **`connect --site`** (`sites.py`, `connections.connect_site`): drafts a
+  manifest with `generated = true` and cautious defaults. It takes a
+  signed-out baseline of cookie names (two headless `--dump-dom` visits on a
+  throwaway profile) and opens the window. Proof comes from the page
+  (`browser.page_state`): a sign-out link with no password box means `in`,
+  a password box or sign-in link means `out`, and anything else is
+  `unknown`, which goes to the person (`ask` event plus a `yes`/`no` line on
+  stdin under `--json`). Only then is `sites/<id>.toml` written, with
+  session-like new cookie names as `signed_in`, which may be empty for a
+  generated manifest. A failed sign-in leaves no profile and no file.
 * **Sites added by hand.** `installed()` also reads browser-road manifests from
   `sites/*.toml` under Setu's home, after the packages. Each file's stem must
   be its `id`, an installed id wins, and any other road is refused. A file that

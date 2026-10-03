@@ -237,3 +237,32 @@ accounts that look automated, and that would be yours.
 Disconnect with `uv run setu disconnect amazon:personal`: the profile is
 deleted, so this computer is signed out. Amazon or X may still list the
 device; remove it in the site's security settings if you want.
+
+## Any other site, by its address
+
+Pick a site you have an account on that Setu has no connector for, such as
+a forum, a library account or a recipe site. Avoid your bank for a first
+try: it stays Read only anyway.
+
+```
+setu connect --site news.ycombinator.com --as personal
+```
+
+1. There's a pause of a few seconds first while Setu looks at the site
+   signed out. Then the window opens. Sign in and close it.
+2. Expect `connected ycombinator:personal (ycombinator.com) — Read only`,
+   followed by where its rules are kept.
+3. If Setu asks "Did you sign in?", the page didn't show it either way.
+   Answer honestly: *no* saves nothing.
+4. `setu connectors` lists it as *added on this computer*. Open the file it
+   names to see the cautious rules.
+5. In Yantra, ask something only the signed-in site shows ("what are my
+   recent comments on Hacker News?"). Expect `ycombinator_open`, then
+   `ycombinator_follow`.
+
+| What you see | What it means |
+|---|---|
+| `page still shows a sign-in` | The front page had a password box or a "Sign in" link after the window closed. Sign in, then close the window. |
+| `could not tell whether you signed in` | No one was there to answer (`--json` without the page, or no terminal). Run it in a terminal, or add `--signed-in`. |
+| `Setu already has Amazon` | That site has a ready-made connector: use `setu connect amazon`. |
+| `connected Read only` after `--level write` | The site looks like a bank or a payment service. Edit its file to allow more. |
