@@ -1,4 +1,4 @@
-# Testing Setu with a real mailbox
+# Testing Setu with your real accounts
 
 The automated tests (`uv run pytest -q`) run against a fake Gmail and a fake
 Google. This page is the other half: checking the whole road by hand, with a
@@ -192,3 +192,48 @@ Assist are reachable.
 Disconnect with `uv run setu disconnect homeassistant:home`. A login-page
 sign-in is revoked on your server; a pasted token has to be deleted in your
 profile as well.
+
+---
+
+## Amazon and X, through your own browser
+
+These sign in in a window of your own Chrome, not through an API, so there is
+no client file and no address to give. Start at **Read only**.
+
+```
+uv sync                                      # installs setu-sites
+uv run setu connect amazon --as personal     # sign in, then CLOSE the window
+uv run setu connect x --as personal
+uv run setu list                             # amazon:personal  amazon.com  Read only
+```
+
+The connection is saved only once you are really signed in; close the window
+too early and `setu connect` says nothing was saved. Then:
+
+```
+yantra --setu .venv/bin/setu --provider ollama --model qwen3.8:latest
+#   setu: …, amazon (5 tool(s)), x (5 tool(s))
+#   > what did I order in the last three months?
+#   > what's in my X mentions?
+```
+
+You should see `amazon_open` on your store's order history and `amazon_follow`
+into an order; on X, `x_open` on your mentions and `x_scroll` for more. Ask it
+to buy something: it should stop and hand you the page (`amazon_handoff`), at
+every level.
+
+At *Read and act* / *Read and post* (`--level write`), click and type are
+asked about every time; keep `--yolo` off so you see each post before it goes.
+X goes slowly on purpose (3 seconds a page, 10 actions a session): X locks
+accounts that look automated, and that would be yours.
+
+| You see | It means | Do |
+|---|---|---|
+| *has not signed you in there* | the window closed before the sign-in finished | run `setu connect` again, close the window only after signing in |
+| *this is X's sign-in page: the person is signed out* | the site signed this profile out | `uv run setu connect x --as personal` again |
+| *no browser to sign in with* | no Chrome-like browser on PATH | `uv run setu config browser /path/to/browser` |
+| *closed without writing anything* | that browser was already running and took the window over, or it is a snap that cannot write there | close it, or name another browser |
+
+Disconnect with `uv run setu disconnect amazon:personal`: the profile is
+deleted, so this computer is signed out. Amazon or X may still list the
+device; remove it in the site's security settings if you want.
