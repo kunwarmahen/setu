@@ -408,3 +408,39 @@ class TestAnySite:
         kinds = [e["event"] for e in events]
         assert kinds[:2] == ["started", "window"] and "ask" in kinds
         assert events[-1]["event"] == "connected" and events[-1]["ref"] == "example:personal"
+
+
+class TestTheGuideGrows:
+    def connected(self, home):
+        window, dump, _, _ = a_site([], SIGNED_IN_PAGE)
+        site(window=window, dump=dump)
+        return home / "sites" / "example.toml"
+
+    def test_a_guide_replaces_the_line_and_keeps_the_rest(self, home, capsys):
+        path = self.connected(home)
+        path.write_text("# my note: keep this\n" + path.read_text())
+        assert main(["site", "guide", "example", "--set",
+                     'Orders: /account/orders\nSearch: /s?q="WORDS"']) == 0
+        assert find("example").browser.guide == 'Orders: /account/orders\nSearch: /s?q="WORDS"'
+        assert path.read_text().startswith("# my note: keep this")
+        capsys.readouterr()
+        assert main(["site", "guide", "example"]) == 0
+        assert "Orders: /account/orders" in capsys.readouterr().out
+
+    def test_an_installed_connectors_guide_is_not_setus_to_write(self, home, capsys):
+        assert main(["site", "guide", "amazon", "--set", "x"]) == 2
+        assert "not a site added on this computer" in capsys.readouterr().err
+
+    def test_a_guide_written_by_hand_across_lines_is_left_alone(self, home):
+        from setu import sites
+        path = self.connected(home)
+        path.write_text(path.read_text().replace('guide = ""', 'guide = """\nmine\n"""'))
+        with pytest.raises(sites.SiteError, match="written by hand"):
+            sites.set_guide("example", "theirs")
+        assert find("example").browser.guide == "mine"
+
+    def test_a_file_with_no_guide_line_gets_one(self, home):
+        from setu import sites
+        add_site(home, "shop.toml", SHOP_TOML)
+        assert sites.set_guide("shop", "Cart: /cart").browser.guide == "Cart: /cart"
+        assert find("shop").browser.signed_in == ("sess*",)

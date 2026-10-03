@@ -17,6 +17,14 @@ NAMED FROM THE ADDRESS. ``www.example.com`` is ``example`` on
 ``bbc.co.uk`` is ``bbc``. ``--id`` picks another name. A site Setu
 already has a connector for is pointed at it instead.
 
+THE GUIDE GROWS FROM USE. A site nobody has read starts with no guide;
+a harness may offer the person what a turn found ("your orders are at
+/account/orders"), and on a yes ``setu site guide ID --set TEXT``
+replaces the guide line -- only in a file under ``sites/``, never an
+installed connector's, and only that line, so the person's comments and
+edits stay. A guide written by hand across several lines is the
+person's; it is left alone.
+
 MONEY STAYS READ ONLY. A site whose address or page title reads like a
 bank, a broker, a wallet or a payment service is connected at Read only,
 whatever level was asked for: with no spending pages known, the only
@@ -33,7 +41,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from setu.manifest import Manifest, ManifestError, load, sites_dir
+from setu.manifest import Manifest, ManifestError, installed, load, sites_dir
 
 #: Second-level labels that are part of a country's suffix, not a name.
 _SUFFIX_LABELS = {"co", "com", "org", "net", "gov", "ac", "edu", "ne", "or", "go"}
@@ -164,3 +172,46 @@ def write(data: dict[str, Any]) -> Manifest:
     staged.replace(target)
     manifest = load(target)
     return manifest
+
+
+#: Long enough for a page of places; short enough to stay a guide.
+GUIDE_MAX = 2000
+_GUIDE_LINE = re.compile(r'^guide\s*=\s*"(?:[^"\\]|\\.)*"\s*$')
+_TABLE = re.compile(r"^\s*\[")
+
+
+def set_guide(site_id: str, guide: str) -> Manifest:
+    """Replace the guide of a site added on this computer."""
+    known = installed().get(site_id)
+    if known is None or not known.local:
+        raise SiteError(f"{site_id!r} is not a site added on this computer; only "
+                        "those keep a guide Setu may write")
+    guide = guide.strip()
+    if len(guide) > GUIDE_MAX:
+        raise SiteError(f"a guide is at most {GUIDE_MAX} characters")
+    target = path_for(site_id)
+    lines = target.read_text(encoding="utf-8").splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if line.strip() == "[browser]")
+    except StopIteration:
+        raise SiteError(f"{target} has no [browser] table") from None
+    end = next((i for i in range(start + 1, len(lines)) if _TABLE.match(lines[i])),
+               len(lines))
+    new = f"guide = {_value(guide)}"
+    at = next((i for i in range(start + 1, end) if lines[i].lstrip().startswith("guide")),
+              None)
+    if at is None:
+        lines.insert(start + 1, new)
+    elif _GUIDE_LINE.match(lines[at].strip()):
+        lines[at] = new
+    else:
+        raise SiteError(f"the guide in {target} is written by hand; edit it there")
+    staged = target.with_suffix(".toml.new")
+    staged.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        load(staged)
+    except (ManifestError, ValueError) as exc:
+        staged.unlink()
+        raise SiteError(f"the guide would break {target}: {exc}") from None
+    staged.replace(target)
+    return load(target)

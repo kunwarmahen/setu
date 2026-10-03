@@ -216,6 +216,14 @@ it. `--id` picks the name (the default comes from the address:
 `news.ycombinator.com` becomes `ycombinator`). A site Setu already has a
 connector for gets pointed at that connector instead.
 
+The file starts with no guide to the site, so the agent finds its own way
+the first time. A harness can offer to remember what it found ("your
+orders are at /account/orders"), and on your yes it saves that with
+`setu site guide example --set "…"`. Running `setu site guide example`
+shows the current guide. Only files in `sites/` are ever written, and only
+their `guide` line. A guide you wrote yourself across several lines is
+left alone.
+
 ### Another site, by hand
 
 You can also write the file yourself. It holds no code, only the site's
@@ -380,6 +388,8 @@ setu status --json                 # everything above, for a harness to read (no
 setu config client-file PATH       # remember the Google client file's path (--unset forgets)
 setu config homeassistant-url URL  # remember where your Home Assistant is
 setu connect amazon --as personal  # a site with no API: sign in in a window, then close it
+setu connect --site example.com    # any other site: Setu writes cautious rules for it
+setu site guide example --set "…"  # that site's short guide (shown without --set)
 setu config browser PATH           # which browser that window is (default: Chrome on PATH)
 setu catalog                       # the signed catalog: labels, installs, withdrawn versions
 ```

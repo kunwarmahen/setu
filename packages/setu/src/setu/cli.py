@@ -13,6 +13,7 @@
     setu config homeassistant-url URL    remember where your Home Assistant is
     setu connect amazon --as personal    a site with no API: sign in in a window of its own
     setu connect --site example.com      any other site: Setu writes its rules once you sign in
+    setu site guide example [--set TEXT] a site added here: its short guide, shown or replaced
     setu config browser PATH             which browser that window is (default: Chrome on PATH)
     setu catalog                         the signed catalog: labels, installs, withdrawn
     setu catalog use PATH                check an index (and PATH.sig) and keep it
@@ -223,6 +224,21 @@ def _connect_browser_json(manifest, args: argparse.Namespace) -> int:
         ask=_json_ask(args))
     _emit("connected", ref=ref, email=entry["email"], level=level.name,
           level_label=level.label, asked_level=level.name)
+    return 0
+
+
+def _site_guide(args: argparse.Namespace) -> int:
+    from setu import sites
+    if args.set is None:
+        manifest = find(args.id)
+        print(manifest.browser.guide if manifest.browser else "")
+        return 0
+    try:
+        manifest = sites.set_guide(args.id, args.set)
+    except sites.SiteError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"{manifest.id}: guide saved ({len(manifest.browser.guide)} characters)")
     return 0
 
 
@@ -598,6 +614,12 @@ def build_parser() -> argparse.ArgumentParser:
                          help="if the page cannot show whether you signed in, take it "
                          "that you did")
 
+    site = sub.add_parser("site", help="a site added on this computer")
+    site_sub = site.add_subparsers(dest="site_command", required=True)
+    guide = site_sub.add_parser("guide", help="show its guide, or replace it with --set")
+    guide.add_argument("id", help="the site's id, e.g. example")
+    guide.add_argument("--set", help="the new guide (replaces the old one)")
+
     sub.add_parser("list", help="your connections")
 
     run = sub.add_parser("run", help="start a connector for a connection")
@@ -631,7 +653,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list,
             "run": _run, "mcp-config": _mcp_config, "status": _status,
-            "disconnect": _disconnect, "config": _config, "catalog": _catalog}
+            "disconnect": _disconnect, "config": _config, "catalog": _catalog,
+            "site": _site_guide}
 
 
 def main(argv: list[str] | None = None) -> int:
