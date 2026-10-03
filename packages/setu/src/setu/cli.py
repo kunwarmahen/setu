@@ -108,8 +108,22 @@ def _connect(args: argparse.Namespace) -> int:
     return 0
 
 
-def _ha_base(_manifest, args: argparse.Namespace) -> str | None:
-    return config.homeassistant_url(args.url)
+def _ha_base(manifest, args: argparse.Namespace) -> str | None:
+    """Which Home Assistant to sign in to: --url, then the environment and
+    the remembered address, then -- signing in again to change a level --
+    the address that connection already has."""
+    found = config.homeassistant_url(args.url)
+    if found:
+        return found
+    entry = FileVault().get(connections.ref_for(manifest.id, args.account)) or {}
+    return entry.get("base_url") or None
+
+
+def _remember_ha(base: str) -> None:
+    """The first address used is remembered, so a page -- which has nowhere
+    to type one -- can sign in again later. Never overwrites a choice."""
+    if not config.load().get("homeassistant_url"):
+        config.save("homeassistant_url", homeassistant.normalise_url(base))
 
 
 def _read_token(args: argparse.Namespace) -> str | None:
@@ -149,6 +163,7 @@ def _connect_homeassistant(manifest, args: argparse.Namespace) -> int:
             http=http, long_lived=token,
             open_browser=None if args.no_browser else webbrowser.open,
             on_url=lambda url: print(f"\nIf no window opened, open this address:\n{url}\n"))
+    _remember_ha(base)
     print(f"connected {ref} to {entry['email']} — {level.label}")
     print(f"next: setu mcp-config {ref}")
     return 0
@@ -197,6 +212,7 @@ def _connect_homeassistant_json(manifest, args: argparse.Namespace) -> int:
             manifest, args.account, level=level.name, base_url=base, vault=FileVault(),
             http=http, long_lived=token, open_browser=None,
             on_url=lambda url: _emit("url", url=url))
+    _remember_ha(base)
     _emit("connected", ref=ref, email=entry["email"], level=level.name,
           level_label=level.label, asked_level=level.name)
     return 0

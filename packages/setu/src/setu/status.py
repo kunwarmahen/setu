@@ -52,7 +52,8 @@ def _not_ready(manifest: Manifest, setup: dict[str, Any]) -> tuple[str, str]:
     if manifest.auth == "google" and not setup.get("google_client_file"):
         return ("needs a Google 'Desktop app' OAuth client file "
                 "(setu config client-file PATH)", "google_client_file")
-    if manifest.auth == "homeassistant" and not setup.get("homeassistant_url"):
+    if (manifest.auth == "homeassistant" and not setup.get("homeassistant_url")
+            and manifest.id not in setup.get("_ha_connected", ())):
         return ("needs your Home Assistant's address "
                 "(setu config homeassistant-url URL)", "homeassistant_url")
     return "", ""
@@ -136,12 +137,15 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
             "mcp": {"name": ref.replace(":", "-"), "command": command, "args": ["run", ref]},
         })
     connected = {row["connector"] for row in rows}
+    # a connection already knows its server, so signing in again needs no
+    # remembered address (cli._ha_base); private key, not in the report
+    ready_setup = {**setup, "_ha_connected": {r["connector"] for r in rows if r["base_url"]}}
     return {
         "format": FORMAT,
         "version": __version__,
         "command": command,
         "connections": rows,
-        "connectors": (cards := [_connector(m, m.id in connected, setup, index)
+        "connectors": (cards := [_connector(m, m.id in connected, ready_setup, index)
                                  for m in manifests.values()]),
         "setup": setup,
         "catalog": ({"source": index.source, "key": index.key,

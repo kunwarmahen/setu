@@ -300,6 +300,25 @@ class TestSignIn:
             homeassistant.normalise_url("http://ha.local:8123/lovelace")
 
 
+class TestTheAddressIsKept:
+    def test_the_first_address_used_is_remembered(self, home, ha, monkeypatch):
+        monkeypatch.setattr(sys, "stdin", __import__("io").StringIO(LONG_LIVED + "\n"))
+        assert main(["connect", "homeassistant", "--as", "home", "--url", ha.base,
+                     "--token-stdin"]) == 0
+        assert config.homeassistant_url() == ha.base
+
+    def test_signing_in_again_uses_the_connections_own_address(self, home, ha, monkeypatch,
+                                                               capsys):
+        sign_in(ha, token=LONG_LIVED)            # made without remembering anything
+        assert config.homeassistant_url() is None
+        row = next(c for c in status.report()["connectors"] if c["id"] == "homeassistant")
+        assert row["ready"]                       # the page may offer "change access"
+        monkeypatch.setattr(sys, "stdin", __import__("io").StringIO(LONG_LIVED + "\n"))
+        assert main(["connect", "homeassistant", "--as", "home", "--level", "control",
+                     "--token-stdin"]) == 0
+        assert FileVault().get("homeassistant:home")["level"] == "control"
+
+
 class TestTheReport:
     def test_no_address_means_not_ready_and_says_which_setting(self, home):
         ha_row = next(c for c in status.report()["connectors"] if c["id"] == "homeassistant")
