@@ -184,6 +184,55 @@ signs this computer out. The site may still list the device; remove it in
 the site's security settings if you want it gone there too. No Chrome-like
 browser on your PATH? Name one: `setu config browser /path/to/brave`.
 
+### Another site, by hand
+
+Amazon and X come ready-made. For another site, you can write the same kind
+of file yourself. It holds no code, only the site's rules. Save it as
+`~/.local/state/setu/sites/<id>.toml`; the file's name must be its `id`:
+
+```toml
+# ~/.local/state/setu/sites/example.toml
+id = "example"
+name = "Example"
+summary = "My account on example.com, read through my own signed-in browser."
+road = "browser"
+auth = "browser"
+hosts = ["example.com"]
+
+[browser]
+start_url = "https://www.example.com/"
+signed_in = ["session*"]        # a cookie the site sets only once you sign in
+spend_words = ["buy", "pay", "checkout", "subscribe", "delete"]
+pace = 2.0
+max_actions = 10
+headed = true
+
+[levels.read]
+label = "Read only"
+
+[levels.write]
+label = "Read and act"
+
+[verbs]
+open = "read"
+follow = "read"
+scroll = "read"
+search = "read"
+click = "write"
+fill = "write"
+```
+
+`setu connectors` now lists it as *added on this computer*, and
+`setu connect example --as personal` works as it does for Amazon. To find
+the sign-in cookie's name, sign in to the site in any browser, open the
+developer tools, and look under Application → Cookies for one that
+disappears when you sign out.
+
+Only sites reached through the browser can be added this way. A connector
+that runs a program has to be installed as a package. If an installed
+connector has the same `id`, the installed one is used. A file Setu can't
+read is skipped, and `setu connectors` and `setu status` say why.
+
 ---
 
 ## Set up (about 15 minutes, once)
@@ -412,6 +461,11 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   recorded. `setu status` gives the connection no `mcp` and a `browser` block
   (`profile`, `executable`, `home`), and the connector card its `browser`
   rules.
+* **Sites added by hand.** `installed()` also reads browser-road manifests from
+  `sites/*.toml` under Setu's home, after the packages. Each file's stem must
+  be its `id`, an installed id wins, and any other road is refused. A file that
+  is skipped becomes a line in `problems`, not an error. These cards carry
+  `label: "local"`.
 * **A server of your own.** A connection may carry its own address
   (`base_url`); `setu run` hands that to the connector instead of the
   manifest's.

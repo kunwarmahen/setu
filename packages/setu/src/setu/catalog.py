@@ -25,7 +25,9 @@ LABELS SAY WHO WROTE IT, NOT WHETHER TO TRUST IT. Everything listed was
 reviewed. ``by-setu`` is ours; ``partner`` is someone else's, reviewed
 and published by Setu; an installed connector the index does not list is
 ``sideloaded``. With no index at all there is no label, rather than
-calling Setu's own Gmail sideloaded.
+calling Setu's own Gmail sideloaded. A site a person added by hand
+(``sites/``) is ``local`` whether or not an index is kept: no catalog
+has a word on it.
 
 What is not here: fetching the index from a host, and installing
 connectors by hash. Both wait on a decision about where the catalog
@@ -56,6 +58,8 @@ from setu.vault import default_home
 FORMAT = "setu.index.v1"
 LABELS = ("by-setu", "partner")
 SIDELOADED = "sideloaded"
+#: A site added by hand on this computer (``sites/``): never in a catalog.
+LOCAL = "local"
 KEYS_FILE = "trusted-keys.json"
 CACHE_DIR = "catalog"
 

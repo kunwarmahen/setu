@@ -51,12 +51,16 @@ ENV_CLIENT_FILE = config.ENV_CLIENT_FILE
 
 
 def _connectors(_args: argparse.Namespace) -> int:
-    found = installed()
+    skipped: list[str] = []
+    found = installed(skipped)
+    for line in skipped:
+        print(f"setu: {line}", file=sys.stderr)
     if not found:
         print("no connectors installed (try: uv pip install setu-gmail)")
         return 0
     for manifest in found.values():
-        print(f"{manifest.id} — {manifest.name}: {manifest.summary}")
+        mark = " (added on this computer)" if manifest.local else ""
+        print(f"{manifest.id} — {manifest.name}{mark}: {manifest.summary}")
         for level in manifest.levels:
             mark = " (default)" if level is manifest.default_level else ""
             print(f"    {level.name:<8} {level.label}{mark}")
@@ -477,7 +481,8 @@ def _catalog(args: argparse.Namespace) -> int:
         if card["yanked"]:
             print(f"      WITHDRAWN {card['installed_version']}: {card['yanked']}")
     for cid in sorted(set(known) - set(index.connectors)):
-        print(f"  {cid:<20} sideloaded (not in the catalog)")
+        how = "added on this computer" if known[cid].local else "sideloaded"
+        print(f"  {cid:<20} {how} (not in the catalog)")
     for recipe in index.recipes:
         print(f"  recipe {recipe.get('name')}: needs {', '.join(recipe.get('needs') or [])} "
               f"-- {recipe.get('author') or '?'}")

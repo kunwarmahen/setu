@@ -83,8 +83,13 @@ def _connector(manifest: Manifest, connected: bool,
                setup: dict[str, Any] | None = None,
                index: catalog.Index | None = None) -> dict[str, Any]:
     not_ready, needs = _not_ready(manifest, setup or {})
-    card = index.card(manifest.id) if index is not None else {
-        "label": None, "author": "", "installs": None, "yanked": ""}
+    if manifest.local:
+        # added on this computer: no catalog has a word on it
+        card = {"label": catalog.LOCAL, "author": "", "installs": None, "yanked": ""}
+    elif index is not None:
+        card = index.card(manifest.id)
+    else:
+        card = {"label": None, "author": "", "installs": None, "yanked": ""}
     return {
         "id": manifest.id,
         "name": manifest.name,
@@ -117,8 +122,8 @@ def _connector(manifest: Manifest, connected: bool,
 def report(vault: Vault | None = None) -> dict[str, Any]:
     vault = vault or FileVault()
     try:
-        manifests = installed()
         problems: list[str] = []
+        manifests = installed(problems)
     except ManifestError as exc:
         manifests, problems = {}, [str(exc)]
     command = _setu_command()

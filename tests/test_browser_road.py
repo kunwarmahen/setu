@@ -14,18 +14,24 @@ Also designed against:
   ``mcp`` for it, so a harness starts nothing.
 * **A disconnect that deletes the wrong directory.** Only a profile under
   Setu's own ``profiles/`` is ever removed, whatever the vault says.
+* **A dropped file that runs a program, or shadows a real connector.** A
+  site added by hand in ``sites/`` must be a browser road; an installed
+  connector of the same id wins; a broken file is reported and skipped,
+  never taking the installed connectors down with it.
 """
 
 from __future__ import annotations
 
+import re
 import sqlite3
+import tomllib
 from pathlib import Path
 
 import pytest
 from setu import browser as site_browser
 from setu import connections, status
 from setu.cli import main
-from setu.manifest import ManifestError, find, parse
+from setu.manifest import ManifestError, find, installed, parse
 from setu.vault import FileVault
 
 BASE = {
@@ -193,3 +199,89 @@ class TestSigningOut:
         assert outside.exists()
         assert site_browser.remove_profile(home / "profiles" / ".." / ".." / "precious") is False
         assert outside.exists()
+
+
+SHOP_TOML = """
+id = "shop"
+name = "Shop"
+road = "browser"
+auth = "browser"
+hosts = ["shop.test"]
+
+[browser]
+start_url = "https://www.shop.test/"
+signed_in = ["sess*"]
+
+[levels.read]
+label = "Read only"
+
+[verbs]
+open = "read"
+"""
+
+
+def add_site(home: Path, name: str, text: str) -> Path:
+    sites = home / "sites"
+    sites.mkdir(parents=True, exist_ok=True)
+    path = sites / name
+    path.write_text(text)
+    return path
+
+
+class TestSitesAddedByHand:
+    def test_a_file_in_sites_is_a_connector_made_here(self, home):
+        add_site(home, "shop.toml", SHOP_TOML)
+        shop = find("shop")
+        assert shop.local and shop.browser.signed_in == ("sess*",)
+        assert not find("amazon").local
+        window, seen = a_person([(".shop.test", "sess-id")])
+        entry = connections.connect_browser(shop, "personal", level=None, vault=FileVault(),
+                                            browser="chrome", window=window)
+        assert entry["connector"] == "shop" and seen["url"] == "https://www.shop.test/"
+
+    def test_the_card_says_it_was_made_here_with_or_without_a_catalog(self, home):
+        add_site(home, "shop.toml", SHOP_TOML)
+        report = status.report()
+        card = next(c for c in report["connectors"] if c["id"] == "shop")
+        assert card["label"] == "local" and card["browser"]["start_url"]
+        assert next(c for c in report["connectors"] if c["id"] == "amazon")["label"] is None
+
+    def test_a_file_that_runs_a_program_is_refused(self, home):
+        add_site(home, "tool.toml", 'id = "tool"\nname = "T"\nroad = "mcp"\nauth = "token"\n'
+                 'command = ["rm", "-rf", "~"]\n[levels.read]\nlabel = "R"\n')
+        problems: list[str] = []
+        assert "tool" not in installed(problems)
+        assert any("only a site reached through the browser" in p for p in problems)
+
+    def test_an_installed_connector_of_the_same_id_wins(self, home):
+        add_site(home, "amazon.toml", SHOP_TOML.replace('"shop"', '"amazon"'))
+        problems: list[str] = []
+        assert not installed(problems)["amazon"].local
+        assert any("installed already" in p for p in problems)
+
+    def test_a_file_named_for_another_id_is_skipped(self, home):
+        add_site(home, "shopping.toml", SHOP_TOML)
+        problems: list[str] = []
+        assert "shop" not in installed(problems)
+        assert any("name the file shop.toml" in p for p in problems)
+
+    def test_a_broken_file_is_reported_and_the_rest_still_load(self, home, capsys):
+        add_site(home, "bad.toml", "id = ")
+        add_site(home, "shop.toml", SHOP_TOML)
+        report = status.report()
+        ids = {c["id"] for c in report["connectors"]}
+        assert {"shop", "amazon", "x"} <= ids
+        assert any("bad.toml" in p for p in report["problems"])
+        assert main(["connectors"]) == 0
+        out = capsys.readouterr()
+        assert "Shop (added on this computer)" in out.out and "bad.toml" in out.err
+
+    def test_the_readme_example_loads_as_written(self, home):
+        readme = (Path(__file__).parent.parent / "README.md").read_text()
+        block = re.search(r"```toml\n(# ~/.local/state/setu/sites/example.toml.*?)```",
+                          readme, re.S)
+        assert block is not None
+        add_site(home, "example.toml", block.group(1))
+        example = find("example")
+        assert example.local and example.default_level.name == "read"
+        assert tomllib.loads(block.group(1))["browser"]["headed"] is True

@@ -43,17 +43,31 @@ the site. Its levels are named for the classes they reach (``read``,
 
 Discovery is by entry point: a connector package names its manifest in
 the ``setu.connectors`` group, so installing it is registering it.
+
+A SITE CAN ALSO BE ADDED BY HAND. A browser-road manifest needs no code,
+so a person may drop one in ``sites/`` beside the vault
+(``~/.local/state/setu/sites/example.toml``) and it is listed with the
+installed ones, marked as made on this computer. Only the browser road
+is accepted there: a manifest naming a program would make a dropped file
+a way to run one. An installed connector of the same id wins, the file's
+name must be its id, and a file that cannot be read is reported and
+skipped -- it never takes the installed connectors down with it.
 """
 
 from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass, field
+from dataclasses import replace as _replace
 from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Any
 
+from setu.vault import default_home
+
 ENTRY_POINT_GROUP = "setu.connectors"
+#: Where hand-added browser-road manifests live, under Setu's home.
+SITES = "sites"
 VERB_CLASSES = ("read", "write", "spend")
 #: The verbs key that classes every tool a manifest does not list.
 ANY_TOOL = "*"
@@ -130,6 +144,8 @@ class Manifest:
     levels: tuple[Level, ...]
     verbs: dict[str, str] = field(default_factory=dict)
     browser: Browser | None = None
+    #: Read from ``sites/`` on this computer, not from an installed package.
+    local: bool = False
 
     @property
     def default_level(self) -> Level:
@@ -247,8 +263,41 @@ def load(path: Path) -> Manifest:
         return parse(tomllib.load(handle), source=str(path))
 
 
-def installed() -> dict[str, Manifest]:
-    """Every connector installed in this environment, by id."""
+def sites_dir() -> Path:
+    return default_home() / SITES
+
+
+def local(directory: Path | None = None) -> tuple[dict[str, Manifest], list[str]]:
+    """The browser-road manifests added on this computer, by id, and what
+    was wrong with the files that were skipped."""
+    directory = directory or sites_dir()
+    found: dict[str, Manifest] = {}
+    problems: list[str] = []
+    if not directory.is_dir():
+        return found, problems
+    for path in sorted(directory.glob("*.toml")):
+        try:
+            manifest = load(path)
+        except (ManifestError, tomllib.TOMLDecodeError, OSError) as exc:
+            problems.append(f"{path}: skipped -- {exc}")
+            continue
+        if manifest.road != "browser":
+            problems.append(f"{path}: skipped -- only a site reached through the browser "
+                            "may be added here; a connector that runs a program is installed "
+                            "as a package")
+            continue
+        if manifest.id != path.stem:
+            problems.append(f"{path}: skipped -- its id is {manifest.id!r}; name the file "
+                            f"{manifest.id}.toml")
+            continue
+        found[manifest.id] = _replace(manifest, local=True)
+    return found, problems
+
+
+def installed(problems: list[str] | None = None) -> dict[str, Manifest]:
+    """Every connector installed in this environment, then every site
+    added on this computer, by id. What was skipped among the added
+    sites is appended to ``problems`` when given."""
     found: dict[str, Manifest] = {}
     for point in entry_points(group=ENTRY_POINT_GROUP):
         manifest = load(Path(point.load()))
@@ -256,14 +305,25 @@ def installed() -> dict[str, Manifest]:
             raise ManifestError(f"entry point {point.name!r} loads a manifest "
                                 f"whose id is {manifest.id!r}")
         found[manifest.id] = manifest
+    added, skipped = local()
+    for cid, manifest in added.items():
+        if cid in found:
+            skipped.append(f"{sites_dir() / (cid + '.toml')}: skipped -- {cid!r} is "
+                           "installed already, and the installed one is used")
+            continue
+        found[cid] = manifest
+    if problems is not None:
+        problems.extend(skipped)
     return found
 
 
 def find(connector_id: str) -> Manifest:
-    found = installed()
+    skipped: list[str] = []
+    found = installed(skipped)
     if connector_id not in found:
         have = ", ".join(sorted(found)) or "none"
+        why = "".join(f"\n  {line}" for line in skipped if connector_id in line)
         raise ManifestError(f"no connector {connector_id!r} is installed "
                             f"(installed: {have}); try `uv pip install "
-                            f"setu-{connector_id}`")
+                            f"setu-{connector_id}`{why}")
     return found[connector_id]
