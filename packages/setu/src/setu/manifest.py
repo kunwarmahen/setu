@@ -15,9 +15,20 @@ access; asking for everything on the list would take it.)
 
 THE FIRST LEVEL IS THE DEFAULT, and it should be the least one.
 
+A PROVIDER WITHOUT SCOPES HAS LEVELS WITHOUT THEM. Home Assistant's
+tokens carry the whole of a user's rights; there is nothing finer to
+ask for. Such a manifest's levels name no scopes, the level recorded is
+the one the person chose, and the connector itself offers only that
+level's tools -- an honest line in each level's description says the
+provider does not hold it. Google manifests must still name scopes.
+
 VERBS CARRY A CLASS -- read, write, spend -- one per tool. A harness uses
 it to decide what to ask the person about; a tool the manifest does not
-list is a tool nobody agreed to.
+list is a tool nobody agreed to. One exception, for a bridge to a
+server whose tool names are the server's own and change by version
+(Home Assistant's): ``"*" = "write"`` classes every tool not listed,
+so it is asked about rather than dropped. Only ``write`` or ``spend``
+may be the default -- "anything else reads" is a claim nobody can check.
 
 Discovery is by entry point: a connector package names its manifest in
 the ``setu.connectors`` group, so installing it is registering it.
@@ -33,6 +44,10 @@ from typing import Any
 
 ENTRY_POINT_GROUP = "setu.connectors"
 VERB_CLASSES = ("read", "write", "spend")
+#: The verbs key that classes every tool a manifest does not list.
+ANY_TOOL = "*"
+#: Auth kinds whose provider enforces scopes, so each level must name some.
+SCOPED_AUTH = ("google",)
 KNOWN_KEYS = {"id", "name", "summary", "road", "auth", "command", "api_base",
               "hosts", "whoami", "levels", "verbs"}
 
@@ -86,6 +101,15 @@ class Manifest:
         known = ", ".join(level.name for level in self.levels)
         raise ManifestError(f"{self.id} has no level {name!r} (known: {known})")
 
+    @property
+    def scoped(self) -> bool:
+        """Whether the provider enforces the levels (it has scopes)."""
+        return self.auth in SCOPED_AUTH
+
+    def verb(self, tool: str) -> str | None:
+        """A tool's class: listed, else the ``"*"`` default, else None."""
+        return self.verbs.get(tool) or self.verbs.get(ANY_TOOL)
+
     def level_for_scopes(self, granted: set[str]) -> Level | None:
         """The richest level whose scopes were ALL granted -- what a
         connection actually holds when a person unticks a box."""
@@ -111,7 +135,7 @@ def parse(data: dict[str, Any], source: str = "manifest") -> Manifest:
     levels = []
     for name, spec in data["levels"].items():
         scopes = spec.get("scopes") or []
-        if not scopes:
+        if not scopes and data["auth"] in SCOPED_AUTH:
             raise ManifestError(f"{source}: level {name!r} names no scopes")
         levels.append(Level(name=name, label=spec.get("label", name),
                             scopes=tuple(scopes),
@@ -121,6 +145,8 @@ def parse(data: dict[str, Any], source: str = "manifest") -> Manifest:
         if klass not in VERB_CLASSES:
             raise ManifestError(f"{source}: verb {tool!r} has class {klass!r} "
                                 f"(known: {', '.join(VERB_CLASSES)})")
+    if verbs.get(ANY_TOOL) == "read":
+        raise ManifestError(f"{source}: \"*\" may be write or spend, never read")
     who = data.get("whoami")
     return Manifest(
         id=data["id"], name=data["name"], summary=data.get("summary", ""),

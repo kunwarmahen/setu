@@ -33,6 +33,15 @@ deleted either way: a person who asked to disconnect is disconnected
 here even when Google cannot be reached, and is told to check there.
 The one exception is the rule above: the same account connected under a
 second name keeps the grant alive, and the person is told why.
+
+HOME ASSISTANT IS ITS OWN SERVER. Its connections carry the server's
+address (``base_url``) and an ``auth`` of ``homeassistant``; the token is
+either a login-page sign-in (refreshed and revoked like Google's, but
+against that server) or a pasted long-lived token, which is neither.
+Every sign-in there has its own refresh token, so the shared-grant rule
+above does not arise: a replaced one is simply revoked. Levels are the
+one chosen -- the server has no scopes to grant fewer
+(homeassistant.py).
 """
 
 from __future__ import annotations
@@ -46,7 +55,7 @@ from typing import Any
 
 import httpx
 
-from setu import google
+from setu import google, homeassistant
 from setu.manifest import Manifest
 from setu.vault import Vault
 
@@ -76,6 +85,7 @@ class Token:
     scopes: tuple[str, ...]
     account: str
     email: str
+    level: str = ""
 
 
 def public(entry: dict[str, Any]) -> dict[str, Any]:
@@ -138,6 +148,59 @@ def connect(manifest: Manifest, account: str, *, level: str | None,
     return entry
 
 
+def connect_homeassistant(manifest: Manifest, account: str, *, level: str | None,
+                          base_url: str, vault: Vault, http: httpx.Client,
+                          long_lived: str | None = None,
+                          open_browser: Callable[[str], Any] | None = webbrowser.open,
+                          on_url: Callable[[str], Any] | None = None,
+                          timeout: float = google.SIGN_IN_TIMEOUT) -> dict[str, Any]:
+    """Sign in to a Home Assistant at ``base_url``: its login page, or a
+    pasted ``long_lived`` token, checked against the server first."""
+    if manifest.auth != "homeassistant":
+        raise ConnectionFailed(f"{manifest.id} does not sign in to Home Assistant")
+    ref = ref_for(manifest.id, account)
+    asked = manifest.level(level)
+    base = homeassistant.normalise_url(base_url)
+    if long_lived:
+        config = homeassistant.whoami(base, long_lived.strip(), http=http)
+        secret: dict[str, Any] = {"kind": "long_lived", "access_token": long_lived.strip()}
+    else:
+        payload = homeassistant.sign_in(base, http=http, open_browser=open_browser,
+                                        on_url=on_url, timeout=timeout)
+        if not payload.get("refresh_token"):
+            raise ConnectionFailed(f"{base} sent no refresh token, so the connection "
+                                   "would die within the hour. Nothing was saved.")
+        try:
+            config = homeassistant.whoami(base, payload["access_token"], http=http)
+        except homeassistant.HomeAssistantError:
+            homeassistant.revoke(base, payload["refresh_token"], http=http)
+            raise
+        secret = {"kind": "oauth", "client_id": payload["client_id"],
+                  "refresh_token": payload["refresh_token"],
+                  "access_token": payload["access_token"],
+                  "expires_at": time.time() + float(payload.get("expires_in", 1800))}
+    previous = vault.get(ref)
+    entry = {
+        "connector": manifest.id,
+        "account": account,
+        "auth": "homeassistant",
+        "base_url": base,
+        "email": homeassistant.label(base, config),
+        "level": asked.name,
+        "asked_level": asked.name,
+        "scopes": [],
+        "created": _now(),
+        "last_used": None,
+        "secret": secret,
+    }
+    vault.put(ref, entry)
+    if previous and previous.get("auth") == "homeassistant":
+        old = previous.get("secret") or {}
+        if old.get("kind") == "oauth" and old.get("refresh_token") != secret.get("refresh_token"):
+            homeassistant.revoke(previous["base_url"], old["refresh_token"], http=http)
+    return entry
+
+
 def _same_grant(entry: dict[str, Any], client_id: str, email: str) -> bool:
     """Whether ``entry`` rides on the grant (client, Google account) given.
 
@@ -193,6 +256,8 @@ def token(ref: str, *, vault: Vault, http: httpx.Client, force: bool = False) ->
         raise ConnectionFailed(f"no connection {ref!r}; run `setu connect "
                                f"{ref.split(':')[0]} --as {ref.partition(':')[2] or 'personal'}`")
     secret = entry["secret"]
+    if entry.get("auth") == "homeassistant":
+        return _ha_token(ref, entry, vault=vault, http=http, force=force)
     if force or time.time() >= float(secret.get("expires_at", 0)) - EXPIRY_SKEW:
         client = google.Client(client_id=secret["client_id"],
                                client_secret=secret["client_secret"],
@@ -213,7 +278,43 @@ def token(ref: str, *, vault: Vault, http: httpx.Client, force: bool = False) ->
     vault.put(ref, entry)
     return Token(access_token=secret["access_token"], expires_at=float(secret["expires_at"]),
                  scopes=tuple(entry.get("scopes", ())), account=entry["account"],
-                 email=entry.get("email", ""))
+                 email=entry.get("email", ""), level=entry.get("level", ""))
+
+
+#: What a long-lived token's expiry is reported as: far enough away that
+#: nobody asks for a new one, and still a number JSON can carry.
+NEVER = 4102444800.0     # 2100-01-01
+
+
+def _ha_token(ref: str, entry: dict[str, Any], *, vault: Vault, http: httpx.Client,
+              force: bool) -> Token:
+    secret, base = entry["secret"], entry["base_url"]
+    if secret.get("kind") == "long_lived":
+        if force:
+            raise ConnectionFailed(
+                f"{ref}: {base} refused its long-lived token, which cannot be refreshed. "
+                f"It may have been deleted in your profile; run `setu connect "
+                f"{entry['connector']} --as {entry['account']}` again")
+        expires = NEVER
+    else:
+        if force or time.time() >= float(secret.get("expires_at", 0)) - EXPIRY_SKEW:
+            try:
+                payload = homeassistant.refresh(base, secret["client_id"],
+                                                secret["refresh_token"], http=http)
+            except homeassistant.HomeAssistantError as exc:
+                raise ConnectionFailed(
+                    f"{ref} could not refresh ({exc}). Its sign-in may have been removed "
+                    f"in your Home Assistant profile; run `setu connect "
+                    f"{entry['connector']} --as {entry['account']}` again") from None
+            secret["access_token"] = payload["access_token"]
+            secret["expires_at"] = time.time() + float(payload.get("expires_in", 1800))
+        expires = float(secret["expires_at"])
+    entry["secret"] = secret
+    entry["last_used"] = _now()
+    vault.put(ref, entry)
+    return Token(access_token=secret["access_token"], expires_at=expires, scopes=(),
+                 account=entry["account"], email=entry.get("email", ""),
+                 level=entry.get("level", ""))
 
 
 def disconnect(ref: str, *, vault: Vault, http: httpx.Client) -> tuple[bool, bool | None]:
@@ -224,6 +325,14 @@ def disconnect(ref: str, *, vault: Vault, http: httpx.Client) -> tuple[bool, boo
     if entry is None:
         return False, False
     secret = entry["secret"]
+    if entry.get("auth") == "homeassistant":
+        # a pasted token cannot be revoked from outside: False, and the
+        # caller says to delete it in the profile
+        revoked = (secret.get("kind") == "oauth"
+                   and homeassistant.revoke(entry["base_url"], secret["refresh_token"],
+                                            http=http))
+        vault.delete(ref)
+        return True, revoked
     if _grant_in_use(vault, secret["client_id"], entry.get("email", ""), skip=ref):
         vault.delete(ref)
         return True, None

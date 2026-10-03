@@ -6,6 +6,10 @@ person's "Desktop app" OAuth client file. Asking for its path on every
 cannot keep asking. So the PATH is remembered here -- once, for every
 harness -- and the file itself stays where the person keeps it.
 
+The same goes for the address of the person's Home Assistant: a page
+signing in has nowhere to type it, so ``setu config homeassistant-url``
+remembers it (an address, not a key).
+
 WHICH PATH WINS. ``--client-file`` beats ``SETU_GOOGLE_CLIENT_FILE``,
 which beats the remembered one: the nearer the person's hand, the
 stronger the choice.
@@ -29,8 +33,10 @@ from setu.vault import default_home
 CONFIG_FILE = "config.json"
 ENV_CLIENT_FILE = "SETU_GOOGLE_CLIENT_FILE"
 
+ENV_HA_URL = "SETU_HOMEASSISTANT_URL"
+
 #: The settings ``setu config`` knows, by the name a person types.
-KEYS = {"client-file": "google_client_file"}
+KEYS = {"client-file": "google_client_file", "homeassistant-url": "homeassistant_url"}
 
 
 def path() -> Path:
@@ -70,3 +76,9 @@ def google_client_file(explicit: str | None = None) -> str | None:
     remembered path. None when none of the three says."""
     return (explicit or os.environ.get(ENV_CLIENT_FILE)
             or load().get("google_client_file") or None)
+
+
+def homeassistant_url(explicit: str | None = None) -> str | None:
+    """The Home Assistant to sign in to: flag, environment, remembered."""
+    return (explicit or os.environ.get(ENV_HA_URL)
+            or load().get("homeassistant_url") or None)

@@ -8,6 +8,9 @@
     setu disconnect gmail:personal       revoke at Google, then forget
     setu status --json                   the same, for a harness to read
     setu config client-file PATH         remember the client file, for every harness
+    setu connect homeassistant --as home   your Home Assistant's own login page
+    setu connect homeassistant --token-stdin   or a long-lived token, pasted
+    setu config homeassistant-url URL    remember where your Home Assistant is
 
 Every command a harness needs is ``setu run``: it is what goes in an MCP
 config's ``command``, so the harness starts Setu, Setu starts the
@@ -35,7 +38,7 @@ from pathlib import Path
 
 import httpx
 
-from setu import config, connections, google, helper
+from setu import config, connections, google, helper, homeassistant
 from setu.manifest import ManifestError, find, installed
 from setu.vault import FileVault, VaultError
 
@@ -54,6 +57,8 @@ def _connectors(_args: argparse.Namespace) -> int:
             print(f"    {level.name:<8} {level.label}{mark}")
             for scope in level.scopes:
                 print(f"             {scope}")
+        if not manifest.scoped:
+            print("    (the site has no scopes: the connector keeps to the level)")
     return 0
 
 
@@ -70,6 +75,8 @@ def _connect(args: argparse.Namespace) -> int:
             _emit("error", message=str(exc) or type(exc).__name__)
             return 2
     manifest = find(args.connector)
+    if manifest.auth == "homeassistant":
+        return _connect_homeassistant(manifest, args)
     path = config.google_client_file(args.client_file)
     if not path:
         print(f"error: {manifest.name} needs a Google 'Desktop app' OAuth client. "
@@ -99,10 +106,58 @@ def _connect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ha_base(_manifest, args: argparse.Namespace) -> str | None:
+    return config.homeassistant_url(args.url)
+
+
+def _read_token(args: argparse.Namespace) -> str | None:
+    """A pasted long-lived token, from stdin -- never from argv, where
+    every process on the machine could read it."""
+    if not args.token_stdin:
+        return None
+    if sys.stdin.isatty():
+        import getpass
+        token = getpass.getpass("Home Assistant long-lived token (not shown): ")
+    else:
+        token = sys.stdin.readline()
+    token = token.strip()
+    if not token:
+        raise connections.ConnectionFailed("no token was given on stdin")
+    return token
+
+
+def _connect_homeassistant(manifest, args: argparse.Namespace) -> int:
+    base = _ha_base(manifest, args)
+    if not base:
+        print(f"error: {manifest.name} needs your Home Assistant's address. Pass --url URL, "
+              f"set {config.ENV_HA_URL}, or remember it with `setu config "
+              "homeassistant-url URL`.", file=sys.stderr)
+        return 2
+    level = manifest.level(args.level)
+    ref = connections.ref_for(manifest.id, args.account)
+    token = _read_token(args)
+    print(f"connecting {ref} at '{level.label}' on {base}.")
+    print(f"    {level.description}")
+    if token is None:
+        print("A browser window is opening on your Home Assistant's login page. "
+              "Sign in there, then come back here.")
+    with httpx.Client() as http:
+        entry = connections.connect_homeassistant(
+            manifest, args.account, level=level.name, base_url=base, vault=FileVault(),
+            http=http, long_lived=token,
+            open_browser=None if args.no_browser else webbrowser.open,
+            on_url=lambda url: print(f"\nIf no window opened, open this address:\n{url}\n"))
+    print(f"connected {ref} to {entry['email']} — {level.label}")
+    print(f"next: setu mcp-config {ref}")
+    return 0
+
+
 def _connect_json(args: argparse.Namespace) -> int:
     """The sign-in, as events. The browser is never opened from here: the
     harness shows the address to the person, in the page they are using."""
     manifest = find(args.connector)
+    if manifest.auth == "homeassistant":
+        return _connect_homeassistant_json(manifest, args)
     path = config.google_client_file(args.client_file)
     if not path:
         _emit("error", message=f"{manifest.name} needs a Google 'Desktop app' OAuth "
@@ -121,6 +176,27 @@ def _connect_json(args: argparse.Namespace) -> int:
     held = manifest.level(entry["level"])
     _emit("connected", ref=ref, email=entry.get("email") or "", level=held.name,
           level_label=held.label, asked_level=entry.get("asked_level", held.name))
+    return 0
+
+
+def _connect_homeassistant_json(manifest, args: argparse.Namespace) -> int:
+    base = _ha_base(manifest, args)
+    if not base:
+        _emit("error", message=f"{manifest.name} needs your Home Assistant's address: "
+              "`setu config homeassistant-url URL`", setup="homeassistant_url")
+        return 2
+    level = manifest.level(args.level)
+    ref = connections.ref_for(manifest.id, args.account)
+    token = _read_token(args)
+    _emit("started", ref=ref, level=level.name, level_label=level.label, scopes=[],
+          base_url=homeassistant.normalise_url(base))
+    with httpx.Client() as http:
+        entry = connections.connect_homeassistant(
+            manifest, args.account, level=level.name, base_url=base, vault=FileVault(),
+            http=http, long_lived=token, open_browser=None,
+            on_url=lambda url: _emit("url", url=url))
+    _emit("connected", ref=ref, email=entry["email"], level=level.name,
+          level_label=level.label, asked_level=level.name)
     return 0
 
 
@@ -144,10 +220,14 @@ def _config(args: argparse.Namespace) -> int:
     if not args.value:
         print(f"{args.key}: {config.load().get(key) or '(not set)'}")
         return 0
-    path = Path(args.value).expanduser().resolve()
-    google.client_from_file(path)   # a Web client, or no file, is refused now, not at sign-in
-    config.save(key, str(path))
-    print(f"{args.key}: {path}")
+    if key == "homeassistant_url":
+        value = homeassistant.normalise_url(args.value)
+    else:
+        path = Path(args.value).expanduser().resolve()
+        google.client_from_file(path)   # a Web client, or no file, is refused now
+        value = str(path)
+    config.save(key, value)
+    print(f"{args.key}: {value}")
     return 0
 
 
@@ -181,8 +261,10 @@ def _run(args: argparse.Namespace) -> int:
         return 2
     manifest = find(entry["connector"])
     with httpx.Client() as http:
+        # a server of the person's own (Home Assistant) is the connection's
+        # address, not the manifest's
         return helper.run(args.ref, manifest.command, vault=vault, http=http,
-                          api_base=manifest.api_base)
+                          api_base=entry.get("base_url") or manifest.api_base)
 
 
 def _mcp_config(args: argparse.Namespace) -> int:
@@ -223,11 +305,26 @@ def _status(args: argparse.Namespace) -> int:
 
 
 def _disconnect(args: argparse.Namespace) -> int:
+    vault = FileVault()
+    entry = vault.get(args.ref) or {}
     with httpx.Client() as http:
-        existed, revoked = connections.disconnect(args.ref, vault=FileVault(), http=http)
+        existed, revoked = connections.disconnect(args.ref, vault=vault, http=http)
     if not existed:
         print(f"no connection {args.ref!r}")
         return 1
+    if entry.get("auth") == "homeassistant":
+        base = entry.get("base_url", "your Home Assistant")
+        if (entry.get("secret") or {}).get("kind") == "long_lived":
+            print(f"disconnected {args.ref} and deleted its token here. A long-lived token "
+                  f"cannot be revoked from outside: delete it in your profile on {base} "
+                  "(Security → Long-lived access tokens)")
+        elif revoked:
+            print(f"disconnected {args.ref}: {base} was asked to revoke the sign-in, and "
+                  "the key is deleted")
+        else:
+            print(f"disconnected {args.ref} here, but {base} could not be reached to revoke "
+                  "it -- remove it from your profile there (Security → Refresh tokens)")
+        return 0
     if revoked is None:
         print(f"disconnected {args.ref} and deleted its key. Google access is kept, because "
               "another connection uses the same Google account; disconnect that one too to "
@@ -256,6 +353,11 @@ def build_parser() -> argparse.ArgumentParser:
                          help="print the address instead of opening a browser")
     connect.add_argument("--json", action="store_true",
                          help="events as JSON lines, for a harness's page (no browser)")
+    connect.add_argument("--url", help="your Home Assistant's address "
+                         "(default: setu config homeassistant-url)")
+    connect.add_argument("--token-stdin", action="store_true",
+                         help="Home Assistant: read a long-lived token from stdin "
+                         "instead of signing in on its login page")
 
     sub.add_parser("list", help="your connections")
 
@@ -289,8 +391,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return COMMANDS[args.command](args)
-    except (connections.ConnectionFailed, google.GoogleAuthError, ManifestError,
-            VaultError, ValueError) as exc:
+    except (connections.ConnectionFailed, google.GoogleAuthError,
+            homeassistant.HomeAssistantError, ManifestError, VaultError, ValueError) as exc:
         # `setu run` speaks MCP on stdout, so every complaint goes to stderr.
         print(f"error: {exc}", file=sys.stderr)
         return 2

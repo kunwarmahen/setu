@@ -25,7 +25,8 @@ ONE LINE OF JSON EACH WAY:
 
     → {"op": "token"}                      (or {"op": "token", "force": true}
     ← {"access_token": "...", "expires_at": 1790000000.0,   after a 401)
-       "scopes": [...], "account": "personal", "email": "..."}
+       "scopes": [...], "account": "personal", "email": "...",
+       "level": "read"}
     ← {"error": "why not, in words"}
 
 What a connector does with the token it gets is not enforced here:
@@ -61,6 +62,7 @@ ENV_API_BASE = "SETU_API_BASE"
 #: the environment. Short-lived and never refreshed -- for trying things.
 ENV_ACCESS_TOKEN = "SETU_ACCESS_TOKEN"
 ENV_SCOPES = "SETU_SCOPES"
+ENV_LEVEL = "SETU_LEVEL"
 
 
 def answer(request: dict[str, Any], ref: str, *, vault: Vault,
@@ -72,7 +74,8 @@ def answer(request: dict[str, Any], ref: str, *, vault: Vault,
     except connections.ConnectionFailed as exc:
         return {"error": str(exc)}
     return {"access_token": got.access_token, "expires_at": got.expires_at,
-            "scopes": list(got.scopes), "account": got.account, "email": got.email}
+            "scopes": list(got.scopes), "account": got.account, "email": got.email,
+            "level": got.level}
 
 
 def serve(sock: socket.socket, ref: str, *, vault: Vault, http: httpx.Client) -> None:

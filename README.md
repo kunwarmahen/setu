@@ -2,17 +2,20 @@
 
 **Sign in to a site once. The agents you allow can use it, and never see the key.**
 
-Setu (सेतु, "bridge") connects your accounts — Gmail first — to an AI agent,
-so you can ask *"anything from my accountant this week?"* and get an answer
-from your real inbox. It is built around three promises:
+Setu (सेतु, "bridge") connects your accounts — Gmail and Home Assistant so
+far — to an AI agent, so you can ask *"anything from my accountant this
+week?"* or *"which lights are still on?"* and get an answer from your real
+inbox or your real home. It is built around three promises:
 
 1. **The key never reaches the model.** Your sign-in lives in a file only you
    can read. The program that talks to Gmail asks Setu for a short-lived pass
    each time it needs one; the model only ever sees email text.
-2. **You choose the access, and Google enforces it.** Pick *Read only* and
-   Google is asked for permission to read — nothing else. Even a buggy or
-   tricked program cannot send, delete or change anything, because Google
-   itself would refuse.
+2. **You choose the access, and the site enforces it where it can.** Pick
+   *Read only* and Google is asked for permission to read — nothing else.
+   Even a buggy or tricked program cannot send, delete or change anything,
+   because Google itself would refuse. (Home Assistant has no such
+   permissions, so there Setu's own connector keeps to the level you chose —
+   see below.)
 3. **Everything stays on your computer.** There is no Setu server. Nothing
    about you, your mail or your key is sent to anyone but Google.
 
@@ -67,6 +70,69 @@ programs like this, and `gmail.compose` also allows sending. At that level
 Setu's Gmail simply offers no send tool, so a draft only goes out when you press
 Send in Gmail — but there the limit is Setu's code, not Google. *Read only* has
 no such caveat.
+
+---
+
+## What you get: Home Assistant
+
+Your Home Assistant is your own server, so there is nothing to register and no
+client file. You tell Setu where it is, and sign in on **its own login page**
+with your own password — Setu never sees it.
+
+```
+setu config homeassistant-url http://homeassistant.local:8123   # once
+setu connect homeassistant --as home                             # See only, by default
+```
+
+There are two ways in. Pick one (or both, under different names):
+
+**`homeassistant` — Setu's own tools, any Home Assistant version.**
+
+| Tool | What it does |
+|---|---|
+| `list_entities` | Every device and sensor, one line each; filter by kind (`fan`, `light`) or a word |
+| `get_state` | One device's state and details (brightness, temperature, battery…) |
+| `get_history` | How something changed over the last hours |
+| `list_services` | What a kind of device can be told to do |
+| `call_service` | *See and control, and above:* turn things on and off, set a temperature, a fan speed, a scene |
+| `call_secure_service` | *Top level only:* locks, alarms, garage and entry doors, scripts, automations — asked about every time |
+
+| Level | You can |
+|---|---|
+| **See only** (default) | see everything; change nothing |
+| **See and control** | also lights, switches, climate, fans, media, blinds, scenes — not locks, alarms or doors |
+| **See, control, and secure things** | also locks, alarms, doors, scripts and admin actions, each one asked about every time — even when your agent runs everything else unasked |
+
+A garage door and a window blind are both "covers" to Home Assistant; Setu asks
+Home Assistant which one it is, and treats a garage, gate or door as secure.
+
+**`homeassistant-mcp` — Home Assistant's own MCP server.** Home Assistant 2025.2
+and later can serve MCP itself (add the *Model Context Protocol Server*
+integration under Settings → Devices & services). This connector is a bridge to
+it: the tools are Home Assistant's own Assist tools, and **which devices they
+reach is set on Home Assistant's Settings → Voice assistants → Expose page.**
+Two levels: *See only* (live states, to-do lists, the date) and *See and
+control* (everything Assist can do). Tools Setu doesn't know by name are always
+asked about. A lock exposed to Assist can be unlocked as easily as a light is
+switched, so keep locks and doors unexposed — or use the first connector, which
+asks about them every time.
+
+**No browser on that computer?** Make a long-lived token in your Home Assistant
+profile (Security → Long-lived access tokens) and paste it:
+
+```
+setu connect homeassistant --as home --token-stdin     # it asks; the token is not shown
+```
+
+It is tried against your server before it is kept. It cannot be revoked from
+outside, so when you disconnect, Setu reminds you to delete it in the profile
+too. A login-page sign-in is revoked on your server when you disconnect.
+
+**An honest note on levels.** A Home Assistant token carries every right of the
+user who made it — there is no "read only" kind. The levels above are kept by
+Setu's connector, which only offers that level's tools. For the strongest
+limit, make a Home Assistant user just for your assistant, without admin
+rights, and sign in as that user.
 
 ---
 
@@ -181,6 +247,7 @@ setu connect gmail --level send    # change the level (signs in again on the sam
 setu disconnect gmail:personal     # revoke at Google, then delete the key
 setu status --json                 # everything above, for a harness to read (no keys)
 setu config client-file PATH       # remember the Google client file's path (--unset forgets)
+setu config homeassistant-url URL  # remember where your Home Assistant is
 ```
 
 Disconnecting revokes the permission **at Google**, so the app also disappears
@@ -218,7 +285,8 @@ reads are sent to that provider.
 ```
 packages/setu/        the core: vault, Google sign-in, connections, the token helper, setu.http()
 packages/setu-gmail/  the Gmail connector: an MCP server, and its manifest
-tests/                a fake Gmail and a fake Google, and the rules they hold the code to
+packages/setu-homeassistant/  two Home Assistant connectors: REST tools, and a bridge to its MCP server
+tests/                fakes of Gmail, Google and Home Assistant, and the rules they hold the code to
 ```
 
 * **A connector** is an ordinary MCP server plus a `manifest.toml` that names
@@ -229,13 +297,24 @@ tests/                a fake Gmail and a fake Google, and the rules they hold th
   is already signed in. Under `setu run` it asks a private pipe for a fresh
   access token; the refresh token never enters the connector's process.
 * **Tools follow the grant**: a connector asks `setu.granted_scopes()` and
-  offers only the tools those permissions can carry out.
+  offers only the tools those permissions can carry out. A site with no
+  scopes (Home Assistant) has levels without them; its connector asks
+  `setu.granted_level()` instead, and `setu status --json` marks such a
+  connector `enforced_by_site: false`.
+* **A tool list that isn't ours.** A bridge to a server whose tool names
+  change by version may say `"*" = "write"` in `[verbs]`: every tool it
+  doesn't name is then asked about rather than dropped. `"*"` can never be
+  `read`.
+* **A server of your own.** A connection may carry its own address
+  (`base_url`); `setu run` hands that to the connector instead of the
+  manifest's.
 * **One grant per app per Google account.** Revoking any token of a grant ends
   all of it, so Setu never revokes a grant another connection still uses.
 * **What a harness reads.** `setu status --json` (format `setu.status.v1`):
   connections, installed connectors with their levels and tool classes,
-  whether each connector is `ready` to sign in (and `not_ready` saying why), and
-  the `setup` Setu knows (the client file's path). Never a key. For a sign-in,
+  whether each connector is `ready` to sign in (`not_ready` saying why, and
+  `needs_setup` naming the setting that would fix it), and the `setup` Setu
+  knows (the client file's path, the Home Assistant address). Never a key. For a sign-in,
   `setu connect … --json` prints one JSON object per line and never opens a
   browser itself.
 

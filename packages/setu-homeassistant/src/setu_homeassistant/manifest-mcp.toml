@@ -1,0 +1,30 @@
+# Home Assistant through its own MCP server (the "Model Context Protocol
+# Server" integration, Home Assistant 2025.2 or later, which must be
+# added under Settings → Devices & services). Its tools are Home
+# Assistant's Assist tools, and their names change between versions
+# (``GetLiveContext`` became ``homeassistant__GetLiveContext``), so
+# instead of a list that goes stale, every tool not named below counts as
+# write: asked about, never run unasked. Which devices they reach is set
+# on Home Assistant's own Settings → Voice assistants → Expose page.
+id = "homeassistant-mcp"
+name = "Home Assistant (its own MCP server)"
+summary = "Home Assistant's own Assist tools, through its MCP server: see and control the devices you expose to Assist there."
+road = "mcp"
+auth = "homeassistant"
+command = ["setu-homeassistant-mcp"]
+
+[levels.read]
+label = "See only"
+description = "Only Home Assistant's tools that read: the live state of exposed devices, to-do lists, and the date and time. Kept by the connector, which hides the rest."
+
+[levels.control]
+label = "See and control"
+description = "Every Assist tool Home Assistant offers, for the devices exposed to Assist. A lock exposed there can be unlocked like a light can be switched, so keep locks and doors unexposed, or use the Home Assistant connector, which asks about them every time."
+
+[verbs]
+GetLiveContext = "read"
+homeassistant__GetLiveContext = "read"
+GetDateTime = "read"
+llm__GetDateTime = "read"
+todo__get_items = "read"
+"*" = "write"

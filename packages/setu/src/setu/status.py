@@ -41,17 +41,21 @@ def _setu_command() -> str:
     return shutil.which("setu") or "setu"
 
 
-def _not_ready(manifest: Manifest, client_file: str | None) -> str:
-    """Why this connector cannot be signed in to yet, or "" when it can."""
-    if manifest.auth == "google" and not client_file:
+def _not_ready(manifest: Manifest, setup: dict[str, Any]) -> tuple[str, str]:
+    """Why this connector cannot be signed in to yet, and the ``setup``
+    key that would fix it -- ("", "") when it can."""
+    if manifest.auth == "google" and not setup.get("google_client_file"):
         return ("needs a Google 'Desktop app' OAuth client file "
-                "(setu config client-file PATH)")
-    return ""
+                "(setu config client-file PATH)", "google_client_file")
+    if manifest.auth == "homeassistant" and not setup.get("homeassistant_url"):
+        return ("needs your Home Assistant's address "
+                "(setu config homeassistant-url URL)", "homeassistant_url")
+    return "", ""
 
 
 def _connector(manifest: Manifest, connected: bool,
-               client_file: str | None = None) -> dict[str, Any]:
-    not_ready = _not_ready(manifest, client_file)
+               setup: dict[str, Any] | None = None) -> dict[str, Any]:
+    not_ready, needs = _not_ready(manifest, setup or {})
     return {
         "id": manifest.id,
         "name": manifest.name,
@@ -63,9 +67,13 @@ def _connector(manifest: Manifest, connected: bool,
                     "description": level.description, "scopes": list(level.scopes)}
                    for level in manifest.levels],
         "verbs": dict(manifest.verbs),
+        "auth": manifest.auth,
+        # False: the site has no scopes, and the connector keeps the level
+        "enforced_by_site": manifest.scoped,
         "connected": connected,
         "ready": not not_ready,
         "not_ready": not_ready,
+        "needs_setup": needs,
     }
 
 
@@ -78,9 +86,10 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
         manifests, problems = {}, [str(exc)]
     command = _setu_command()
     try:
-        client_file = config.google_client_file()
+        setup = {"google_client_file": config.google_client_file(),
+                 "homeassistant_url": config.homeassistant_url()}
     except ValueError as exc:
-        client_file = None
+        setup = {"google_client_file": None, "homeassistant_url": None}
         problems.append(str(exc))
     rows = []
     for ref in vault.list():
@@ -104,6 +113,7 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
             "scopes": list(entry.get("scopes") or []),
             "last_used": entry.get("last_used"),
             "installed": manifest is not None,
+            "base_url": entry.get("base_url"),
             "mcp": {"name": ref.replace(":", "-"), "command": command, "args": ["run", ref]},
         })
     connected = {row["connector"] for row in rows}
@@ -112,8 +122,8 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
         "version": __version__,
         "command": command,
         "connections": rows,
-        "connectors": [_connector(m, m.id in connected, client_file)
+        "connectors": [_connector(m, m.id in connected, setup)
                        for m in manifests.values()],
-        "setup": {"google_client_file": client_file},
+        "setup": setup,
         "problems": problems,
     }

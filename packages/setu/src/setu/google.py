@@ -140,7 +140,7 @@ class _Catcher(BaseHTTPRequestHandler):
         body = _PAGE.format(
             title="Signed in" if ok else "Not signed in",
             text=("You can close this tab and go back to the terminal."
-                  if ok else f"Google said: {got.get('error')}. Nothing was saved."))
+                  if ok else f"The sign-in said: {got.get('error')}. Nothing was saved."))
         data = body.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")

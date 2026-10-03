@@ -39,7 +39,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from setu.helper import ENV_ACCESS_TOKEN, ENV_API_BASE, ENV_FD, ENV_SCOPES
+from setu.helper import ENV_ACCESS_TOKEN, ENV_API_BASE, ENV_FD, ENV_LEVEL, ENV_SCOPES
 
 #: Ask for a new token this long before the old one would expire.
 SKEW = 60
@@ -56,6 +56,7 @@ class Granted:
     scopes: frozenset[str]
     account: str = ""
     email: str = ""
+    level: str = ""
 
 
 class PipeSource:
@@ -84,16 +85,17 @@ class PipeSource:
                                    expires_at=float(reply["expires_at"]),
                                    scopes=frozenset(reply.get("scopes") or ()),
                                    account=reply.get("account", ""),
-                                   email=reply.get("email", ""))
+                                   email=reply.get("email", ""),
+                                   level=reply.get("level", ""))
             return self._cached
 
 
 class EnvSource:
     """A token pasted into the environment: no refresh, no expiry known."""
 
-    def __init__(self, token: str, scopes: str = "") -> None:
+    def __init__(self, token: str, scopes: str = "", level: str = "") -> None:
         self._granted = Granted(access_token=token, expires_at=float("inf"),
-                                scopes=frozenset(scopes.split()))
+                                scopes=frozenset(scopes.split()), level=level)
 
     def get(self, *, force: bool = False) -> Granted:
         if force:
@@ -116,7 +118,8 @@ def source() -> PipeSource | EnvSource:
             if fd:
                 _source = PipeSource(int(fd))
             elif token:
-                _source = EnvSource(token, os.environ.get(ENV_SCOPES, ""))
+                _source = EnvSource(token, os.environ.get(ENV_SCOPES, ""),
+                                    os.environ.get(ENV_LEVEL, ""))
             else:
                 raise NoToken(f"no {ENV_FD} and no {ENV_ACCESS_TOKEN}: start this "
                               "connector with `setu run <connector>:<account>`")
@@ -150,3 +153,9 @@ def granted_scopes() -> frozenset[str]:
     """What this connection may do -- so a connector offers only the tools
     its grant can carry out, instead of tools that fail with 403."""
     return source().get().scopes
+
+
+def granted_level() -> str:
+    """The level this connection was given -- for a provider with no
+    scopes (Home Assistant), the only word on which tools to offer."""
+    return source().get().level

@@ -163,3 +163,32 @@ To check which account and level are in use at any time: `uv run setu list`.
 * Delete any test drafts in Gmail → Drafts, and test emails in Sent.
 * If you connected at the send level only to test it, disconnect and connect
   again at `--level draft` or `--level read` (see *Sending* above).
+
+---
+
+## Home Assistant, the same way
+
+Start at **See only**: nothing can be changed, so a first run is safe.
+
+```
+uv run setu connect homeassistant --as home --url http://‹your-server›:8123
+yantra --setu .venv/bin/setu --provider ollama --model qwen3.8:latest \
+    "Using my Home Assistant: which lights are on right now, and what fans do I have?"
+```
+
+You should see `homeassistant-home (4 tool(s))` when Yantra starts, a
+`list_entities` call, and an answer naming your real devices. Then ask it to
+turn something on: at See only it has no tool for that and should say so.
+
+When you move to *See and control*, try one harmless device first (a lamp),
+and keep `--yolo` off so each change is asked about. Locks, alarms and doors
+need the top level, and are asked about every time even then.
+
+To try Home Assistant's own MCP server instead, add the *Model Context
+Protocol Server* integration in Home Assistant, then
+`uv run setu connect homeassistant-mcp --as home`. Only devices exposed to
+Assist are reachable.
+
+Disconnect with `uv run setu disconnect homeassistant:home`. A login-page
+sign-in is revoked on your server; a pasted token has to be deleted in your
+profile as well.

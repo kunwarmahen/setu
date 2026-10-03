@@ -1,0 +1,32 @@
+# What Setu's Home Assistant connector is, in words a person can check
+# before signing in. Home Assistant has no scopes: a token holds every
+# right of the user who made it. So the levels below are kept by this
+# connector, which offers only the chosen level's tools -- and each level
+# says so. The safest setup is a Home Assistant user of its own for the
+# assistant, without admin rights.
+id = "homeassistant"
+name = "Home Assistant"
+summary = "See your home's devices, sensors and history; turn things on and off; and -- only at the level that says so -- locks, alarms, doors and scripts, asked every time."
+road = "api"
+auth = "homeassistant"
+command = ["setu-homeassistant"]
+
+[levels.read]
+label = "See only"
+description = "See every device and sensor, its state and its history. Nothing can be changed. Kept by the connector: Home Assistant tokens have no read-only kind."
+
+[levels.control]
+label = "See and control"
+description = "Everything in See only, plus lights, switches, climate, fans, media, covers and scenes. Not locks, alarms, garage or entry doors, scripts, automations or admin actions."
+
+[levels.full]
+label = "See, control, and secure things"
+description = "Everything in See and control, plus locks, alarms, garage and entry doors, scripts, automations and notifications. Each of those is asked about every time, even when everything else runs unasked."
+
+[verbs]
+list_entities = "read"
+get_state = "read"
+get_history = "read"
+list_services = "read"
+call_service = "write"
+call_secure_service = "spend"

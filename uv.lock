@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "setu",
     "setu-gmail",
+    "setu-homeassistant",
     "setu-workspace",
 ]
 
@@ -725,6 +726,23 @@ requires-dist = [
 ]
 
 [[package]]
+name = "setu-homeassistant"
+version = "0.1.0"
+source = { editable = "packages/setu-homeassistant" }
+dependencies = [
+    { name = "httpx" },
+    { name = "mcp" },
+    { name = "setu" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "mcp", specifier = ">=2.2,<3" },
+    { name = "setu", editable = "packages/setu" },
+]
+
+[[package]]
 name = "setu-workspace"
 version = "0.1.0"
 source = { virtual = "." }
@@ -735,6 +753,7 @@ dev = [
     { name = "ruff" },
     { name = "setu" },
     { name = "setu-gmail" },
+    { name = "setu-homeassistant" },
 ]
 
 [package.metadata]
@@ -745,6 +764,7 @@ dev = [
     { name = "ruff", specifier = ">=0.14" },
     { name = "setu", editable = "packages/setu" },
     { name = "setu-gmail", editable = "packages/setu-gmail" },
+    { name = "setu-homeassistant", editable = "packages/setu-homeassistant" },
 ]
 
 [[package]]

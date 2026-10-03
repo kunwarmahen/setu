@@ -13,9 +13,10 @@ members = ["packages/*"]
 [tool.uv.sources]
 setu = { workspace = true }
 setu-gmail = { workspace = true }
+setu-homeassistant = { workspace = true }
 
 [dependency-groups]
-dev = ["pytest>=8.3", "ruff>=0.14", "setu", "setu-gmail"]
+dev = ["pytest>=8.3", "ruff>=0.14", "setu", "setu-gmail", "setu-homeassistant"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
