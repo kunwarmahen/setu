@@ -31,6 +31,9 @@
     setu catalog review ID --save DIR --to URL     the maintainer: a recipe's files, to try
     setu catalog upload DIR --to URL     the maintainer: a recipe up, by its hash
     setu catalog recipe NAME --into DIR  a listed recipe, checked by hash, for a harness to install
+    setu certify keygen KEY --as NAME    a certifier's key (independent of the catalog)
+    setu certify sign --subject recipe:NAME --key KEY --statement TEXT --checks deployed,...
+    setu certify trust CERTIFIER.pub     count this certifier's word on your cards
 
 Every command a harness needs is ``setu run``: it is what goes in an MCP
 config's ``command``, so the harness starts Setu, Setu starts the
@@ -281,6 +284,57 @@ def _install(args: argparse.Namespace) -> int:
     print(f"installed {args.connector} {installed_version}, its wheel checked against the "
           f"signed catalog. Next: setu connect {args.connector}")
     return 0
+
+
+def _certify(args: argparse.Namespace) -> int:
+    """``setu certify``: an independent certifier's side (certify.py)."""
+    from setu import certify
+    try:
+        if args.certify_command == "keygen":
+            pub, kid = certify.keygen(Path(args.path).expanduser(), args.name or "")
+            print(f"certifier key {kid} for {args.name}: private half at {args.path} "
+                  f"(keep it safe), public half at {pub} -- publish that one")
+            return 0
+        if args.certify_command == "trust":
+            if args.remove:
+                gone = certify.distrust(args.remove)
+                print(f"{args.remove}: {'no longer trusted' if gone else 'was not trusted'}")
+                return 0 if gone else 1
+            if not args.path:
+                for kid, who in certify.trusted().items():
+                    print(f"{kid}  {who['name']}")
+                return 0
+            pub = certify.load_public(Path(args.path).expanduser())
+            certify.trust(pub)
+            print(f"trusting certifier {pub['name'] or '(no name)'} ({pub['id']})")
+            return 0
+        if args.certify_command == "sign":
+            subject = certify.subject_for(args.subject, catalog.kept())
+            name = certify.load_public(Path(args.key + ".pub").expanduser())["name"] \
+                if Path(args.key + ".pub").expanduser().exists() else ""
+            cert = certify.make(subject, Path(args.key).expanduser(),
+                                name=args.name or name, statement=args.statement or "",
+                                checks=[c for c in (args.checks or "").split(",") if c],
+                                verdict="revoked" if args.revoke else "certified")
+            out = Path(args.out or f"{subject['kind']}-{subject['id']}-"
+                       f"{subject['version'] or subject['sha256'][:12]}.cert.json")
+            out.write_text(json.dumps(cert, indent=2) + "\n")
+            what = "withdrawal" if args.revoke else "certification"
+            print(f"{what} of {args.subject} ({subject['sha256'][:16]}…) signed as "
+                  f"{cert['certifier']['name']} -> {out}")
+            return 0
+        if args.certify_command == "verify":
+            cert = json.loads(Path(args.path).read_text())
+            kid = certify.verify(cert)
+            s = cert["subject"]
+            print(f"{cert['verdict']}: {s['kind']}:{s['id']} {s['version']} "
+                  f"({s['sha256'][:16]}…) by {cert['certifier']['name']} ({kid}), "
+                  f"{cert['at']}")
+            return 0
+    except certify.CertError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    return 2
 
 
 def _connector_named(args: argparse.Namespace) -> str:
@@ -780,6 +834,29 @@ def build_parser() -> argparse.ArgumentParser:
                           "checked by hash")
     inst.add_argument("connector", help="its id, as `setu catalog` lists it")
 
+    cert = sub.add_parser("certify", help="certify a version you checked yourself, under "
+                          "your own key; trust certifiers")
+    cert_sub = cert.add_subparsers(dest="certify_command", required=True)
+    c_key = cert_sub.add_parser("keygen", help="your certifier key")
+    c_key.add_argument("path", help="where the private half goes (the .pub beside it)")
+    c_key.add_argument("--as", dest="name", required=True,
+                       help="the name you certify under (your claim; the key is you)")
+    c_trust = cert_sub.add_parser("trust", help="trust a certifier's .pub (no PATH: list)")
+    c_trust.add_argument("path", nargs="?")
+    c_trust.add_argument("--remove", metavar="KEY_ID")
+    c_sign = cert_sub.add_parser("sign", help="sign a certification (or --revoke one)")
+    c_sign.add_argument("--subject", required=True, help="recipe:NAME or connector:ID")
+    c_sign.add_argument("--key", required=True, help="your certifier key")
+    c_sign.add_argument("--statement", help="what you did and what you found")
+    c_sign.add_argument("--checks", help="comma-separated: scan, sandboxed-run, deployed, "
+                        "read-the-code, rebuilt-from-source")
+    c_sign.add_argument("--name", help="the name to sign as (default: from your .pub)")
+    c_sign.add_argument("--revoke", action="store_true",
+                        help="withdraw your certification of this version")
+    c_sign.add_argument("--out", help="where to write it")
+    c_ver = cert_sub.add_parser("verify", help="check a certification file")
+    c_ver.add_argument("path")
+
     sub.add_parser("list", help="your connections")
 
     run = sub.add_parser("run", help="start a connector for a connection")
@@ -827,7 +904,7 @@ def build_parser() -> argparse.ArgumentParser:
 COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list,
             "run": _run, "mcp-config": _mcp_config, "status": _status,
             "disconnect": _disconnect, "config": _config, "catalog": _catalog,
-            "site": _site, "install": _install}
+            "site": _site, "install": _install, "certify": _certify}
 
 
 def main(argv: list[str] | None = None) -> int:
