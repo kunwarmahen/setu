@@ -69,7 +69,7 @@ from pathlib import Path
 import httpx
 
 from setu import browser as site_browser
-from setu import catalog, config, connections, google, health, helper, homeassistant
+from setu import catalog, certify, config, connections, google, health, helper, homeassistant
 from setu.manifest import ManifestError, find, installed
 from setu.vault import FileVault, VaultError
 
@@ -779,6 +779,8 @@ def _catalog(args: argparse.Namespace) -> int:
             return 2
         target = catalog.fetch_recipe(args.path, Path(args.into or ".").expanduser())
         print(f"{args.path}: checked against the signed catalog, written to {target}")
+        seen = certify.certified(catalog.kept(), "recipe", args.path).get("line")
+        print(f"{args.path}: {seen or 'no independent certification yet'}")
         return 0
     if action == "counts":
         if not args.to or not args.path:
@@ -815,12 +817,16 @@ def _catalog(args: argparse.Namespace) -> int:
         print(f"  {cid:<20} {who}  {installs}  ({mark})")
         if card["yanked"]:
             print(f"      WITHDRAWN {card['installed_version']}: {card['yanked']}")
+        if seen := certify.certified(index, "connector", cid).get("line"):
+            print(f"      {seen}")
     for cid in sorted(set(known) - set(index.connectors)):
         how = "added on this computer" if known[cid].local else "sideloaded"
         print(f"  {cid:<20} {how} (not in the catalog)")
     for recipe in index.recipes:
         print(f"  recipe {recipe.get('name')}: needs {', '.join(recipe.get('needs') or [])} "
               f"-- {recipe.get('author') or '?'}")
+        if seen := certify.certified(index, "recipe", recipe.get("name", "")).get("line"):
+            print(f"      {seen}")
     return 0
 
 

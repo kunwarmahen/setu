@@ -45,7 +45,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from setu import __version__, catalog, config, connections, health
+from setu import __version__, catalog, certify, config, connections, health
 from setu import browser as site_browser
 from setu.manifest import Manifest, ManifestError, installed, sites_dir
 from setu.vault import FileVault, Vault
@@ -190,16 +190,20 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
         "version": __version__,
         "command": command,
         "connections": rows,
-        "connectors": (cards := [_connector(m, m.id in connected, ready_setup, index)
+        "connectors": (cards := [{**_connector(m, m.id in connected, ready_setup, index),
+                                  "certified": certify.certified(index, "connector", m.id)}
                                  for m in manifests.values()]),
         "setup": setup,
         "catalog": ({"source": index.source, "key": index.key,
                      "issued": index.data.get("issued", ""),
-                     "recipes": index.recipes,
+                     "recipes": [{**r, "certified": certify.certified(index, "recipe",
+                                                               r.get("name", ""))}
+                                 for r in index.recipes],
                      # listed but not here: what a page may offer to install
                      "connectors": [
-                         {k: c.get(k) for k in ("id", "name", "summary", "label", "author",
-                                                "installs", "version")}
+                         {**{k: c.get(k) for k in ("id", "name", "summary", "label",
+                                                   "author", "installs", "version")},
+                          "certified": certify.certified(index, "connector", cid)}
                          for cid, c in index.connectors.items()
                          if cid not in manifests and (c.get("wheel") or {}).get("sha256")]}
                     if index is not None else None),

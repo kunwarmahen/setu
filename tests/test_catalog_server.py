@@ -533,3 +533,17 @@ class TestCertifications:
         tampered = {**good, "statement": "certified by the whole internet"}
         assert httpx.post(f"{address}/certifications", json=tampered).status_code == 400
         assert not list((data / "certifications").glob("*.json"))      # nothing kept
+
+    def test_the_card_says_who_certified_this_version(self, live, keys, tmp_path):
+        import httpx
+        from setu import certify
+        address, data, subject = self.listed(live, keys, tmp_path)
+        certify.keygen(tmp_path / "stranger.key", "Someone")
+        for key, name in ((tmp_path / "acme.key", "Acme Labs"),
+                          (tmp_path / "stranger.key", "Someone")):
+            cert = certify.make(subject, key, name=name, statement="ran it", checks=["scan"])
+            assert httpx.post(f"{address}/certifications", json=cert).status_code == 201
+        certify.trust(certify.load_public(tmp_path / "acme.key.pub"))
+        catalog.use(address)
+        recipe = report()["catalog"]["recipes"][0]
+        assert recipe["certified"]["line"] == "certified by 1 you trust (Acme Labs) + 1 other"

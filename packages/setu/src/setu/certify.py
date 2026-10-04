@@ -250,3 +250,17 @@ def line(standing_: dict[str, Any]) -> str:
     if revoked:
         text += (" · " if text else "") + f"withdrawn by {', '.join(revoked)}"
     return text
+
+
+def certified(index: Any, kind: str, ident: str, home: Path | None = None) -> dict[str, Any]:
+    """What independent certifiers said of the exact version the index
+    lists: trusted names, how many others, who withdrew, and the line a
+    card shows. Empty when there is no such version to speak of."""
+    if index is None:
+        return {}
+    try:
+        subject = subject_for(f"{kind}:{ident}", index)
+        st = standing(catalog.certifications(home), subject, trusted(home))
+    except CertError:
+        return {}
+    return {**st, "line": line(st)}
