@@ -706,17 +706,19 @@ def _catalog(args: argparse.Namespace) -> int:
             print("error: setu catalog submit --to URL --author NAME, and either a recipe "
                   "folder or --connector ID --repo URL --commit SHA", file=sys.stderr)
             return 2
+        key = Path(args.sign).expanduser() if args.sign else None
         if args.connector:
             done = catalog.submit_connector(
                 args.to, args.connector, args.repo or "", args.commit or "", args.author,
                 manifest=Path(args.path) if args.path else None, contact=args.contact or "",
-                note=args.note or "")
+                note=args.note or "", key=key)
         else:
             if not args.path:
                 print("error: name the recipe's folder", file=sys.stderr)
                 return 2
             done = catalog.submit_recipe(args.to, Path(args.path).expanduser(), args.author,
-                                         contact=args.contact or "", note=args.note or "")
+                                         contact=args.contact or "", note=args.note or "",
+                                         key=key)
         print(f"submitted: {done['submission']} ({done['status']}). Check on it with "
               f"setu catalog submission {done['submission']} --to {args.to}")
         return 0
@@ -759,8 +761,9 @@ def _catalog(args: argparse.Namespace) -> int:
         if not queue:
             print("nothing waiting")
         for item in queue:
+            signed = f" (key {item['author_key']})" if item.get("author_key") else ""
             print(f"{item['sid']}  {item['kind']:<9} {item['id']:<24} by {item['author']}"
-                  f"  {item['at']}")
+                  f"{signed}  {item['at']}")
         return 0
     if action == "upload":
         token = os.environ.get("SETU_CATALOG_TOKEN", "")
@@ -950,6 +953,8 @@ def build_parser() -> argparse.ArgumentParser:
     cat.add_argument("--connector", help="submit: a connector's id (else PATH is a recipe)")
     cat.add_argument("--repo", help="submit --connector: its source, an https address")
     cat.add_argument("--commit", help="submit --connector: the exact commit to review")
+    cat.add_argument("--sign", help="submit: sign it with your key (required for a "
+                     "connector; `setu catalog keygen` makes one)")
     cat.add_argument("--verdict", help="close: accepted or declined")
     cat.add_argument("--reason", help="close: what the author is told")
     cat.add_argument("--save", help="review ID: write a submitted recipe's files to this folder")

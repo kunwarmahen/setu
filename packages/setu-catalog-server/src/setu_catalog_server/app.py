@@ -221,6 +221,17 @@ class Catalog:
                 if not _FILE.match(str(name)) or not isinstance(text, str):
                     raise ValueError(f"files: {name!r} is not SKILL.md or scripts/<name>")
             entry["files"] = files
+        try:
+            author_key = catalog.check_submission(body)
+        except catalog.CatalogError as exc:
+            raise ValueError(str(exc)) from None
+        if kind == "connector" and not author_key:
+            raise ValueError("a connector must be signed by its author "
+                             "(setu catalog submit ... --sign YOUR.key)")
+        if author_key:
+            entry.update(author_key=author_key, author_public=body["author_key"]["public"],
+                         author_sig=body["author_sig"],
+                         signed=catalog._signed_part(body).decode())
         if len(json.dumps(entry)) > MAX_SUBMISSION:
             raise ValueError(f"over {MAX_SUBMISSION // 1024} KB")
         day = day or datetime.now(UTC).strftime("%Y-%m-%d")
@@ -252,7 +263,8 @@ class Catalog:
             entry = json.loads(p.read_text())
             if everything or entry.get("status") == "open":
                 found.append({k: entry.get(k) for k in
-                              ("sid", "kind", "id", "author", "at", "status", "reason")})
+                              ("sid", "kind", "id", "author", "author_key", "at", "status",
+                               "reason")})
         return found
 
     def close(self, sid: str, verdict: str, reason: str) -> dict[str, Any]:

@@ -325,14 +325,20 @@ class TestSubmissions:
         assert client.get(f"/submissions/{sid}?full").status_code == 401
         assert client.get("/submissions").status_code == 401
 
-    def test_a_connector_is_source_at_an_exact_commit(self, server):
+    def test_a_connector_is_source_at_an_exact_commit(self, server, tmp_path):
         _, client = server
+        catalog.keygen(tmp_path / "author.key")
+
+        def signed(body):
+            return catalog.sign_submission(body, tmp_path / "author.key")
         good = {"kind": "connector", "id": "notion", "author": "a",
                 "repo": "https://github.com/someone/setu-notion", "commit": COMMIT}
-        assert client.post("/submissions", json=good).status_code == 201
+        assert client.post("/submissions", json=signed(good)).status_code == 201
         for bad in ({"commit": "main"}, {"repo": "http://example.com/x"},
                     {"repo": "file:///etc/passwd"}, {"id": "../x"}, {"author": ""}):
-            assert client.post("/submissions", json={**good, **bad}).status_code == 400
+            answer = client.post("/submissions", json=signed({**good, **bad}))
+            assert answer.status_code == 400
+            assert "signature" not in answer.json()["error"]      # refused for what it says
 
     def test_a_recipe_is_its_files_and_nothing_else(self, server):
         _, client = server
@@ -547,3 +553,55 @@ class TestCertifications:
         catalog.use(address)
         recipe = report()["catalog"]["recipes"][0]
         assert recipe["certified"]["line"] == "certified by 1 you trust (Acme Labs) + 1 other"
+
+
+# ---- author signatures ----------------------------------------------------------------
+
+
+class TestAuthorSignatures:
+    def connector(self, **over):
+        body = {"kind": "connector", "id": "notion", "author": "you", "contact": "me@x",
+                "repo": "https://github.com/you/setu-notion", "commit": COMMIT}
+        body.update(over)
+        return body
+
+    def test_a_connector_must_be_signed_by_its_author(self, server, tmp_path):
+        _, client = server
+        answer = client.post("/submissions", json=self.connector())
+        assert answer.status_code == 400 and "signed by its author" in answer.json()["error"]
+        catalog.keygen(tmp_path / "author.key")
+        signed = catalog.sign_submission(self.connector(), tmp_path / "author.key")
+        answer = client.post("/submissions", json=signed)
+        assert answer.status_code == 201
+        sid = answer.json()["submission"]
+        full = client.get(f"/submissions/{sid}?full",
+                          headers={"Authorization": f"Bearer {TOKEN}"}).json()
+        assert full["author_key"] == signed["author_key"]["key"]
+
+    def test_a_signature_over_something_else_is_refused(self, server, tmp_path):
+        _, client = server
+        catalog.keygen(tmp_path / "author.key")
+        signed = catalog.sign_submission(self.connector(), tmp_path / "author.key")
+        swapped = {**signed, "commit": "b" * 40}                 # the code changed after
+        answer = client.post("/submissions", json=swapped)
+        assert answer.status_code == 400 and "does not match" in answer.json()["error"]
+        # the private contact line is not part of what was signed
+        assert client.post("/submissions", json={**signed, "contact": "new@x"}).status_code \
+            == 201
+
+    def test_a_recipe_may_go_either_way(self, server, tmp_path):
+        _, client = server
+        body = {"kind": "recipe", "id": "r", "author": "a", "files": {"SKILL.md": "x"}}
+        assert client.post("/submissions", json=body).status_code == 201
+        catalog.keygen(tmp_path / "author.key")
+        assert client.post("/submissions", json=catalog.sign_submission(
+            {**body, "id": "r2"}, tmp_path / "author.key")).status_code == 201
+
+    def test_the_card_says_the_author_signed_and_since_when(self):
+        assert catalog.author_line({"author_key": "c182dda2c8ce92ff",
+                                    "author_key_since": "1.0.0"}) \
+            == "signed by its author · same key since 1.0.0"
+        assert "NEW key" in catalog.author_line({
+            "author_key": "aaaa1111bbbb2222", "author_key_since": "2.0.0",
+            "author_key_changed": "the author lost their old key; confirmed by email"})
+        assert catalog.author_line({}) == ""

@@ -241,7 +241,23 @@ class Index:
         reason = (entry.get("yanked") or {}).get(installed, "") if installed else ""
         return {"label": entry.get("label", SIDELOADED), "author": entry.get("author", ""),
                 "installs": entry.get("installs"), "latest": entry.get("version", ""),
-                "installed_version": installed or "", "yanked": reason}
+                "installed_version": installed or "", "yanked": reason,
+                "author_signed": author_line(entry)}
+
+
+def author_line(entry: dict[str, Any]) -> str:
+    """What the index says about the author's key for this entry:
+    'signed by its author · same key since 1.0.0', a changed key said
+    plainly, or '' when the author did not sign."""
+    kid = str(entry.get("author_key") or "")
+    if not kid:
+        return ""
+    since = str(entry.get("author_key_since") or "")
+    if entry.get("author_key_changed"):
+        return (f"signed by its author with a NEW key ({kid[:8]}) since {since or '?'} -- "
+                f"{entry['author_key_changed']}")
+    return f"signed by its author · same key since {since}" if since else \
+        "signed by its author"
 
 
 def parse(raw: bytes, key: str, source: str = "") -> Index:
@@ -439,29 +455,62 @@ def _call(method: str, address: str, path: str, *, token: str = "",
     return data
 
 
+def _signed_part(body: dict[str, Any]) -> bytes:
+    """What an author's signature covers: everything they sent, but the
+    signature and the private contact line."""
+    return json.dumps({k: v for k, v in body.items()
+                       if k not in ("author_sig", "contact")},
+                      sort_keys=True, separators=(",", ":")).encode()
+
+
+def sign_submission(body: dict[str, Any], key: Path) -> dict[str, Any]:
+    """The author's own signature over what they submit: their key travels
+    with it, so the listing can say the same author signed every version."""
+    private = _load_private(Path(key))
+    public = _raw_public(private.public_key())
+    body = {**body, "author_key": {"key": key_id(public),
+                                   "public": base64.b64encode(public).decode()}}
+    body["author_sig"] = base64.b64encode(private.sign(_signed_part(body))).decode()
+    return body
+
+
+def check_submission(body: dict[str, Any]) -> str:
+    """The author's key id when the submission is signed and whole; ""
+    when unsigned; raises when signed but not by the key it carries."""
+    who = body.get("author_key")
+    if not who and not body.get("author_sig"):
+        return ""
+    try:
+        public = base64.b64decode(who["public"], validate=True)
+        ok = _verify(who["public"], body.get("author_sig", ""), _signed_part(body))
+    except (KeyError, TypeError, ValueError):
+        ok = False
+    if not ok or key_id(public) != who.get("key"):
+        raise CatalogError("the author's signature does not match the submission")
+    return who["key"]
+
+
 def submit_connector(address: str, connector: str, repo: str, commit: str, author: str,
                      *, manifest: Path | None = None, contact: str = "",
-                     note: str = "") -> dict:
+                     note: str = "", key: Path | None = None) -> dict:
     """Ask for a connector to be listed: its SOURCE at an exact commit,
-    never a built package -- the maintainer reviews and builds from that."""
-    return _call("POST", address, "/submissions", body={
-        "kind": "connector", "id": connector, "repo": repo, "commit": commit,
-        "author": author, "contact": contact, "note": note,
-        "manifest": Path(manifest).read_text() if manifest else ""})
+    never a built package -- the maintainer reviews and builds from that.
+    Signed by the author (``key``): a connector without it is refused."""
+    body = {"kind": "connector", "id": connector, "repo": repo, "commit": commit,
+            "author": author, "contact": contact, "note": note,
+            "manifest": Path(manifest).read_text() if manifest else ""}
+    return _call("POST", address, "/submissions",
+                 body=sign_submission(body, key) if key else body)
 
 
 def submit_recipe(address: str, folder: Path, author: str, *, contact: str = "",
-                  note: str = "") -> dict:
-    """Ask for a recipe to be listed: a skill folder's SKILL.md and scripts/."""
-    folder = Path(folder)
-    files = {"SKILL.md": (folder / "SKILL.md").read_text()}
-    for script in sorted((folder / "scripts").glob("*")) if (folder / "scripts").is_dir() \
-            else []:
-        if script.is_file():
-            files[f"scripts/{script.name}"] = script.read_text()
-    return _call("POST", address, "/submissions", body={
-        "kind": "recipe", "id": folder.name, "author": author, "contact": contact,
-        "note": note, "files": files})
+                  note: str = "", key: Path | None = None) -> dict:
+    """Ask for a recipe to be listed: a skill folder's SKILL.md and scripts/.
+    Signing it (``key``) is optional for a recipe, and shown when done."""
+    body = {"kind": "recipe", "id": Path(folder).name, "author": author,
+            "contact": contact, "note": note, "files": recipe_files(Path(folder))}
+    return _call("POST", address, "/submissions",
+                 body=sign_submission(body, key) if key else body)
 
 
 def install(connector: str, home: Path | None = None,

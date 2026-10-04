@@ -118,6 +118,7 @@ def _connector(manifest: Manifest, connected: bool,
         # installed it, and why the installed version was withdrawn
         "label": card["label"],
         "author": card["author"],
+        "author_signed": card.get("author_signed", ""),
         "installs": card["installs"],
         "yanked": card["yanked"],
         # the browser road's rules, for the harness that drives the profile
@@ -196,13 +197,15 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
         "setup": setup,
         "catalog": ({"source": index.source, "key": index.key,
                      "issued": index.data.get("issued", ""),
-                     "recipes": [{**r, "certified": certify.certified(index, "recipe",
-                                                               r.get("name", ""))}
+                     "recipes": [{**r, "author_signed": catalog.author_line(r),
+                                  "certified": certify.certified(index, "recipe",
+                                                                 r.get("name", ""))}
                                  for r in index.recipes],
                      # listed but not here: what a page may offer to install
                      "connectors": [
                          {**{k: c.get(k) for k in ("id", "name", "summary", "label",
                                                    "author", "installs", "version")},
+                          "author_signed": catalog.author_line(c),
                           "certified": certify.certified(index, "connector", cid)}
                          for cid, c in index.connectors.items()
                          if cid not in manifests and (c.get("wheel") or {}).get("sha256")]}
