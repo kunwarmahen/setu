@@ -123,7 +123,23 @@ def _connector(manifest: Manifest, connected: bool,
         "yanked": card["yanked"],
         # the browser road's rules, for the harness that drives the profile
         "browser": _browser_card(manifest),
+        # what it can reach if something was missed -- as it is, not as hoped
+        "contained": contained(manifest.road, list(manifest.hosts), manifest.name),
     }
+
+
+def contained(road: str, hosts: list[str], name: str) -> str:
+    """One honest line on what a connector can reach. Today a connector
+    is its own program holding the connection's key, and Setu does not
+    confine its network; the line says that rather than a hope. (Setu
+    making the requests itself, so the key never enters the program, is
+    the proxy design -- not built.)"""
+    where = ", ".join(hosts[:4]) + ("…" if len(hosts) > 4 else "") if hosts else "no host named"
+    if road == "browser":
+        return (f"a browser profile: the agent's site tools keep to {where}; buying and "
+                "paying are handed to you; the pages' own scripts are not limited")
+    return (f"runs as its own program with your {name} key; declares {where}; Setu does "
+            "not yet limit where it connects")
 
 
 def report(vault: Vault | None = None) -> dict[str, Any]:
@@ -207,6 +223,9 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
                          {**{k: c.get(k) for k in ("id", "name", "summary", "label",
                                                    "author", "installs", "version")},
                           "author_signed": catalog.author_line(c),
+                          "contained": contained(str(c.get("road") or "api"),
+                                                 list(c.get("hosts") or []),
+                                                 str(c.get("name") or cid)),
                           "certified": certify.certified(index, "connector", cid)}
                          for cid, c in index.connectors.items()
                          if cid not in manifests and (c.get("wheel") or {}).get("sha256")]}

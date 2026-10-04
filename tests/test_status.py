@@ -85,3 +85,12 @@ def test_the_report_says_where_to_watch(home):
     from setu import status
     vault, sites = status.report()["watch"]
     assert vault.endswith("vault.json") and sites.endswith("sites")
+
+
+def test_each_card_says_what_it_can_reach_as_it_is(home):
+    from setu import status
+    cards = {c["id"]: c for c in status.report()["connectors"]}
+    assert "does not yet limit where it connects" in cards["gmail"]["contained"]
+    assert "gmail.googleapis.com" in cards["gmail"]["contained"] \
+        or "googleapis" in cards["gmail"]["contained"]
+    assert "pages' own scripts are not limited" in cards["amazon"]["contained"]
