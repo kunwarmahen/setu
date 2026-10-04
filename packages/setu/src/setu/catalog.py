@@ -384,6 +384,53 @@ def current(home: Path | None = None, *, timeout: float = 5.0,
         return index, f"catalog: using the copy kept {at or '?'} ({exc})"
 
 
+def _call(method: str, address: str, path: str, *, token: str = "",
+          body: dict | None = None, timeout: float = 30.0) -> Any:
+    """One request to a catalog server; its refusal as a CatalogError."""
+    import httpx
+
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        with httpx.Client(timeout=timeout) as http:
+            answer = http.request(method, f"{address.rstrip('/')}{path}", json=body,
+                                  headers=headers)
+    except httpx.HTTPError as exc:
+        raise CatalogError(f"could not reach {address} ({type(exc).__name__})") from None
+    try:
+        data = answer.json()
+    except ValueError:
+        data = {"error": answer.text[:200]}
+    if answer.status_code >= 300:
+        raise CatalogError(f"{address} refused it (HTTP {answer.status_code}): "
+                           f"{data.get('error', data) if isinstance(data, dict) else data}")
+    return data
+
+
+def submit_connector(address: str, connector: str, repo: str, commit: str, author: str,
+                     *, manifest: Path | None = None, contact: str = "",
+                     note: str = "") -> dict:
+    """Ask for a connector to be listed: its SOURCE at an exact commit,
+    never a built package -- the maintainer reviews and builds from that."""
+    return _call("POST", address, "/submissions", body={
+        "kind": "connector", "id": connector, "repo": repo, "commit": commit,
+        "author": author, "contact": contact, "note": note,
+        "manifest": Path(manifest).read_text() if manifest else ""})
+
+
+def submit_recipe(address: str, folder: Path, author: str, *, contact: str = "",
+                  note: str = "") -> dict:
+    """Ask for a recipe to be listed: a skill folder's SKILL.md and scripts/."""
+    folder = Path(folder)
+    files = {"SKILL.md": (folder / "SKILL.md").read_text()}
+    for script in sorted((folder / "scripts").glob("*")) if (folder / "scripts").is_dir() \
+            else []:
+        if script.is_file():
+            files[f"scripts/{script.name}"] = script.read_text()
+    return _call("POST", address, "/submissions", body={
+        "kind": "recipe", "id": folder.name, "author": author, "contact": contact,
+        "note": note, "files": files})
+
+
 PINGED = "pinged.json"
 
 

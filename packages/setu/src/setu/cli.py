@@ -22,6 +22,11 @@
     setu catalog publish INDEX --to URL  the maintainer: send a signed index to the server
     setu catalog counts INDEX --to URL   the maintainer: copy the server's install totals in
     setu config share-installs off       stop telling the catalog which connectors you install
+    setu catalog submit DIR --to URL --author NAME          offer a recipe for listing
+    setu catalog submit --connector ID --repo URL --commit SHA --to URL --author NAME
+    setu catalog submission ID --to URL  how your submission went
+    setu catalog review [ID] --to URL    the maintainer: the queue, or one in full
+    setu catalog close ID --verdict accepted|declined --reason TEXT --to URL
 
 Every command a harness needs is ``setu run``: it is what goes in an MCP
 config's ``command``, so the harness starts Setu, Setu starts the
@@ -596,6 +601,57 @@ def _catalog(args: argparse.Namespace) -> int:
               f"{done.get('key')}, {done.get('connectors')} connector(s), "
               f"{done.get('recipes')} recipe(s)")
         return 0
+    if action == "submit":
+        if not args.to or not args.author:
+            print("error: setu catalog submit --to URL --author NAME, and either a recipe "
+                  "folder or --connector ID --repo URL --commit SHA", file=sys.stderr)
+            return 2
+        if args.connector:
+            done = catalog.submit_connector(
+                args.to, args.connector, args.repo or "", args.commit or "", args.author,
+                manifest=Path(args.path) if args.path else None, contact=args.contact or "",
+                note=args.note or "")
+        else:
+            if not args.path:
+                print("error: name the recipe's folder", file=sys.stderr)
+                return 2
+            done = catalog.submit_recipe(args.to, Path(args.path).expanduser(), args.author,
+                                         contact=args.contact or "", note=args.note or "")
+        print(f"submitted: {done['submission']} ({done['status']}). Check on it with "
+              f"setu catalog submission {done['submission']} --to {args.to}")
+        return 0
+    if action == "submission":
+        seen = catalog._call("GET", args.to, f"/submissions/{args.path}")
+        print(f"{seen['sid']}: {seen['kind']} {seen['id']} -- {seen['status']}"
+              + (f": {seen['reason']}" if seen.get("reason") else ""))
+        return 0
+    if action in ("review", "close"):
+        token = os.environ.get("SETU_CATALOG_TOKEN", "")
+        if not args.to or not token:
+            print("error: --to URL, with the maintainer's token in SETU_CATALOG_TOKEN",
+                  file=sys.stderr)
+            return 2
+        if action == "close":
+            if args.verdict not in ("accepted", "declined") or not args.path:
+                print("error: setu catalog close ID --verdict accepted|declined --reason TEXT",
+                      file=sys.stderr)
+                return 2
+            done = catalog._call("POST", args.to, f"/submissions/{args.path}/close",
+                                 token=token, body={"verdict": args.verdict,
+                                                    "reason": args.reason or ""})
+            print(f"{done['submission']}: {done['status']}")
+            return 0
+        if args.path:
+            print(json.dumps(catalog._call("GET", args.to, f"/submissions/{args.path}?full",
+                                           token=token), indent=2))
+            return 0
+        queue = catalog._call("GET", args.to, "/submissions", token=token)
+        if not queue:
+            print("nothing waiting")
+        for item in queue:
+            print(f"{item['sid']}  {item['kind']:<9} {item['id']:<24} by {item['author']}"
+                  f"  {item['at']}")
+        return 0
     if action == "counts":
         if not args.to or not args.path:
             print("error: setu catalog counts INDEX --to https://catalog.example",
@@ -705,12 +761,20 @@ def build_parser() -> argparse.ArgumentParser:
     cat = sub.add_parser("catalog", help="the signed catalog: labels, installs, withdrawn")
     cat.add_argument("action", nargs="?",
                      choices=["list", "use", "trust", "keygen", "sign", "vouch", "publish",
-                              "counts"])
+                              "counts", "submit", "submission", "review", "close"])
     cat.add_argument("path", nargs="?", help="index, key or .pub file, by action")
     cat.add_argument("--key", help="sign/vouch: the private signing key")
     cat.add_argument("--chain", help="sign: a JSON list of vouch links to attach")
     cat.add_argument("--remove", action="store_true", help="trust: stop trusting key PATH")
-    cat.add_argument("--to", help="publish, counts: the catalog server's address")
+    cat.add_argument("--to", help="publish, counts, submit, review: the catalog server")
+    cat.add_argument("--author", help="submit: who you are, as the listing will say")
+    cat.add_argument("--contact", help="submit: how the maintainer can reach you (private)")
+    cat.add_argument("--note", help="submit: anything the maintainer should know")
+    cat.add_argument("--connector", help="submit: a connector's id (else PATH is a recipe)")
+    cat.add_argument("--repo", help="submit --connector: its source, an https address")
+    cat.add_argument("--commit", help="submit --connector: the exact commit to review")
+    cat.add_argument("--verdict", help="close: accepted or declined")
+    cat.add_argument("--reason", help="close: what the author is told")
     return parser
 
 

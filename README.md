@@ -475,6 +475,22 @@ signing a new index, `setu catalog counts index.json --to https://catalog.exampl
 copies the server's install totals into it, so the numbers people see are signed
 too.
 
+**Offering a connector or a recipe.** Anyone can submit one for review:
+
+```
+setu catalog submit ~/.yantra/skills/learned/ha-fan-speed --to https://catalog.example --author priya
+setu catalog submit --connector notion --repo https://github.com/you/setu-notion \
+    --commit <40-character commit> --to https://catalog.example --author you
+setu catalog submission <id> --to https://catalog.example      # open, accepted or declined, and why
+```
+
+A connector is submitted as its source code at one exact commit, never as a
+built package, so what gets reviewed is what gets built. A submission only
+waits in a queue. You review it with `setu catalog review [ID]`, then
+`setu catalog close ID --verdict accepted|declined --reason "…"`. Accepting it
+publishes nothing by itself: you add it to your index, sign it, and publish,
+the same as always.
+
 ---
 
 ## How safe is it?

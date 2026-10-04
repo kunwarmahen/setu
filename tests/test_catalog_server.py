@@ -276,3 +276,76 @@ class TestThePing:
         path.write_text(json.dumps(doc()))
         assert main(["catalog", "counts", str(path), "--to", address]) == 0
         assert json.loads(path.read_text())["connectors"][0]["installs"] == 12
+
+
+# ---- submissions ----------------------------------------------------------------------
+
+
+COMMIT = "a" * 40
+
+
+class TestSubmissions:
+    def recipe(self, tmp_path):
+        folder = tmp_path / "ha-fan-speed"
+        (folder / "scripts").mkdir(parents=True)
+        (folder / "SKILL.md").write_text("---\nname: ha-fan-speed\n---\nSet the fan.\n")
+        (folder / "scripts" / "fan.py").write_text("print('fan')\n")
+        return folder
+
+    def test_a_recipe_from_its_folder_waits_for_review(self, live, tmp_path, capsys,
+                                                       monkeypatch):
+        address, data = live
+        assert main(["catalog", "submit", str(self.recipe(tmp_path)), "--to", address,
+                     "--author", "priya", "--contact", "priya@example.com"]) == 0
+        sid = capsys.readouterr().out.split("submitted: ")[1].split(" ")[0]
+        assert main(["catalog", "submission", sid, "--to", address]) == 0
+        assert "recipe ha-fan-speed -- open" in capsys.readouterr().out
+        # nothing is served because of it
+        assert not (data / INDEX).exists()
+        monkeypatch.setenv("SETU_CATALOG_TOKEN", TOKEN)
+        assert main(["catalog", "review", "--to", address]) == 0
+        assert "ha-fan-speed" in capsys.readouterr().out
+        assert main(["catalog", "review", sid, "--to", address]) == 0
+        full = json.loads(capsys.readouterr().out)
+        assert full["files"]["scripts/fan.py"] == "print('fan')\n"
+        assert full["contact"] == "priya@example.com" and "who" not in full
+        assert main(["catalog", "close", sid, "--verdict", "declined", "--reason",
+                     "the script needs a test", "--to", address]) == 0
+        capsys.readouterr()
+        assert main(["catalog", "submission", sid, "--to", address]) == 0
+        assert "declined: the script needs a test" in capsys.readouterr().out
+
+    def test_the_author_sees_the_verdict_never_the_contents(self, server):
+        _, client = server
+        sid = client.post("/submissions", json={
+            "kind": "recipe", "id": "x", "author": "a", "contact": "secret@example.com",
+            "files": {"SKILL.md": "hi"}}).json()["submission"]
+        seen = client.get(f"/submissions/{sid}").json()
+        assert seen["status"] == "open" and "contact" not in seen and "files" not in seen
+        assert client.get(f"/submissions/{sid}?full").status_code == 401
+        assert client.get("/submissions").status_code == 401
+
+    def test_a_connector_is_source_at_an_exact_commit(self, server):
+        _, client = server
+        good = {"kind": "connector", "id": "notion", "author": "a",
+                "repo": "https://github.com/someone/setu-notion", "commit": COMMIT}
+        assert client.post("/submissions", json=good).status_code == 201
+        for bad in ({"commit": "main"}, {"repo": "http://example.com/x"},
+                    {"repo": "file:///etc/passwd"}, {"id": "../x"}, {"author": ""}):
+            assert client.post("/submissions", json={**good, **bad}).status_code == 400
+
+    def test_a_recipe_is_its_files_and_nothing_else(self, server):
+        _, client = server
+        base = {"kind": "recipe", "id": "r", "author": "a"}
+        assert client.post("/submissions", json={**base, "files": {
+            "SKILL.md": "x", "../../etc/cron.d/x": "y"}}).status_code == 400
+        assert client.post("/submissions", json={**base, "files": {
+            "scripts/run.py": "x"}}).status_code == 400          # no SKILL.md
+
+    def test_a_few_a_day_from_one_address(self, server):
+        from setu_catalog_server.app import SUBMISSIONS_PER_DAY
+        _, client = server
+        codes = [client.post("/submissions", json={
+            "kind": "recipe", "id": f"r{i}", "author": "a",
+            "files": {"SKILL.md": "x"}}).status_code for i in range(SUBMISSIONS_PER_DAY + 2)]
+        assert codes.count(201) == SUBMISSIONS_PER_DAY and codes[-1] == 429
