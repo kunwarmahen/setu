@@ -223,6 +223,41 @@ def window(browser: str, profile: Path, url: str,
             "cannot write there -- close it, or name another with `setu config browser`")
 
 
+#: Files a Chromium profile rewrites as pages are visited on it.
+ACTIVITY_FILES = ("Default/History", "Default/Cookies", "Default/Network/Cookies",
+                  "Default/Preferences")
+#: Writes this soon after the sign-in are the sign-in window's own.
+SIGN_IN_SECONDS = 120
+
+
+def last_active(profile: Path, created: str = "") -> str | None:
+    """When something last used ``profile`` -- the browser rewrites its
+    history and cookies as pages are visited -- or None when nothing has
+    since the sign-in. Nothing is opened; only the files' times are read.
+
+    A harness's site tools never tell Setu they ran, and need not: the
+    browser they drive keeps this record already."""
+    from datetime import UTC, datetime
+
+    times = []
+    for name in ACTIVITY_FILES:
+        try:
+            times.append((profile / name).stat().st_mtime)
+        except OSError:
+            continue
+    if not times:
+        return None
+    latest = max(times)
+    if created:
+        try:
+            signed = datetime.strptime(created, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+            if latest <= signed.timestamp() + SIGN_IN_SECONDS:
+                return None
+        except ValueError:
+            pass
+    return datetime.fromtimestamp(latest, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def home(manifest: Manifest, hosts: list[str]) -> str:
     """The address the agent starts from: the manifest's, or -- for a site
     with a store per country -- the store the person signed in to."""

@@ -179,6 +179,11 @@ connector goes at a person's pace (3 seconds between pages, at most 10 actions
 a session) and runs in a real browser window on a screen nobody sees. Use it to
 read and for the occasional post you approve, not to automate an account.
 
+`setu list` shows when each browser connection was last used. It reads
+that from the profile itself: the browser rewrites its history and
+cookies whenever pages are opened on it. Setu reads only the files'
+times, never the files.
+
 Disconnecting (`setu disconnect amazon:personal`) deletes the profile, which
 signs this computer out. The site may still list the device; remove it in
 the site's security settings if you want it gone there too. No Chrome-like

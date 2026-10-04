@@ -415,7 +415,7 @@ def _list(_args: argparse.Namespace) -> int:
                 label = manifest.level(entry.get("level")).label
             except ManifestError:
                 pass
-        used = entry.get("last_used") or "never"
+        used = connections.last_used(vault.get(ref) or {}) or "never"
         print(f"{ref:<22} {entry.get('email') or '':<30} {label:<16} last used {used}")
     print(f"\nkeys live in {vault.path} (readable by you only); no command prints them")
     return 0

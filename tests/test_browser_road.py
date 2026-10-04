@@ -444,3 +444,27 @@ class TestTheGuideGrows:
         add_site(home, "shop.toml", SHOP_TOML)
         assert sites.set_guide("shop", "Cart: /cart").browser.guide == "Cart: /cart"
         assert find("shop").browser.signed_in == ("sess*",)
+
+
+class TestLastUsed:
+    def test_the_profile_says_when_it_was_last_used(self, home):
+        import os
+        import time
+        entry = connected(home)
+        profile = Path(entry["profile"])
+        (profile / "Default").mkdir(parents=True, exist_ok=True)
+        history = profile / "Default" / "History"
+        history.write_text("")
+        signed = time.time()
+        os.utime(history, (signed, signed))
+        assert connections.last_used(entry) is None          # the sign-in's own write
+        later = signed + 3600
+        os.utime(history, (later, later))
+        assert connections.last_used(entry) is not None
+        row = next(r for r in status.report()["connections"] if r["ref"] == "x:personal")
+        assert row["last_used"] == connections.last_used(entry)
+
+    def test_a_token_connection_keeps_its_stamp(self):
+        assert connections.last_used({"auth": "google",
+                                      "last_used": "2026-10-01T00:00:00Z"}) \
+            == "2026-10-01T00:00:00Z"

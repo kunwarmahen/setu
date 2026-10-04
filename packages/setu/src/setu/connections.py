@@ -94,6 +94,14 @@ def ref_for(connector: str, account: str) -> str:
     return f"{connector}:{account}"
 
 
+def last_used(entry: dict[str, Any]) -> str | None:
+    """When the connection was last used: a token's refresh stamps it, and
+    a browser profile says so itself (browser.last_active)."""
+    if entry.get("auth") == "browser" and entry.get("profile"):
+        return site_browser.last_active(Path(entry["profile"]), entry.get("created", ""))
+    return entry.get("last_used")
+
+
 def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 

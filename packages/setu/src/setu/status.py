@@ -159,7 +159,7 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
             "level": entry.get("level", ""),
             "level_label": label,
             "scopes": list(entry.get("scopes") or []),
-            "last_used": entry.get("last_used"),
+            "last_used": connections.last_used(entry),
             "installed": manifest is not None,
             "base_url": entry.get("base_url"),
             "mcp": (None if entry.get("auth") == "browser" else
