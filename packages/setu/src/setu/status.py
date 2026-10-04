@@ -134,7 +134,8 @@ def contained(road: str, hosts: list[str], name: str) -> str:
     confine its network; the line says that rather than a hope. (Setu
     making the requests itself, so the key never enters the program, is
     the proxy design -- not built.)"""
-    where = ", ".join(hosts[:4]) + ("…" if len(hosts) > 4 else "") if hosts else "no host named"
+    where = (", ".join(hosts[:4]) + ("…" if len(hosts) > 4 else "") if hosts
+             else "no fixed host (it uses the address you connected)")
     if road == "browser":
         return (f"a browser profile: the agent's site tools keep to {where}; buying and "
                 "paying are handed to you; the pages' own scripts are not limited")
