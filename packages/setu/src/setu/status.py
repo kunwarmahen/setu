@@ -198,6 +198,7 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
         "catalog": ({"source": index.source, "key": index.key,
                      "issued": index.data.get("issued", ""),
                      "recipes": [{**r, "author_signed": catalog.author_line(r),
+                                  "works_line": catalog.works_line(r),
                                   "certified": certify.certified(index, "recipe",
                                                                  r.get("name", ""))}
                                  for r in index.recipes],

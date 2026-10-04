@@ -605,3 +605,55 @@ class TestAuthorSignatures:
             "author_key": "aaaa1111bbbb2222", "author_key_since": "2.0.0",
             "author_key_changed": "the author lost their old key; confirmed by email"})
         assert catalog.author_line({}) == ""
+
+
+# ---- did it work? ---------------------------------------------------------------------
+
+
+class TestWorks:
+    def listed(self, live, keys):
+        address, data = live
+        digest = "cd" * 32
+        listed = doc(recipes=[{"name": "ha-fan-speed", "label": "partner", "bundle": {
+            "url": f"{address}/files/{digest}.json", "sha256": digest}}])
+        raw = json.dumps(listed).encode()
+        (data / INDEX).write_bytes(raw)
+        (data / SIG).write_text(json.dumps(catalog.sign(raw, keys[0])))
+        catalog.use(address)
+        return address, data, digest[:12]
+
+    def test_outcomes_are_counted_per_version(self, live, keys):
+        address, data, version = self.listed(live, keys)
+        assert catalog.report_use("ha-fan-speed", version, True)
+        assert catalog.report_use("ha-fan-speed", version, True)
+        assert catalog.report_use("ha-fan-speed", version, False)
+        totals = json.loads((data / "works.json").read_text())
+        assert totals["ha-fan-speed"][version] == {"worked": 2, "failed": 1}
+
+    def test_only_listed_recipes_and_never_when_switched_off(self, live, keys):
+        address, data, version = self.listed(live, keys)
+        assert not catalog.report_use("my-private-recipe", "x", True)   # never named
+        assert main(["config", "share-installs", "off"]) == 0
+        assert not catalog.report_use("ha-fan-speed", version, True)
+        assert not (data / "works.json").exists()
+
+    def test_one_address_cannot_pump_a_recipe(self, server):
+        from setu_catalog_server.app import WORKS_PER_DAY, Catalog
+        data, _ = server
+        cat = Catalog(data, TOKEN)
+        counted = sum(cat.worked("r", "v1", True, "10.0.0.1", day="2026-10-04")
+                      for _ in range(WORKS_PER_DAY + 10))
+        assert counted == WORKS_PER_DAY
+
+    def test_folded_into_the_index_for_the_version_listed(self, live, keys, tmp_path):
+        address, data, version = self.listed(live, keys)
+        (data / "works.json").write_text(json.dumps({"ha-fan-speed": {
+            version: {"worked": 330, "failed": 10}, "oldversion00": {"worked": 1,
+                                                                    "failed": 50}}}))
+        (data / "installs.json").write_text("{}")
+        path = tmp_path / "index.json"
+        path.write_text((data / INDEX).read_text())
+        catalog.fold_counts(path, address)
+        entry = json.loads(path.read_text())["recipes"][0]
+        assert entry["works"] == {"worked": 330, "failed": 10}       # not the old version's
+        assert catalog.works_line(entry) == "worked 97% of 340 uses"

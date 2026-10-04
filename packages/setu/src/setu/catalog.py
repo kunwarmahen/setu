@@ -718,6 +718,39 @@ def _ping_one(index: Index, home: Path | None, item: str, version: str) -> None:
         pass
 
 
+def report_use(name: str, version: str, ok: bool, home: Path | None = None,
+               *, timeout: float = 2.0) -> bool:
+    """A recipe from the catalog was used: did it work? Sent to the catalog
+    server -- name, version, worked or not, nothing else -- under the same
+    switch as install counts. Never raises."""
+    from setu import config
+
+    index = kept(home)
+    if index is None or not is_address(index.source) or not config.share_installs():
+        return False
+    if not any(r.get("name") == name for r in index.recipes):
+        return False                           # only what the catalog lists is named
+    import httpx
+
+    try:
+        with httpx.Client(timeout=timeout) as http:
+            answer = http.post(f"{index.source}/works",
+                               json={"id": name, "version": version, "ok": ok})
+        return answer.status_code < 300
+    except httpx.HTTPError:
+        return False
+
+
+def works_line(entry: dict[str, Any]) -> str:
+    """'worked 97% of 340 uses' for the version the entry lists, or ''."""
+    works = entry.get("works") or {}
+    worked, failed = int(works.get("worked") or 0), int(works.get("failed") or 0)
+    total = worked + failed
+    if not total:
+        return ""
+    return f"worked {round(100 * worked / total)}% of {total} use{'s' if total != 1 else ''}"
+
+
 PINGED = "pinged.json"
 
 
@@ -769,6 +802,7 @@ def fold_counts(index_path: Path, address: str, *, timeout: float = 15.0) -> int
     try:
         with httpx.Client(timeout=timeout) as http:
             totals = http.get(f"{address.rstrip('/')}/installs.json").json()
+            works = http.get(f"{address.rstrip('/')}/works.json").json()
     except (httpx.HTTPError, ValueError) as exc:
         raise CatalogError(f"could not read {address}/installs.json ({exc})") from None
     data = json.loads(Path(index_path).read_text())
@@ -778,6 +812,11 @@ def fold_counts(index_path: Path, address: str, *, timeout: float = 15.0) -> int
         total = (totals.get(key) or {}).get("total")
         if total is not None and entry.get("installs") != total:
             entry["installs"] = total
+            changed += 1
+        version = str((entry.get("bundle") or {}).get("sha256") or "")[:12]
+        seen = (works.get(key) or {}).get(version) if version else None
+        if seen and entry.get("works") != seen:
+            entry["works"] = seen          # this version's outcomes only
             changed += 1
     Path(index_path).write_text(json.dumps(data, indent=2) + "\n")
     return changed

@@ -11,6 +11,8 @@
     POST /submissions/{id}/close        maintainer: accepted or declined, with a reason
     POST /files                         maintainer: a recipe bundle, kept by its hash
     GET  /files/{sha256}.json           the bundle whose SHA-256 is its name
+    POST /works                         a Setu saying a recipe version worked or failed
+    GET  /works.json                    the totals per version (unsigned: a hint)
     POST /certifications                anyone: a certification, signed by its certifier
     GET  /certifications.json           every certification kept
     GET  /certifiers                    who has certified: name, how many, since when
@@ -92,6 +94,9 @@ _SID = re.compile(r"^[0-9a-f]{12}$")
 FILES = "files"
 CERTS = "certifications"
 CERTS_PER_DAY = 20
+WORKS = "works.json"
+#: Outcome reports one address may send per recipe per day.
+WORKS_PER_DAY = 20
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _VERSION = re.compile(r"^[0-9A-Za-z.+_-]{1,32}$")
 
@@ -276,6 +281,33 @@ class Catalog:
         entry.update(status=verdict, reason=reason.strip()[:2000])
         write_atomic(self.data / SUBMISSIONS / f"{sid}.json", json.dumps(entry).encode())
         return {"submission": sid, "status": verdict, "reason": entry["reason"]}
+
+    # ---- works -------------------------------------------------------------
+
+    def works(self) -> dict[str, Any]:
+        try:
+            return json.loads((self.data / WORKS).read_text())
+        except (FileNotFoundError, ValueError):
+            return {}
+
+    def worked(self, ident: str, version: str, ok: bool, address: str,
+               day: str | None = None) -> bool:
+        """One use of a recipe version, worked or not; False when this
+        address has said enough about this recipe today."""
+        day = day or datetime.now(UTC).strftime("%Y-%m-%d")
+        with self._lock:
+            today = self._today(day)
+            who = hashlib.sha256(f"{today['salt']}|{address}|{ident}".encode()).hexdigest()[:24]
+            sent = today.setdefault("works", {}).get(who, 0)
+            if sent >= WORKS_PER_DAY:
+                return False
+            today["works"][who] = sent + 1
+            totals = self.works()
+            entry = totals.setdefault(ident, {}).setdefault(version, {"worked": 0, "failed": 0})
+            entry["worked" if ok else "failed"] += 1
+            write_atomic(self.data / WORKS, json.dumps(totals).encode())
+            write_atomic(self.data / TODAY, json.dumps(today).encode())
+            return True
 
     # ---- certifications ---------------------------------------------------
 
@@ -462,6 +494,19 @@ def make_app(data: Path, token: str, *, behind_proxy: bool = False) -> Starlette
         return Response(raw, media_type="application/json",
                         headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
+    async def works(request: Request) -> Response:
+        try:
+            body = await request.json()
+            ident, version, ok = str(body["id"]), str(body["version"]), body["ok"]
+        except (ValueError, KeyError, TypeError):
+            return JSONResponse({"error": "expected {id, version, ok}"}, status_code=400)
+        if not _ID.match(ident) or not _VERSION.match(version) or not isinstance(ok, bool):
+            return JSONResponse({"error": "not an id, a version and ok"}, status_code=400)
+        return JSONResponse({"counted": cat.worked(ident, version, ok, address(request))})
+
+    async def works_totals(request: Request) -> Response:
+        return JSONResponse(cat.works(), headers={"Cache-Control": "public, max-age=300"})
+
     async def certify(request: Request) -> Response:
         from setu import certify as certs
         raw = await request.body()
@@ -502,6 +547,8 @@ def make_app(data: Path, token: str, *, behind_proxy: bool = False) -> Starlette
         Route("/submissions/{sid}/close", close, methods=["POST"]),
         Route("/files", put_file, methods=["POST"]),
         Route("/files/{sha}.json", get_file),
+        Route("/works", works, methods=["POST"]),
+        Route("/works.json", works_totals),
         Route("/certifications", certify, methods=["POST"]),
         Route("/certifications.json", all_certifications),
         Route("/certifiers", certifiers),

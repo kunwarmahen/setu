@@ -785,6 +785,14 @@ def _catalog(args: argparse.Namespace) -> int:
         seen = certify.certified(catalog.kept(), "recipe", args.path).get("line")
         print(f"{args.path}: {seen or 'no independent certification yet'}")
         return 0
+    if action == "worked":
+        # a harness: a catalog recipe was used (path = NAME, --version, --outcome)
+        if not args.path or not args.version or args.outcome not in ("ok", "failed"):
+            print("error: setu catalog worked NAME --version V --outcome ok|failed",
+                  file=sys.stderr)
+            return 2
+        catalog.report_use(args.path, args.version, args.outcome == "ok")
+        return 0
     if action == "counts":
         if not args.to or not args.path:
             print("error: setu catalog counts INDEX --to https://catalog.example",
@@ -941,7 +949,7 @@ def build_parser() -> argparse.ArgumentParser:
     cat.add_argument("action", nargs="?",
                      choices=["list", "use", "trust", "keygen", "sign", "vouch", "publish",
                               "counts", "submit", "submission", "review", "close",
-                              "upload", "recipe"])
+                              "upload", "recipe", "worked"])
     cat.add_argument("path", nargs="?", help="index, key or .pub file, by action")
     cat.add_argument("--key", help="sign/vouch: the private signing key")
     cat.add_argument("--chain", help="sign: a JSON list of vouch links to attach")
@@ -959,6 +967,8 @@ def build_parser() -> argparse.ArgumentParser:
     cat.add_argument("--reason", help="close: what the author is told")
     cat.add_argument("--save", help="review ID: write a submitted recipe's files to this folder")
     cat.add_argument("--into", help="recipe: where to write it (default: here)")
+    cat.add_argument("--version", help="worked: the recipe version used")
+    cat.add_argument("--outcome", help="worked: ok or failed")
     return parser
 
 
