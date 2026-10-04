@@ -462,9 +462,11 @@ are never mentioned. To stop it: `setu config share-installs off`. An index issu
 refused, from a file or a server, because an old index could bring back a
 version that has since been withdrawn.
 
-**Running the catalog server** (`setu-catalog-server`, in this repo). It never
-holds the signing key: you sign on your own machine and upload the signed
-file, and it checks the signature before serving it.
+**Running the catalog server** (`setu-catalog-server`, in this repo; the
+step-by-step setup with Podman, HTTPS, publishing, reviewing and backups is
+in [its README](packages/setu-catalog-server/README.md)). It never holds the
+signing key: you sign on your own machine and upload the signed file, and it
+checks the signature before serving it.
 
 ```
 setu catalog keygen ~/keys/setu.key                       # once; keep it offline
@@ -530,6 +532,8 @@ packages/setu/        the core: vault, Google sign-in, connections, the token he
 packages/setu-gmail/  the Gmail connector: an MCP server, and its manifest
 packages/setu-homeassistant/  two Home Assistant connectors: REST tools, and a bridge to its MCP server
 packages/setu-sites/  Amazon and X: browser-road manifests, no code
+packages/setu-catalog-server/  the catalog server: serves the signed index, counts installs,
+                   takes submissions; Containerfile + a Quadlet unit in deploy/
 tests/                fakes of Gmail, Google and Home Assistant, and the rules they hold the code to
 ```
 

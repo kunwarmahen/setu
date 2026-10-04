@@ -1,0 +1,22 @@
+# Quadlet: systemd runs the catalog server as a service.
+# Copy to ~/.config/containers/systemd/ (or /etc/containers/systemd/ for root),
+# then: systemctl --user daemon-reload && systemctl --user start setu-catalog
+[Unit]
+Description=Setu catalog server (serves the signed index; never holds the signing key)
+After=network-online.target
+
+[Container]
+Image=localhost/setu-catalog:latest
+ContainerName=setu-catalog
+# only this computer reaches it directly; your TLS proxy forwards to it
+PublishPort=127.0.0.1:8780:8780
+Volume=setu-catalog-data:/data:Z
+# the publish token, from `podman secret create setu-catalog-token -`
+Secret=setu-catalog-token,type=env,target=SETU_CATALOG_TOKEN
+Exec=setu-catalog-server --host 0.0.0.0 --port 8780 --behind-proxy
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target
