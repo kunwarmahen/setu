@@ -183,3 +183,96 @@ class TestTheClient:
         fresh, note = catalog.current(now=tomorrow + timedelta(days=1, minutes=1))
         assert fresh.data["issued"] == "2026-10-05T00:00:00Z"
         assert note.startswith("catalog: using the copy kept")
+
+
+# ---- install counts -------------------------------------------------------------------
+
+
+class TestCounting:
+    def test_one_per_address_per_connector_per_day(self, server):
+        from setu_catalog_server.app import Catalog
+        data, _ = server
+        cat = Catalog(data, TOKEN)
+        assert cat.install("gmail", "0.1.0", "10.0.0.1", day="2026-10-04")
+        assert not cat.install("gmail", "0.1.0", "10.0.0.1", day="2026-10-04")
+        assert cat.install("gmail", "0.1.0", "10.0.0.2", day="2026-10-04")
+        assert cat.install("amazon", "0.1.0", "10.0.0.1", day="2026-10-04")
+        assert cat.install("gmail", "0.2.0", "10.0.0.1", day="2026-10-05")   # a new day
+        totals = cat.totals()
+        assert totals["gmail"] == {"total": 3, "versions": {"0.1.0": 2, "0.2.0": 1}}
+
+    def test_no_address_is_kept_and_the_salt_is_new_each_day(self, server):
+        from setu_catalog_server.app import TODAY, Catalog
+        data, _ = server
+        cat = Catalog(data, TOKEN)
+        cat.install("gmail", "0.1.0", "203.0.113.9", day="2026-10-04")
+        first = json.loads((data / TODAY).read_text())["salt"]
+        cat.install("gmail", "0.1.0", "203.0.113.9", day="2026-10-05")
+        assert json.loads((data / TODAY).read_text())["salt"] != first
+        on_disk = "".join(p.read_text() for p in data.glob("*.json"))
+        assert "203.0.113.9" not in on_disk
+
+    def test_one_address_cannot_pump_the_counts(self, server):
+        from setu_catalog_server.app import PINGS_PER_DAY, Catalog
+        data, _ = server
+        cat = Catalog(data, TOKEN)
+        counted = sum(cat.install(f"c{i}", "1", "10.0.0.1", day="2026-10-04")
+                      for i in range(PINGS_PER_DAY + 20))
+        assert counted == PINGS_PER_DAY
+
+    def test_the_route_takes_an_id_and_a_version_only(self, server):
+        _, client = server
+        assert client.post("/installs", json={"id": "gmail", "version": "0.1.0"}).json() \
+            == {"counted": True}
+        assert client.post("/installs", json={"id": "../etc", "version": "1"}).status_code == 400
+        assert client.post("/installs", json={"id": "gmail"}).status_code == 400
+        assert client.get("/installs.json").json()["gmail"]["total"] == 1
+
+
+class TestThePing:
+    def kept(self, live, keys):
+        address, data = live
+        listed = doc(connectors=[
+            {"id": "gmail", "name": "Gmail", "label": "by-setu", "package": "setu-gmail",
+             "version": "0.1.0", "yanked": {}},
+            {"id": "notion", "name": "Notion", "label": "partner", "package": "setu-notion",
+             "version": "1.0.0", "yanked": {}}])
+        raw = json.dumps(listed).encode()
+        (data / INDEX).write_bytes(raw)
+        (data / SIG).write_text(json.dumps(catalog.sign(raw, keys[0])))
+        return catalog.use(address), data
+
+    def test_listed_and_installed_only_and_once_per_version(self, live, keys):
+        index, data = self.kept(live, keys)
+        assert catalog.ping_installs(index) == 1          # gmail; notion isn't installed
+        assert catalog.ping_installs(index) == 0          # said already
+        totals = json.loads((data / "installs.json").read_text())
+        assert list(totals) == ["gmail"]                  # nothing unlisted ever sent
+
+    def test_off_sends_nothing(self, live, keys, capsys):
+        index, data = self.kept(live, keys)
+        assert main(["config", "share-installs", "off"]) == 0
+        assert catalog.ping_installs(index) == 0
+        assert not (data / "installs.json").exists()
+
+    def test_the_report_pings_and_never_fails_for_it(self, live, keys):
+        index, data = self.kept(live, keys)
+        report()
+        assert json.loads((data / "installs.json").read_text())["gmail"]["total"] == 1
+
+    def test_first_use_says_what_is_shared(self, live, keys, capsys):
+        address, data = live
+        raw = json.dumps(doc()).encode()
+        (data / INDEX).write_bytes(raw)
+        (data / SIG).write_text(json.dumps(catalog.sign(raw, keys[0])))
+        assert main(["catalog", "use", address]) == 0
+        assert "share-installs off" in capsys.readouterr().out
+
+    def test_the_maintainer_folds_the_totals_in(self, live, keys, tmp_path, capsys):
+        address, data = live
+        (data / "installs.json").write_text(json.dumps({"gmail": {"total": 12,
+                                                                  "versions": {}}}))
+        path = tmp_path / "index.json"
+        path.write_text(json.dumps(doc()))
+        assert main(["catalog", "counts", str(path), "--to", address]) == 0
+        assert json.loads(path.read_text())["connectors"][0]["installs"] == 12

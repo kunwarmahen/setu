@@ -145,6 +145,8 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
         index, stale = catalog.current()
         if stale:
             problems.append(stale)
+        if index is not None:
+            catalog.ping_installs(index)      # once per version; never raises
     except catalog.CatalogError as exc:
         index = None
         problems.append(f"catalog: {exc}")

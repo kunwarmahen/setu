@@ -384,6 +384,71 @@ def current(home: Path | None = None, *, timeout: float = 5.0,
         return index, f"catalog: using the copy kept {at or '?'} ({exc})"
 
 
+PINGED = "pinged.json"
+
+
+def ping_installs(index: Index, home: Path | None = None, *, timeout: float = 2.0) -> int:
+    """Tell the catalog server, once per version, which of ITS listed
+    connectors are installed here: the id and the version, nothing else.
+    Only connectors the index lists -- a sideloaded or hand-added one's
+    name never leaves this computer. Off with ``setu config
+    share-installs off``. Never raises: a count is not worth an error.
+    Returns how many were sent."""
+    from setu import config
+
+    if not is_address(index.source) or not config.share_installs():
+        return 0
+    path = _cache(home) / PINGED
+    try:
+        done = set(json.loads(path.read_text()))
+    except (FileNotFoundError, ValueError):
+        done = set()
+    due = []
+    for cid, entry in index.connectors.items():
+        installed = _installed_version(entry.get("package") or "")
+        if installed and f"{cid}@{installed}" not in done:
+            due.append((cid, installed))
+    if not due:
+        return 0
+    import httpx
+
+    sent = 0
+    try:
+        with httpx.Client(timeout=timeout) as http:
+            for cid, installed in due:
+                answer = http.post(f"{index.source}/installs",
+                                   json={"id": cid, "version": installed})
+                if answer.status_code < 500:      # counted, or refused for good
+                    done.add(f"{cid}@{installed}")
+                    sent += 1
+    except httpx.HTTPError:
+        pass
+    path.write_text(json.dumps(sorted(done)))
+    return sent
+
+
+def fold_counts(index_path: Path, address: str, *, timeout: float = 15.0) -> int:
+    """The maintainer's step before signing: the server's install totals
+    into the index's ``installs``. Returns how many entries changed."""
+    import httpx
+
+    try:
+        with httpx.Client(timeout=timeout) as http:
+            totals = http.get(f"{address.rstrip('/')}/installs.json").json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise CatalogError(f"could not read {address}/installs.json ({exc})") from None
+    data = json.loads(Path(index_path).read_text())
+    changed = 0
+    for entry in [*(data.get("connectors") or []), *(data.get("recipes") or [])]:
+        key = entry.get("id") or entry.get("name")
+        total = (totals.get(key) or {}).get("total")
+        if total is not None and entry.get("installs") != total:
+            entry["installs"] = total
+            changed += 1
+    Path(index_path).write_text(json.dumps(data, indent=2) + "\n")
+    return changed
+
+
 def publish(index_path: Path, address: str, token: str, *, timeout: float = 30.0) -> dict:
     """Send a signed index (and its .sig) to the catalog server. The server
     checks the signature and refuses an older index; it never sees a key."""

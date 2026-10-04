@@ -20,6 +20,8 @@
     setu catalog use PATH|URL            check an index (and its .sig) and keep it; a URL
                                          is the catalog server, asked again daily
     setu catalog publish INDEX --to URL  the maintainer: send a signed index to the server
+    setu catalog counts INDEX --to URL   the maintainer: copy the server's install totals in
+    setu config share-installs off       stop telling the catalog which connectors you install
 
 Every command a harness needs is ``setu run``: it is what goes in an MCP
 config's ``command``, so the harness starts Setu, Setu starts the
@@ -409,6 +411,10 @@ def _config(args: argparse.Namespace) -> int:
         return 0
     if key == "homeassistant_url":
         value = homeassistant.normalise_url(args.value)
+    elif key == "share_installs":
+        value = args.value.strip().lower()
+        if value not in ("on", "off"):
+            raise ValueError("share-installs is on or off")
     elif key == "browser":
         value = shutil.which(str(Path(args.value).expanduser())) or ""
         if not value:
@@ -590,9 +596,22 @@ def _catalog(args: argparse.Namespace) -> int:
               f"{done.get('key')}, {done.get('connectors')} connector(s), "
               f"{done.get('recipes')} recipe(s)")
         return 0
+    if action == "counts":
+        if not args.to or not args.path:
+            print("error: setu catalog counts INDEX --to https://catalog.example",
+                  file=sys.stderr)
+            return 2
+        changed = catalog.fold_counts(Path(args.path), args.to)
+        print(f"{args.path}: installs updated for {changed} entr(ies) -- sign it, then "
+              "publish")
+        return 0
     if action == "use":
         where = args.path if catalog.is_address(args.path) else Path(args.path).expanduser()
         index = catalog.use(where)
+        if catalog.is_address(args.path) and config.share_installs():
+            print("Setu tells this catalog, anonymously, which of its listed connectors "
+                  "you install (the id and version, nothing else). To stop: "
+                  "setu config share-installs off")
         print(f"catalog from {index.source}, signed by {index.key}: "
               f"{len(index.connectors)} connector(s), {len(index.recipes)} recipe(s)")
         return 0
@@ -685,12 +704,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     cat = sub.add_parser("catalog", help="the signed catalog: labels, installs, withdrawn")
     cat.add_argument("action", nargs="?",
-                     choices=["list", "use", "trust", "keygen", "sign", "vouch", "publish"])
+                     choices=["list", "use", "trust", "keygen", "sign", "vouch", "publish",
+                              "counts"])
     cat.add_argument("path", nargs="?", help="index, key or .pub file, by action")
     cat.add_argument("--key", help="sign/vouch: the private signing key")
     cat.add_argument("--chain", help="sign: a JSON list of vouch links to attach")
     cat.add_argument("--remove", action="store_true", help="trust: stop trusting key PATH")
-    cat.add_argument("--to", help="publish: the catalog server's address")
+    cat.add_argument("--to", help="publish, counts: the catalog server's address")
     return parser
 
 

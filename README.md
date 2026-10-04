@@ -445,7 +445,14 @@ setu catalog use https://catalog.example     # fetched, checked, kept; asked aga
 ```
 
 If the server can't be reached, the last good copy is used, and `setu status`
-says how old it is. An index issued *earlier* than the one you already have is
+says how old it is.
+
+**What a catalog server learns from you.** Once per version, Setu tells it which
+of *its listed* connectors you have installed: the id and the version, nothing
+else. No account, no machine id, and the server never stores your address. It
+counts one install per address per day using a key it deletes the next day.
+Connectors the catalog doesn't list, like ones you sideloaded or sites you added,
+are never mentioned. To stop it: `setu config share-installs off`. An index issued *earlier* than the one you already have is
 refused, from a file or a server, because an old index could bring back a
 version that has since been withdrawn.
 
@@ -463,7 +470,10 @@ SETU_CATALOG_TOKEN=… setu catalog publish index.json --to https://catalog.exam
 ```
 
 The server refuses an upload without the token, one signed by a key it
-doesn't trust, one with a byte changed, and one older than what it serves.
+doesn't trust, one with a byte changed, and one older than what it serves. Before
+signing a new index, `setu catalog counts index.json --to https://catalog.example`
+copies the server's install totals into it, so the numbers people see are signed
+too.
 
 ---
 

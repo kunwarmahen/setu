@@ -40,7 +40,7 @@ ENV_BROWSER = "SETU_BROWSER"
 
 #: The settings ``setu config`` knows, by the name a person types.
 KEYS = {"client-file": "google_client_file", "homeassistant-url": "homeassistant_url",
-        "browser": "browser"}
+        "browser": "browser", "share-installs": "share_installs"}
 
 
 def path() -> Path:
@@ -92,3 +92,9 @@ def browser(explicit: str | None = None) -> str | None:
     """The browser to sign in to browser-road sites with."""
     return (explicit or os.environ.get(ENV_BROWSER)
             or load().get("browser") or None)
+
+
+def share_installs() -> bool:
+    """Whether Setu tells the catalog server, anonymously, which listed
+    connectors are installed (catalog.ping_installs). On unless turned off."""
+    return str(load().get("share_installs") or "on").lower() != "off"
