@@ -36,6 +36,7 @@
     setu certify trust CERTIFIER.pub     count this certifier's word on your cards
     setu certify fetch recipe:NAME       the exact version, by hash, to read and run yourself
     setu certify check DIR [--since OLD] [--run CMD]   a scan, what changed, a run offline
+    setu certify publish CERT --to URL   send it to the catalog, for every reader to weigh
 
 Every command a harness needs is ``setu run``: it is what goes in an MCP
 config's ``command``, so the harness starts Setu, Setu starts the
@@ -349,6 +350,13 @@ def _certify(args: argparse.Namespace) -> int:
                 print(check.diff(Path(args.since), Path(args.path)))
             if args.json:
                 Path(args.json).write_text(json.dumps(report.as_dict(), indent=2) + "\n")
+            return 0
+        if args.certify_command == "publish":
+            cert = json.loads(Path(args.path).read_text())
+            certify.verify(cert)
+            done = catalog._call("POST", args.to, "/certifications", body=cert)
+            print(f"published: {done['verdict']} by {done['certifier']} -- anyone who "
+                  "trusts your key now sees it on the card")
             return 0
         if args.certify_command == "verify":
             cert = json.loads(Path(args.path).read_text())
@@ -893,6 +901,9 @@ def build_parser() -> argparse.ArgumentParser:
     c_check.add_argument("--show-diff", action="store_true", help="with --since: the lines")
     c_check.add_argument("--run", help="a command to run in Podman, no network, read-only")
     c_check.add_argument("--json", help="also write the report here")
+    c_pub = cert_sub.add_parser("publish", help="send a signed certification to a catalog")
+    c_pub.add_argument("path")
+    c_pub.add_argument("--to", required=True, help="the catalog server")
     c_ver = cert_sub.add_parser("verify", help="check a certification file")
     c_ver.add_argument("path")
 

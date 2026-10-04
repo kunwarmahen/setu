@@ -331,6 +331,8 @@ def use(path: Path | str, home: Path | None = None, *, timeout: float = 15.0) ->
                            "withdrawn, so it is refused")
     cache = _cache(home)
     cache.mkdir(parents=True, exist_ok=True)
+    if is_address(source):
+        _keep_certifications(source, cache, timeout)
     (cache / "index.json").write_bytes(raw)
     (cache / "index.json.sig").write_text(json.dumps(sig))
     (cache / "source.json").write_text(json.dumps({
@@ -357,6 +359,32 @@ def kept(home: Path | None = None) -> Index | None:
 
 #: An address is asked again after this long.
 REFRESH_SECONDS = 24 * 3600
+
+
+CERTS_FILE = "certifications.json"
+
+
+def _keep_certifications(address: str, cache: Path, timeout: float) -> None:
+    """The server's certifications, kept beside the index. Each is checked
+    when a card reads it (certify.standing), so nothing here is trusted;
+    a server that has none, or cannot say, leaves the last copy."""
+    import httpx
+
+    try:
+        with httpx.Client(timeout=timeout) as http:
+            answer = http.get(f"{address.rstrip('/')}/certifications.json")
+        if answer.status_code == 200 and isinstance(answer.json(), list):
+            (cache / CERTS_FILE).write_text(json.dumps(answer.json()))
+    except (httpx.HTTPError, ValueError):
+        pass
+
+
+def certifications(home: Path | None = None) -> list[dict[str, Any]]:
+    try:
+        data = json.loads((_cache(home) / CERTS_FILE).read_text())
+    except (FileNotFoundError, ValueError):
+        return []
+    return data if isinstance(data, list) else []
 
 
 def kept_at(home: Path | None = None) -> str:

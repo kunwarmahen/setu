@@ -484,3 +484,52 @@ class TestARecipeTravels:
         catalog.use(path)
         offered = report()["catalog"]["connectors"]
         assert [c["id"] for c in offered] == ["notion"]       # gmail is installed already
+
+
+# ---- certifications -------------------------------------------------------------------
+
+
+class TestCertifications:
+    def listed(self, live, keys, tmp_path):
+        address, data = live
+        digest = "ab" * 32
+        listed = doc(recipes=[{"name": "ha-fan-speed", "label": "partner", "bundle": {
+            "url": f"{address}/files/{digest}.json", "sha256": digest}}])
+        raw = json.dumps(listed).encode()
+        (data / INDEX).write_bytes(raw)
+        (data / SIG).write_text(json.dumps(catalog.sign(raw, keys[0])))
+        from setu import certify
+        certify.keygen(tmp_path / "acme.key", "Acme Labs")
+        subject = {"kind": "recipe", "id": "ha-fan-speed", "version": digest[:12],
+                   "sha256": digest}
+        return address, data, subject
+
+    def test_a_certification_of_what_is_listed_is_kept_and_served(self, live, keys,
+                                                                   tmp_path, capsys):
+        from setu import certify
+        address, data, subject = self.listed(live, keys, tmp_path)
+        cert = certify.make(subject, tmp_path / "acme.key", name="Acme Labs",
+                            statement="deployed a week", checks=["deployed"])
+        path = tmp_path / "c.json"
+        path.write_text(json.dumps(cert))
+        assert main(["certify", "publish", str(path), "--to", address]) == 0
+        catalog.use(address)                                  # a refresh keeps them
+        kept = catalog.certifications()
+        assert len(kept) == 1 and certify.verify(kept[0])
+        import httpx
+        who = httpx.get(f"{address}/certifiers").json()
+        assert list(who.values())[0]["name"] == "Acme Labs"
+        assert list(who.values())[0]["certifications"] == 1
+
+    def test_other_bytes_or_a_changed_word_are_refused(self, live, keys, tmp_path):
+        import httpx
+        from setu import certify
+        address, data, subject = self.listed(live, keys, tmp_path)
+        other = certify.make({**subject, "sha256": "cd" * 32}, tmp_path / "acme.key",
+                             name="Acme Labs", statement="x", checks=[])
+        assert httpx.post(f"{address}/certifications", json=other).status_code == 409
+        good = certify.make(subject, tmp_path / "acme.key", name="Acme Labs",
+                            statement="x", checks=[])
+        tampered = {**good, "statement": "certified by the whole internet"}
+        assert httpx.post(f"{address}/certifications", json=tampered).status_code == 400
+        assert not list((data / "certifications").glob("*.json"))      # nothing kept

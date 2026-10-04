@@ -11,7 +11,15 @@
     POST /submissions/{id}/close        maintainer: accepted or declined, with a reason
     POST /files                         maintainer: a recipe bundle, kept by its hash
     GET  /files/{sha256}.json           the bundle whose SHA-256 is its name
+    POST /certifications                anyone: a certification, signed by its certifier
+    GET  /certifications.json           every certification kept
+    GET  /certifiers                    who has certified: name, how many, since when
     GET  /health                        what is served, for a monitor
+
+A CERTIFICATION IS KEPT, NEVER JUDGED. It must be signed by the key it
+carries and name exactly what the served index lists, at that hash;
+then it is stored as sent. Whose word counts is each reader's choice
+(setu certify trust) -- the server neither ranks nor drops certifiers.
 
 FILES ARE NAMED BY THEIR HASH. An accepted recipe goes up as one bundle,
 stored under the SHA-256 of its bytes; the signed index names that hash,
@@ -82,6 +90,8 @@ _REPO = re.compile(r"^https://[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+$")
 _FILE = re.compile(r"^(SKILL\.md|scripts/[A-Za-z0-9._-]+)$")
 _SID = re.compile(r"^[0-9a-f]{12}$")
 FILES = "files"
+CERTS = "certifications"
+CERTS_PER_DAY = 20
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _VERSION = re.compile(r"^[0-9A-Za-z.+_-]{1,32}$")
 
@@ -255,6 +265,66 @@ class Catalog:
         write_atomic(self.data / SUBMISSIONS / f"{sid}.json", json.dumps(entry).encode())
         return {"submission": sid, "status": verdict, "reason": entry["reason"]}
 
+    # ---- certifications ---------------------------------------------------
+
+    def listed_hash(self, kind: str, ident: str) -> str:
+        served = self.served()
+        if served is None:
+            return ""
+        try:
+            data = json.loads(served[0])
+        except ValueError:
+            return ""
+        if kind == "recipe":
+            entry = next((r for r in data.get("recipes") or [] if r.get("name") == ident),
+                         None)
+            return str(((entry or {}).get("bundle") or {}).get("sha256") or "")
+        entry = next((c for c in data.get("connectors") or [] if c.get("id") == ident), None)
+        return str(((entry or {}).get("wheel") or {}).get("sha256") or "")
+
+    def certify(self, cert: dict[str, Any], address: str, day: str | None = None) -> dict:
+        from setu import certify as certs
+        kid = certs.verify(cert)                      # raises CertError
+        subject = cert["subject"]
+        if self.listed_hash(subject["kind"], subject["id"]) != subject["sha256"]:
+            raise ValueError("it certifies bytes the catalog does not list (another "
+                             "version, or nothing listed under that name)")
+        day = day or datetime.now(UTC).strftime("%Y-%m-%d")
+        with self._lock:
+            today = self._today(day)
+            who = hashlib.sha256(f"{today['salt']}|{address}".encode()).hexdigest()[:24]
+            sent = today.setdefault("certs", {}).get(who, 0)
+            if sent >= CERTS_PER_DAY:
+                raise PermissionError(f"{CERTS_PER_DAY} certifications a day from one "
+                                      "address")
+            today["certs"][who] = sent + 1
+            write_atomic(self.data / TODAY, json.dumps(today).encode())
+            name = f"{subject['kind']}-{subject['id']}-{kid}-{cert['at']}".replace(":", "")
+            write_atomic(self.data / CERTS / f"{name}.json", json.dumps(cert).encode())
+        return {"kept": True, "certifier": kid, "verdict": cert["verdict"]}
+
+    def certifications(self) -> list[dict[str, Any]]:
+        found = []
+        for path in sorted((self.data / CERTS).glob("*.json")):
+            try:
+                found.append(json.loads(path.read_text()))
+            except ValueError:
+                continue
+        return found
+
+    def certifiers(self) -> dict[str, dict[str, Any]]:
+        out: dict[str, dict[str, Any]] = {}
+        for cert in self.certifications():
+            who = cert.get("certifier") or {}
+            kid = who.get("key", "")
+            entry = out.setdefault(kid, {"name": who.get("name", ""), "public": who.get("public"),
+                                         "certifications": 0, "since": cert.get("at", ""),
+                                         "last": cert.get("at", "")})
+            entry["certifications"] += 1
+            entry["since"] = min(entry["since"], cert.get("at", ""))
+            entry["last"] = max(entry["last"], cert.get("at", ""))
+        return out
+
     def allowed(self, request: Request) -> bool:
         given = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
         return bool(self.token) and hmac.compare_digest(given.encode(), self.token.encode())
@@ -380,6 +450,30 @@ def make_app(data: Path, token: str, *, behind_proxy: bool = False) -> Starlette
         return Response(raw, media_type="application/json",
                         headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
+    async def certify(request: Request) -> Response:
+        from setu import certify as certs
+        raw = await request.body()
+        if len(raw) > 64 * 1024:
+            return JSONResponse({"error": "too large"}, status_code=413)
+        try:
+            body = json.loads(raw)
+            if not isinstance(body, dict):
+                raise ValueError("not an object")
+            return JSONResponse(cat.certify(body, address(request)), status_code=201)
+        except certs.CertError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        except PermissionError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=429)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=409)
+
+    async def all_certifications(request: Request) -> Response:
+        return JSONResponse(cat.certifications(),
+                            headers={"Cache-Control": "public, max-age=300"})
+
+    async def certifiers(request: Request) -> Response:
+        return JSONResponse(cat.certifiers())
+
     async def health(request: Request) -> Response:
         return JSONResponse({"ok": True, "issued": cat.issued(),
                              "keys": sorted(catalog.trusted(cat.data))})
@@ -396,6 +490,9 @@ def make_app(data: Path, token: str, *, behind_proxy: bool = False) -> Starlette
         Route("/submissions/{sid}/close", close, methods=["POST"]),
         Route("/files", put_file, methods=["POST"]),
         Route("/files/{sha}.json", get_file),
+        Route("/certifications", certify, methods=["POST"]),
+        Route("/certifications.json", all_certifications),
+        Route("/certifiers", certifiers),
         Route("/health", health),
     ])
 
