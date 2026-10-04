@@ -456,7 +456,7 @@ def install(connector: str, home: Path | None = None,
     url, digest = str(wheel.get("url") or ""), str(wheel.get("sha256") or "").lower()
     if not url or len(digest) != 64:
         raise CatalogError(f"{connector}: the catalog names no wheel to install it from")
-    if not url.startswith(("https://", "file://")):
+    if not _fetchable(url):
         raise CatalogError(f"{connector}: wheels come over https, not {url.split(':')[0]}")
     reason = (entry.get("yanked") or {}).get(wanted)
     if reason:
@@ -481,6 +481,13 @@ def install(connector: str, home: Path | None = None,
     return wanted
 
 
+def _fetchable(url: str) -> bool:
+    """https, a local file, or this computer (a catalog server under test).
+    The hash is the guard either way; plain http elsewhere is refused so a
+    network in between cannot even try."""
+    return url.startswith(("https://", "file://", "http://127.0.0.1:", "http://localhost:"))
+
+
 def _download(url: str) -> bytes:
     if url.startswith("file://"):
         return Path(url[len("file://"):]).read_bytes()
@@ -494,6 +501,111 @@ def _download(url: str) -> bytes:
     if answer.status_code != 200:
         raise CatalogError(f"{url} answered HTTP {answer.status_code}")
     return answer.content
+
+
+RECIPE_FORMAT = "setu.recipe.v1"
+
+
+def recipe_files(folder: Path) -> dict[str, str]:
+    """A recipe folder's SKILL.md and scripts/ -- nothing else travels."""
+    folder = Path(folder)
+    if not (folder / "SKILL.md").is_file():
+        raise CatalogError(f"no SKILL.md in {folder}")
+    files = {"SKILL.md": (folder / "SKILL.md").read_text(encoding="utf-8")}
+    scripts = folder / "scripts"
+    for script in sorted(scripts.glob("*")) if scripts.is_dir() else []:
+        if script.is_file():
+            files[f"scripts/{script.name}"] = script.read_text(encoding="utf-8")
+    return files
+
+
+def bundle(name: str, files: dict[str, str]) -> bytes:
+    """One recipe as the exact bytes its hash is taken over."""
+    return json.dumps({"format": RECIPE_FORMAT, "name": name, "files": files},
+                      sort_keys=True, separators=(",", ":")).encode()
+
+
+def upload_recipe(folder: Path, address: str, token: str) -> dict[str, Any]:
+    """The maintainer: a recipe folder up to the server, by its hash; the
+    entry to put in the index comes back."""
+    folder = Path(folder)
+    raw = bundle(folder.name, recipe_files(folder))
+    import httpx
+
+    try:
+        with httpx.Client(timeout=30) as http:
+            answer = http.post(f"{address.rstrip('/')}/files", content=raw,
+                               headers={"Authorization": f"Bearer {token}",
+                                        "Content-Type": "application/json"})
+    except httpx.HTTPError as exc:
+        raise CatalogError(f"could not reach {address} ({type(exc).__name__})") from None
+    if answer.status_code >= 300:
+        raise CatalogError(f"{address} refused it (HTTP {answer.status_code}): "
+                           f"{answer.text[:200]}")
+    digest = answer.json()["sha256"]
+    if digest != hashlib.sha256(raw).hexdigest():
+        raise CatalogError("the server named the bundle by another hash; not trusted")
+    return {"name": folder.name,
+            "bundle": {"url": f"{address.rstrip('/')}/files/{digest}.json", "sha256": digest}}
+
+
+def fetch_recipe(name: str, into: Path, home: Path | None = None,
+                 fetch: Any = None) -> Path:
+    """A listed recipe, checked against the signed index, written to
+    ``into/NAME`` for the harness to show and install. Counted, as a
+    connector's install is, when the catalog is a server."""
+    index = kept(home)
+    if index is None:
+        raise CatalogError("no catalog kept: `setu catalog use URL` first")
+    entry = next((r for r in index.recipes if r.get("name") == name), None)
+    if entry is None:
+        raise CatalogError(f"the catalog does not list a recipe {name!r}")
+    spec = entry.get("bundle") or {}
+    url, digest = str(spec.get("url") or ""), str(spec.get("sha256") or "").lower()
+    if not _fetchable(url) or len(digest) != 64:
+        raise CatalogError(f"{name}: the catalog names no bundle to fetch it from")
+    raw = (fetch or _download)(url)
+    if hashlib.sha256(raw).hexdigest() != digest:
+        raise CatalogError(f"{name}: the bundle is not the one the signed catalog names "
+                           "-- nothing written")
+    data = json.loads(raw)
+    if data.get("format") != RECIPE_FORMAT or data.get("name") != name:
+        raise CatalogError(f"{name}: not a {RECIPE_FORMAT} bundle for this recipe")
+    target = Path(into) / name
+    for rel, text in (data.get("files") or {}).items():
+        if not (rel == "SKILL.md" or (rel.startswith("scripts/") and rel.count("/") == 1
+                                      and ".." not in rel)):
+            raise CatalogError(f"{name}: {rel!r} is not SKILL.md or scripts/<name>")
+        dest = target / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(text, encoding="utf-8")
+    _ping_one(index, home, name, digest[:12])
+    return target
+
+
+def _ping_one(index: Index, home: Path | None, item: str, version: str) -> None:
+    """One install, told once -- the recipe's twin of ping_installs."""
+    from setu import config
+
+    if not is_address(index.source) or not config.share_installs():
+        return
+    path = _cache(home) / PINGED
+    try:
+        done = set(json.loads(path.read_text()))
+    except (FileNotFoundError, ValueError):
+        done = set()
+    if f"{item}@{version}" in done:
+        return
+    import httpx
+
+    try:
+        with httpx.Client(timeout=2.0) as http:
+            answer = http.post(f"{index.source}/installs", json={"id": item, "version": version})
+        if answer.status_code < 500:
+            done.add(f"{item}@{version}")
+            path.write_text(json.dumps(sorted(done)))
+    except httpx.HTTPError:
+        pass
 
 
 PINGED = "pinged.json"

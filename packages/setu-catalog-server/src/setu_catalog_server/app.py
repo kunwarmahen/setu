@@ -9,7 +9,14 @@
     GET  /submissions                   maintainer: the queue (?all for closed too)
     GET  /submissions/{id}?full         maintainer: everything that was sent
     POST /submissions/{id}/close        maintainer: accepted or declined, with a reason
+    POST /files                         maintainer: a recipe bundle, kept by its hash
+    GET  /files/{sha256}.json           the bundle whose SHA-256 is its name
     GET  /health                        what is served, for a monitor
+
+FILES ARE NAMED BY THEIR HASH. An accepted recipe goes up as one bundle,
+stored under the SHA-256 of its bytes; the signed index names that hash,
+and the client checks it. The address is the proof -- the server could
+not swap one bundle for another without the name stopping matching.
 
 A SUBMISSION IS AN INBOX, NEVER A PUBLISH. It is stored -- size-capped,
 a few per address a day -- and nothing more. A connector is its source
@@ -74,6 +81,8 @@ _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _REPO = re.compile(r"^https://[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+$")
 _FILE = re.compile(r"^(SKILL\.md|scripts/[A-Za-z0-9._-]+)$")
 _SID = re.compile(r"^[0-9a-f]{12}$")
+FILES = "files"
+_SHA = re.compile(r"^[0-9a-f]{64}$")
 _VERSION = re.compile(r"^[0-9A-Za-z.+_-]{1,32}$")
 
 
@@ -343,6 +352,34 @@ def make_app(data: Path, token: str, *, behind_proxy: bool = False) -> Starlette
         except (ValueError, AttributeError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
 
+    async def put_file(request: Request) -> Response:
+        if not cat.allowed(request):
+            return JSONResponse({"error": "not the maintainer"}, status_code=401)
+        raw = await request.body()
+        if not raw or len(raw) > MAX_SUBMISSION:
+            return JSONResponse({"error": "empty, or too large"}, status_code=413)
+        try:
+            json.loads(raw)
+        except ValueError:
+            return JSONResponse({"error": "a bundle is JSON"}, status_code=400)
+        digest = hashlib.sha256(raw).hexdigest()
+        target = cat.data / FILES / f"{digest}.json"
+        if not target.exists():
+            write_atomic(target, raw)
+        return JSONResponse({"sha256": digest, "path": f"/files/{digest}.json"},
+                            status_code=201)
+
+    async def get_file(request: Request) -> Response:
+        digest = request.path_params["sha"]
+        if not _SHA.match(digest):
+            return JSONResponse({"error": "no such file"}, status_code=404)
+        try:
+            raw = (cat.data / FILES / f"{digest}.json").read_bytes()
+        except FileNotFoundError:
+            return JSONResponse({"error": "no such file"}, status_code=404)
+        return Response(raw, media_type="application/json",
+                        headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
     async def health(request: Request) -> Response:
         return JSONResponse({"ok": True, "issued": cat.issued(),
                              "keys": sorted(catalog.trusted(cat.data))})
@@ -357,6 +394,8 @@ def make_app(data: Path, token: str, *, behind_proxy: bool = False) -> Starlette
         Route("/submissions", submissions, methods=["GET"]),
         Route("/submissions/{sid}", one),
         Route("/submissions/{sid}/close", close, methods=["POST"]),
+        Route("/files", put_file, methods=["POST"]),
+        Route("/files/{sha}.json", get_file),
         Route("/health", health),
     ])
 

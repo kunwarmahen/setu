@@ -402,3 +402,85 @@ class TestInstallByHash:
         with pytest.raises(catalog.CatalogError, match="does not list"):
             catalog.install("shopify", run=run)
         assert ran == []
+
+
+# ---- a recipe, from an author's folder to someone else's ------------------------------
+
+
+class TestARecipeTravels:
+    def test_submit_review_upload_list_fetch(self, live, keys, tmp_path, capsys,
+                                             monkeypatch):
+        address, data = live
+        folder = TestSubmissions().recipe(tmp_path)
+        assert main(["catalog", "submit", str(folder), "--to", address,
+                     "--author", "priya"]) == 0
+        sid = capsys.readouterr().out.split("submitted: ")[1].split(" ")[0]
+        monkeypatch.setenv("SETU_CATALOG_TOKEN", TOKEN)
+        # the maintainer saves it to read and try, then uploads it by its hash
+        assert main(["catalog", "review", sid, "--save", str(tmp_path / "review"),
+                     "--to", address]) == 0
+        capsys.readouterr()
+        assert main(["catalog", "upload", str(tmp_path / "review" / "ha-fan-speed"),
+                     "--to", address]) == 0
+        entry = json.loads(capsys.readouterr().out.split("publish:\n", 1)[1])
+        assert entry["bundle"]["url"].endswith(f"/files/{entry['bundle']['sha256']}.json")
+        # ... into the index, signed, published; someone else fetches it
+        listed = doc(recipes=[{**entry, "author": "priya", "label": "partner",
+                               "needs": ["homeassistant"]}])
+        raw = json.dumps(listed).encode()
+        (data / INDEX).write_bytes(raw)
+        (data / SIG).write_text(json.dumps(catalog.sign(raw, keys[0])))
+        catalog.use(address)
+        target = catalog.fetch_recipe("ha-fan-speed", tmp_path / "got")
+        assert (target / "scripts" / "fan.py").read_text() == "print('fan')\n"
+        assert (target / "SKILL.md").read_text() == (folder / "SKILL.md").read_text()
+        totals = json.loads((data / "installs.json").read_text())
+        assert totals["ha-fan-speed"]["total"] == 1          # counted, once
+        catalog.fetch_recipe("ha-fan-speed", tmp_path / "again")
+        assert json.loads((data / "installs.json").read_text())["ha-fan-speed"]["total"] == 1
+
+    def test_a_swapped_bundle_is_refused(self, live, keys, tmp_path):
+        import hashlib
+        address, data = live
+        files = {"SKILL.md": "---\nname: r\n---\nhi\n"}
+        good = catalog.bundle("r", files)
+        digest = hashlib.sha256(good).hexdigest()
+        (data / "files").mkdir(parents=True, exist_ok=True)
+        (data / "files" / f"{digest}.json").write_bytes(
+            catalog.bundle("r", {"SKILL.md": "---\nname: r\n---\nrm -rf ~\n"}))
+        listed = doc(recipes=[{"name": "r", "label": "partner", "bundle": {
+            "url": f"{address}/files/{digest}.json", "sha256": digest}}])
+        raw = json.dumps(listed).encode()
+        (data / INDEX).write_bytes(raw)
+        (data / SIG).write_text(json.dumps(catalog.sign(raw, keys[0])))
+        catalog.use(address)
+        with pytest.raises(catalog.CatalogError, match="not the one the signed catalog"):
+            catalog.fetch_recipe("r", tmp_path / "got")
+        assert not (tmp_path / "got").exists()
+
+    def test_the_server_names_a_file_by_its_own_hash(self, server):
+        import hashlib
+        _, client = server
+        body = catalog.bundle("r", {"SKILL.md": "x"})
+        assert client.post("/files", content=body).status_code == 401
+        answer = client.post("/files", content=body,
+                             headers={"Authorization": f"Bearer {TOKEN}"}).json()
+        assert answer["sha256"] == hashlib.sha256(body).hexdigest()
+        assert client.get(answer["path"]).content == body
+        assert client.get("/files/../index.json").status_code == 404
+
+    def test_the_report_offers_what_is_listed_and_not_installed(self, home, tmp_path, keys):
+        catalog.trust(keys[1])
+        path = tmp_path / "index.json"
+        path.write_text(json.dumps(doc(connectors=[
+            {"id": "gmail", "name": "Gmail", "label": "by-setu", "package": "setu-gmail",
+             "version": "0.1.0", "yanked": {}, "wheel": {"url": "https://x/g.whl",
+                                                         "sha256": "0" * 64}},
+            {"id": "notion", "name": "Notion", "label": "partner", "package": "setu-notion",
+             "version": "1.0.0", "yanked": {}, "wheel": {"url": "https://x/n.whl",
+                                                         "sha256": "1" * 64}}])))
+        path.with_name("index.json.sig").write_text(
+            json.dumps(catalog.sign(path.read_bytes(), keys[0])))
+        catalog.use(path)
+        offered = report()["catalog"]["connectors"]
+        assert [c["id"] for c in offered] == ["notion"]       # gmail is installed already

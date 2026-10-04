@@ -195,7 +195,14 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
         "setup": setup,
         "catalog": ({"source": index.source, "key": index.key,
                      "issued": index.data.get("issued", ""),
-                     "recipes": index.recipes} if index is not None else None),
+                     "recipes": index.recipes,
+                     # listed but not here: what a page may offer to install
+                     "connectors": [
+                         {k: c.get(k) for k in ("id", "name", "summary", "label", "author",
+                                                "installs", "version")}
+                         for cid, c in index.connectors.items()
+                         if cid not in manifests and (c.get("wheel") or {}).get("sha256")]}
+                    if index is not None else None),
         "problems": problems + [f"{c['id']}: withdrawn by Setu -- {c['yanked']}"
                                 for c in cards if c["yanked"]],
         "watch": [str(getattr(vault, "path", "")) or None, str(sites_dir())],

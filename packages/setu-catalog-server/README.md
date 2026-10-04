@@ -100,6 +100,19 @@ setu catalog close ID --verdict accepted --reason "listed in the next index" \
     --to https://catalog.example.com
 ```
 
+**A recipe:** save it to a folder, read it, and try it:
+
+```
+setu catalog review ID --save ~/review --to https://catalog.example.com
+yantra --skill-install ~/review/<name>          # shows every file, asks; then use it
+setu catalog upload ~/review/<name> --to https://catalog.example.com
+```
+
+`upload` stores the recipe on the server under the SHA-256 of its bytes and
+prints the `bundle` lines to put in that recipe's entry in `index.json`. Then
+sign and publish. Users install it with `yantra --skill-install
+catalog:<name>`; Setu checks the bundle against the signed hash first.
+
 A connector arrives as source code at an exact commit. Read it there, and build
 the wheel yourself from that commit; never use a wheel the author sends. Then
 add it to `index.json` with the wheel's address and `sha256`, sign and publish.

@@ -28,6 +28,9 @@
     setu catalog submission ID --to URL  how your submission went
     setu catalog review [ID] --to URL    the maintainer: the queue, or one in full
     setu catalog close ID --verdict accepted|declined --reason TEXT --to URL
+    setu catalog review ID --save DIR --to URL     the maintainer: a recipe's files, to try
+    setu catalog upload DIR --to URL     the maintainer: a recipe up, by its hash
+    setu catalog recipe NAME --into DIR  a listed recipe, checked by hash, for a harness to install
 
 Every command a harness needs is ``setu run``: it is what goes in an MCP
 config's ``command``, so the harness starts Setu, Setu starts the
@@ -650,8 +653,18 @@ def _catalog(args: argparse.Namespace) -> int:
             print(f"{done['submission']}: {done['status']}")
             return 0
         if args.path:
-            print(json.dumps(catalog._call("GET", args.to, f"/submissions/{args.path}?full",
-                                           token=token), indent=2))
+            full = catalog._call("GET", args.to, f"/submissions/{args.path}?full",
+                                 token=token)
+            if args.save and full.get("kind") == "recipe":
+                target = Path(args.save).expanduser() / full["id"]
+                for rel, text in (full.get("files") or {}).items():
+                    dest = target / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_text(text, encoding="utf-8")
+                print(f"{full['id']}: written to {target} -- read it, try it "
+                      f"(yantra --skill-install {target}), then upload it")
+                return 0
+            print(json.dumps(full, indent=2))
             return 0
         queue = catalog._call("GET", args.to, "/submissions", token=token)
         if not queue:
@@ -659,6 +672,24 @@ def _catalog(args: argparse.Namespace) -> int:
         for item in queue:
             print(f"{item['sid']}  {item['kind']:<9} {item['id']:<24} by {item['author']}"
                   f"  {item['at']}")
+        return 0
+    if action == "upload":
+        token = os.environ.get("SETU_CATALOG_TOKEN", "")
+        if not args.to or not token or not args.path:
+            print("error: setu catalog upload RECIPE_DIR --to URL, with the maintainer's "
+                  "token in SETU_CATALOG_TOKEN", file=sys.stderr)
+            return 2
+        entry = catalog.upload_recipe(Path(args.path).expanduser(), args.to, token)
+        print("uploaded. Add this to the recipe's entry in index.json, then sign and "
+              "publish:")
+        print(json.dumps(entry, indent=2))
+        return 0
+    if action == "recipe":
+        if not args.path:
+            print("error: setu catalog recipe NAME [--into DIR]", file=sys.stderr)
+            return 2
+        target = catalog.fetch_recipe(args.path, Path(args.into or ".").expanduser())
+        print(f"{args.path}: checked against the signed catalog, written to {target}")
         return 0
     if action == "counts":
         if not args.to or not args.path:
@@ -773,7 +804,8 @@ def build_parser() -> argparse.ArgumentParser:
     cat = sub.add_parser("catalog", help="the signed catalog: labels, installs, withdrawn")
     cat.add_argument("action", nargs="?",
                      choices=["list", "use", "trust", "keygen", "sign", "vouch", "publish",
-                              "counts", "submit", "submission", "review", "close"])
+                              "counts", "submit", "submission", "review", "close",
+                              "upload", "recipe"])
     cat.add_argument("path", nargs="?", help="index, key or .pub file, by action")
     cat.add_argument("--key", help="sign/vouch: the private signing key")
     cat.add_argument("--chain", help="sign: a JSON list of vouch links to attach")
@@ -787,6 +819,8 @@ def build_parser() -> argparse.ArgumentParser:
     cat.add_argument("--commit", help="submit --connector: the exact commit to review")
     cat.add_argument("--verdict", help="close: accepted or declined")
     cat.add_argument("--reason", help="close: what the author is told")
+    cat.add_argument("--save", help="review ID: write a submitted recipe's files to this folder")
+    cat.add_argument("--into", help="recipe: where to write it (default: here)")
     return parser
 
 
