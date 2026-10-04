@@ -9,6 +9,7 @@ resolution-markers = [
 [manifest]
 members = [
     "setu",
+    "setu-catalog-server",
     "setu-gmail",
     "setu-homeassistant",
     "setu-sites",
@@ -714,6 +715,23 @@ requires-dist = [
 ]
 
 [[package]]
+name = "setu-catalog-server"
+version = "0.1.0"
+source = { editable = "packages/setu-catalog-server" }
+dependencies = [
+    { name = "setu" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "setu", editable = "packages/setu" },
+    { name = "starlette", specifier = ">=0.40" },
+    { name = "uvicorn", specifier = ">=0.30" },
+]
+
+[[package]]
 name = "setu-gmail"
 version = "0.1.0"
 source = { editable = "packages/setu-gmail" }
@@ -768,6 +786,7 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
     { name = "setu" },
+    { name = "setu-catalog-server" },
     { name = "setu-gmail" },
     { name = "setu-homeassistant" },
     { name = "setu-sites" },
@@ -780,6 +799,7 @@ dev = [
     { name = "pytest", specifier = ">=8.3" },
     { name = "ruff", specifier = ">=0.14" },
     { name = "setu", editable = "packages/setu" },
+    { name = "setu-catalog-server", editable = "packages/setu-catalog-server" },
     { name = "setu-gmail", editable = "packages/setu-gmail" },
     { name = "setu-homeassistant", editable = "packages/setu-homeassistant" },
     { name = "setu-sites", editable = "packages/setu-sites" },

@@ -17,7 +17,9 @@
     setu site event amazon:personal robot_check   a harness noting what went wrong (a week kept)
     setu config browser PATH             which browser that window is (default: Chrome on PATH)
     setu catalog                         the signed catalog: labels, installs, withdrawn
-    setu catalog use PATH                check an index (and PATH.sig) and keep it
+    setu catalog use PATH|URL            check an index (and its .sig) and keep it; a URL
+                                         is the catalog server, asked again daily
+    setu catalog publish INDEX --to URL  the maintainer: send a signed index to the server
 
 Every command a harness needs is ``setu run``: it is what goes in an MCP
 config's ``command``, so the harness starts Setu, Setu starts the
@@ -40,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 import webbrowser
@@ -576,8 +579,20 @@ def _catalog(args: argparse.Namespace) -> int:
         catalog.trust(pub)
         print(f"trusting catalog key {pub['id']}")
         return 0
+    if action == "publish":
+        token = os.environ.get("SETU_CATALOG_TOKEN", "")
+        if not args.to or not token:
+            print("error: setu catalog publish INDEX --to https://catalog.example, with the "
+                  "maintainer's token in SETU_CATALOG_TOKEN", file=sys.stderr)
+            return 2
+        done = catalog.publish(Path(args.path), args.to, token)
+        print(f"published to {args.to}: issued {done.get('issued')}, signed by "
+              f"{done.get('key')}, {done.get('connectors')} connector(s), "
+              f"{done.get('recipes')} recipe(s)")
+        return 0
     if action == "use":
-        index = catalog.use(Path(args.path).expanduser())
+        where = args.path if catalog.is_address(args.path) else Path(args.path).expanduser()
+        index = catalog.use(where)
         print(f"catalog from {index.source}, signed by {index.key}: "
               f"{len(index.connectors)} connector(s), {len(index.recipes)} recipe(s)")
         return 0
@@ -670,11 +685,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     cat = sub.add_parser("catalog", help="the signed catalog: labels, installs, withdrawn")
     cat.add_argument("action", nargs="?",
-                     choices=["list", "use", "trust", "keygen", "sign", "vouch"])
+                     choices=["list", "use", "trust", "keygen", "sign", "vouch", "publish"])
     cat.add_argument("path", nargs="?", help="index, key or .pub file, by action")
     cat.add_argument("--key", help="sign/vouch: the private signing key")
     cat.add_argument("--chain", help="sign: a JSON list of vouch links to attach")
     cat.add_argument("--remove", action="store_true", help="trust: stop trusting key PATH")
+    cat.add_argument("--to", help="publish: the catalog server's address")
     return parser
 
 

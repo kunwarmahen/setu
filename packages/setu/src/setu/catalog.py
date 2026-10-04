@@ -29,9 +29,16 @@ calling Setu's own Gmail sideloaded. A site a person added by hand
 (``sites/``) is ``local`` whether or not an index is kept: no catalog
 has a word on it.
 
-What is not here: fetching the index from a host, and installing
-connectors by hash. Both wait on a decision about where the catalog
-lives; this module reads a path, and the format is the same either way.
+FROM A PATH OR A SERVER. ``use`` takes a file or an https address (the
+catalog server, setu-catalog-server). Either way the bytes are checked
+the same, and the server is trusted for nothing: it never holds the key.
+What it could still do is serve an OLD index, one from before a
+connector was withdrawn -- so an index issued before the one kept is
+refused, here as on the server. A source that is an address is asked
+again at most once a day (``current``); unreachable, the last good
+index is used and the report says how old it is.
+
+What is not here: installing connectors by hash.
 """
 
 from __future__ import annotations
@@ -262,19 +269,61 @@ def _cache(home: Path | None = None) -> Path:
     return (home or default_home()) / CACHE_DIR
 
 
-def use(path: Path, home: Path | None = None) -> Index:
-    """Check ``path`` and ``path.sig``; keep the pair when they check out.
-    A refused index changes nothing that was kept."""
-    raw = Path(path).read_bytes()
-    sig_path = Path(str(path) + ".sig")
+def is_address(source: str | Path) -> bool:
+    return str(source).startswith(("https://", "http://"))
+
+
+def _fetch(address: str, timeout: float) -> tuple[bytes, dict[str, Any]]:
+    import httpx
+
+    base = address.rstrip("/")
+    if base.endswith("/index.json"):
+        base = base[: -len("/index.json")]
     try:
-        sig = json.loads(sig_path.read_text())
-    except FileNotFoundError:
-        raise CatalogError(f"no signature beside the index ({sig_path})") from None
+        with httpx.Client(timeout=timeout, follow_redirects=True) as http:
+            raw = http.get(f"{base}/index.json")
+            signed = http.get(f"{base}/index.json.sig")
+    except httpx.HTTPError as exc:
+        raise CatalogError(f"could not reach {base} ({type(exc).__name__})") from None
+    for response in (raw, signed):
+        if response.status_code != 200:
+            raise CatalogError(f"{response.url} answered HTTP {response.status_code}")
+    try:
+        sig = signed.json()
     except ValueError as exc:
-        raise CatalogError(f"{sig_path} is not JSON ({exc})") from None
+        raise CatalogError(f"{signed.url} is not JSON ({exc})") from None
+    return raw.content, sig
+
+
+def use(path: Path | str, home: Path | None = None, *, timeout: float = 15.0) -> Index:
+    """Check ``path`` and ``path.sig`` -- or an address's index.json and
+    index.json.sig -- and keep the pair when they check out. A refused
+    index changes nothing that was kept."""
+    if is_address(path):
+        raw, sig = _fetch(str(path), timeout)
+        source = str(path).rstrip("/")
+    else:
+        raw = Path(path).read_bytes()
+        sig_path = Path(str(path) + ".sig")
+        try:
+            sig = json.loads(sig_path.read_text())
+        except FileNotFoundError:
+            raise CatalogError(f"no signature beside the index ({sig_path})") from None
+        except ValueError as exc:
+            raise CatalogError(f"{sig_path} is not JSON ({exc})") from None
+        source = str(Path(path).resolve())
     kid = verify(raw, sig, trusted(home))
-    index = parse(raw, kid, str(Path(path).resolve()))
+    index = parse(raw, kid, source)
+    try:
+        before = kept(home)
+    except CatalogError:
+        before = None
+    issued, was = str(index.data.get("issued") or ""), \
+        str(before.data.get("issued") or "") if before is not None else ""
+    if was and (not issued or issued < was):
+        raise CatalogError(f"this index was issued {issued or '(never said)'}, before the "
+                           f"one kept ({was}) -- an old index could bring back what was "
+                           "withdrawn, so it is refused")
     cache = _cache(home)
     cache.mkdir(parents=True, exist_ok=True)
     (cache / "index.json").write_bytes(raw)
@@ -299,3 +348,61 @@ def kept(home: Path | None = None) -> Index | None:
         raise CatalogError(f"the kept index is damaged ({exc}); `setu catalog use` again") \
             from None
     return parse(raw, verify(raw, sig, trusted(home)), source)
+
+
+#: An address is asked again after this long.
+REFRESH_SECONDS = 24 * 3600
+
+
+def kept_at(home: Path | None = None) -> str:
+    try:
+        return json.loads((_cache(home) / "source.json").read_text()).get("kept", "")
+    except (FileNotFoundError, ValueError):
+        return ""
+
+
+def current(home: Path | None = None, *, timeout: float = 5.0,
+            now: datetime | None = None) -> tuple[Index | None, str]:
+    """The index to use now, and a note when it is not fresh. An address
+    kept over a day ago is asked again; failing that, the last good one
+    is used and the note says since when."""
+    index = kept(home)
+    if index is None or not is_address(index.source):
+        return index, ""
+    at = kept_at(home)
+    now = now or datetime.now(UTC)
+    try:
+        age = (now - datetime.strptime(at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC))
+        stale = age.total_seconds() >= REFRESH_SECONDS
+    except ValueError:
+        stale = True
+    if not stale:
+        return index, ""
+    try:
+        return use(index.source, home, timeout=timeout), ""
+    except CatalogError as exc:
+        return index, f"catalog: using the copy kept {at or '?'} ({exc})"
+
+
+def publish(index_path: Path, address: str, token: str, *, timeout: float = 30.0) -> dict:
+    """Send a signed index (and its .sig) to the catalog server. The server
+    checks the signature and refuses an older index; it never sees a key."""
+    import httpx
+
+    raw = Path(index_path).read_bytes()
+    sig = json.loads(Path(str(index_path) + ".sig").read_text())
+    try:
+        with httpx.Client(timeout=timeout) as http:
+            answer = http.post(f"{address.rstrip('/')}/publish",
+                               json={"index": base64.b64encode(raw).decode(), "sig": sig},
+                               headers={"Authorization": f"Bearer {token}"})
+    except httpx.HTTPError as exc:
+        raise CatalogError(f"could not reach {address} ({type(exc).__name__})") from None
+    try:
+        body = answer.json()
+    except ValueError:
+        body = {"error": answer.text[:200]}
+    if answer.status_code != 200:
+        raise CatalogError(f"the server refused it (HTTP {answer.status_code}): "
+                           f"{body.get('error', body)}")
+    return body

@@ -141,7 +141,10 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
         setup = {"google_client_file": None, "homeassistant_url": None, "browser": None}
         problems.append(str(exc))
     try:
-        index = catalog.kept()
+        # a catalog kept from an address is asked again at most daily
+        index, stale = catalog.current()
+        if stale:
+            problems.append(stale)
     except catalog.CatalogError as exc:
         index = None
         problems.append(f"catalog: {exc}")

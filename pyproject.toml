@@ -15,9 +15,11 @@ setu = { workspace = true }
 setu-gmail = { workspace = true }
 setu-homeassistant = { workspace = true }
 setu-sites = { workspace = true }
+setu-catalog-server = { workspace = true }
 
 [dependency-groups]
-dev = ["pytest>=8.3", "ruff>=0.14", "setu", "setu-gmail", "setu-homeassistant", "setu-sites"]
+dev = ["pytest>=8.3", "ruff>=0.14", "setu", "setu-gmail", "setu-homeassistant", "setu-sites",
+       "setu-catalog-server"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

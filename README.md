@@ -437,10 +437,33 @@ setu catalog                          # labels, installs, anything withdrawn
   with `setu catalog trust --remove KEY_ID`, and anything only it vouched for
   stops counting too.
 
-Where the catalog will be published isn't decided yet, so for now Setu reads it
-from a file you give it. To make one: `setu catalog keygen KEY` (keep the
-private half offline), write the index, `setu catalog sign index.json --key
-KEY`.
+Setu can read the catalog from a file you give it, or from a **catalog
+server**:
+
+```
+setu catalog use https://catalog.example     # fetched, checked, kept; asked again daily
+```
+
+If the server can't be reached, the last good copy is used, and `setu status`
+says how old it is. An index issued *earlier* than the one you already have is
+refused, from a file or a server, because an old index could bring back a
+version that has since been withdrawn.
+
+**Running the catalog server** (`setu-catalog-server`, in this repo). It never
+holds the signing key: you sign on your own machine and upload the signed
+file, and it checks the signature before serving it.
+
+```
+setu catalog keygen ~/keys/setu.key                       # once; keep it offline
+setu-catalog-server --data /srv/catalog --trust ~/keys/setu.key.pub
+SETU_CATALOG_TOKEN=… setu-catalog-server --data /srv/catalog --host 0.0.0.0
+# to publish, on your machine:
+setu catalog sign index.json --key ~/keys/setu.key
+SETU_CATALOG_TOKEN=… setu catalog publish index.json --to https://catalog.example
+```
+
+The server refuses an upload without the token, one signed by a key it
+doesn't trust, one with a byte changed, and one older than what it serves.
 
 ---
 

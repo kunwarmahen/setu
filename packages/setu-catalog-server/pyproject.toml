@@ -1,0 +1,17 @@
+[project]
+name = "setu-catalog-server"
+version = "0.1.0"
+description = "Serves Setu's signed catalog, counts installs, and takes submissions -- never holds the signing key"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = ["setu", "starlette>=0.40", "uvicorn>=0.30"]
+
+[project.scripts]
+setu-catalog-server = "setu_catalog_server.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/setu_catalog_server"]
