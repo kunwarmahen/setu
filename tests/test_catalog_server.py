@@ -349,3 +349,56 @@ class TestSubmissions:
             "kind": "recipe", "id": f"r{i}", "author": "a",
             "files": {"SKILL.md": "x"}}).status_code for i in range(SUBMISSIONS_PER_DAY + 2)]
         assert codes.count(201) == SUBMISSIONS_PER_DAY and codes[-1] == 429
+
+
+# ---- install by hash ------------------------------------------------------------------
+
+
+class TestInstallByHash:
+    def listed(self, tmp_path, keys, wheel_bytes=b"PK fake wheel", **entry):
+        import hashlib
+        wheel = tmp_path / "setu_notion-1.0.0-py3-none-any.whl"
+        wheel.write_bytes(wheel_bytes)
+        connector = {"id": "notion", "name": "Notion", "label": "partner", "author": "you",
+                     "package": "setu-notion", "version": "1.0.0", "yanked": {},
+                     "wheel": {"url": f"file://{wheel}",
+                               "sha256": hashlib.sha256(b"PK fake wheel").hexdigest()}}
+        connector.update(entry)
+        catalog.trust(keys[1])
+        path = tmp_path / "index.json"
+        path.write_text(json.dumps(doc(connectors=[connector])))
+        path.with_name("index.json.sig").write_text(
+            json.dumps(catalog.sign(path.read_bytes(), keys[0])))
+        catalog.use(path)
+        ran = []
+
+        def run(argv, **kw):
+            ran.append(argv)
+            return type("Done", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        return ran, run
+
+    def test_the_wheel_the_index_names_is_installed(self, home, tmp_path, keys):
+        ran, run = self.listed(tmp_path, keys)
+        assert catalog.install("notion", run=run) == "1.0.0"
+        assert ran and ran[0][-1].endswith("setu_notion-1.0.0-py3-none-any.whl")
+
+    def test_a_different_wheel_is_never_installed(self, home, tmp_path, keys):
+        ran, run = self.listed(tmp_path, keys, wheel_bytes=b"PK something else")
+        with pytest.raises(catalog.CatalogError, match="not installed"):
+            catalog.install("notion", run=run)
+        assert ran == []
+
+    def test_a_withdrawn_version_is_refused(self, home, tmp_path, keys):
+        ran, run = self.listed(tmp_path, keys, yanked={"1.0.0": "sent mail to a stranger"})
+        with pytest.raises(catalog.CatalogError, match="withdrawn: sent mail"):
+            catalog.install("notion", run=run)
+        assert ran == []
+
+    def test_only_https_and_only_listed(self, home, tmp_path, keys):
+        ran, run = self.listed(tmp_path, keys, wheel={"url": "http://x/a.whl",
+                                                      "sha256": "0" * 64})
+        with pytest.raises(catalog.CatalogError, match="https"):
+            catalog.install("notion", run=run)
+        with pytest.raises(catalog.CatalogError, match="does not list"):
+            catalog.install("shopify", run=run)
+        assert ran == []

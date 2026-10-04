@@ -22,6 +22,7 @@
     setu catalog publish INDEX --to URL  the maintainer: send a signed index to the server
     setu catalog counts INDEX --to URL   the maintainer: copy the server's install totals in
     setu config share-installs off       stop telling the catalog which connectors you install
+    setu install notion                  a connector the catalog lists, its wheel checked by hash
     setu catalog submit DIR --to URL --author NAME          offer a recipe for listing
     setu catalog submit --connector ID --repo URL --commit SHA --to URL --author NAME
     setu catalog submission ID --to URL  how your submission went
@@ -269,6 +270,13 @@ def _site_guide(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(f"{manifest.id}: guide saved ({len(manifest.browser.guide)} characters)")
+    return 0
+
+
+def _install(args: argparse.Namespace) -> int:
+    installed_version = catalog.install(args.connector)
+    print(f"installed {args.connector} {installed_version}, its wheel checked against the "
+          f"signed catalog. Next: setu connect {args.connector}")
     return 0
 
 
@@ -737,6 +745,10 @@ def build_parser() -> argparse.ArgumentParser:
     event.add_argument("ref", help="the connection, e.g. amazon:personal")
     event.add_argument("kind", help="robot_check, signed_out, refused, limit or handoff")
 
+    inst = sub.add_parser("install", help="install a connector the catalog lists, "
+                          "checked by hash")
+    inst.add_argument("connector", help="its id, as `setu catalog` lists it")
+
     sub.add_parser("list", help="your connections")
 
     run = sub.add_parser("run", help="start a connector for a connection")
@@ -781,7 +793,7 @@ def build_parser() -> argparse.ArgumentParser:
 COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list,
             "run": _run, "mcp-config": _mcp_config, "status": _status,
             "disconnect": _disconnect, "config": _config, "catalog": _catalog,
-            "site": _site}
+            "site": _site, "install": _install}
 
 
 def main(argv: list[str] | None = None) -> int:

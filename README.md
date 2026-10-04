@@ -447,6 +447,12 @@ setu catalog use https://catalog.example     # fetched, checked, kept; asked aga
 If the server can't be reached, the last good copy is used, and `setu status`
 says how old it is.
 
+**Installing a listed connector.** `setu install notion` downloads the wheel
+the catalog names and checks it against the signed SHA-256. It refuses to
+install if the hash differs, if that version was withdrawn, or if the address
+isn't https. Whoever hosts the wheel, PyPI or a release page, is trusted for
+nothing. Its dependencies install the ordinary way.
+
 **What a catalog server learns from you.** Once per version, Setu tells it which
 of *its listed* connectors you have installed: the id and the version, nothing
 else. No account, no machine id, and the server never stores your address. It

@@ -38,7 +38,12 @@ refused, here as on the server. A source that is an address is asked
 again at most once a day (``current``); unreachable, the last good
 index is used and the report says how old it is.
 
-What is not here: installing connectors by hash.
+INSTALLING IS BY HASH. ``install`` takes a connector's wheel from the
+address its index entry names and installs it only if its SHA-256 is the
+one the signed index says, and the version is not withdrawn. The wheel's
+host (PyPI, a release page) is trusted for nothing, as the server is
+not. Its dependencies install the ordinary way: pinning every one by
+hash would make each release of httpx a catalog change.
 """
 
 from __future__ import annotations
@@ -429,6 +434,66 @@ def submit_recipe(address: str, folder: Path, author: str, *, contact: str = "",
     return _call("POST", address, "/submissions", body={
         "kind": "recipe", "id": folder.name, "author": author, "contact": contact,
         "note": note, "files": files})
+
+
+def install(connector: str, home: Path | None = None,
+            run: Any = None, fetch: Any = None) -> str:
+    """Install a listed connector's wheel, checked against the signed index.
+    Returns the version installed."""
+    import shutil
+    import subprocess
+    import sys
+    import tempfile
+
+    index = kept(home)
+    if index is None:
+        raise CatalogError("no catalog kept: `setu catalog use URL` first")
+    entry = index.connectors.get(connector)
+    if entry is None:
+        raise CatalogError(f"the catalog does not list {connector!r}")
+    wanted = str(entry.get("version") or "")
+    wheel = entry.get("wheel") or {}
+    url, digest = str(wheel.get("url") or ""), str(wheel.get("sha256") or "").lower()
+    if not url or len(digest) != 64:
+        raise CatalogError(f"{connector}: the catalog names no wheel to install it from")
+    if not url.startswith(("https://", "file://")):
+        raise CatalogError(f"{connector}: wheels come over https, not {url.split(':')[0]}")
+    reason = (entry.get("yanked") or {}).get(wanted)
+    if reason:
+        raise CatalogError(f"{connector} {wanted} was withdrawn: {reason}")
+    name = url.rsplit("/", 1)[-1]
+    if not name.endswith(".whl"):
+        raise CatalogError(f"{connector}: {name} is not a wheel")
+    data = (fetch or _download)(url)
+    found = hashlib.sha256(data).hexdigest()
+    if found != digest:
+        raise CatalogError(f"{connector}: the wheel's hash is {found[:16]}…, not the "
+                           f"{digest[:16]}… the signed catalog names -- not installed")
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / name
+        path.write_bytes(data)
+        argv = (["uv", "pip", "install", "--python", sys.executable, str(path)]
+                if shutil.which("uv") else [sys.executable, "-m", "pip", "install", str(path)])
+        done = (run or subprocess.run)(argv, capture_output=True, text=True)
+        if done.returncode != 0:
+            raise CatalogError(f"{connector}: the installer failed: "
+                               f"{(done.stderr or done.stdout).strip()[-400:]}")
+    return wanted
+
+
+def _download(url: str) -> bytes:
+    if url.startswith("file://"):
+        return Path(url[len("file://"):]).read_bytes()
+    import httpx
+
+    try:
+        with httpx.Client(timeout=60, follow_redirects=True) as http:
+            answer = http.get(url)
+    except httpx.HTTPError as exc:
+        raise CatalogError(f"could not download {url} ({type(exc).__name__})") from None
+    if answer.status_code != 200:
+        raise CatalogError(f"{url} answered HTTP {answer.status_code}")
+    return answer.content
 
 
 PINGED = "pinged.json"
