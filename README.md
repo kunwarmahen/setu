@@ -447,6 +447,59 @@ setu catalog use https://catalog.example     # fetched, checked, kept; asked aga
 If the server can't be reached, the last good copy is used, and `setu status`
 says how old it is.
 
+### Who vouches for it
+
+Nobody can prove a piece of code holds no attack. A catalog card says
+what *can* be known about the exact version listed, and says nothing more:
+
+```
+ha-fan-speed  by priya · signed by its author · same key since a85f406ed3d6
+              certified by 2 you trust (Acme Labs, R. Kumar) + 3 others
+              worked 97% of 340 uses
+              scripts run here in bubblewrap: no network, the host read-only
+```
+
+* **Signed by its author.** The author signed what they submitted with their
+  own key. Connectors must be signed; recipes may be. A new key is said
+  plainly.
+* **Certified.** Independent people (a company, a developer you know, a user
+  group) ran *this exact version* on their own servers, checked it, and signed
+  a certification with their own key. You choose whose word counts:
+
+  ```
+  setu certify trust acme-labs.pub     # their certifications now count as "you trust"
+  ```
+
+  A certification covers one version, by hash; v2 needs its own. A certifier
+  can withdraw theirs ("we found a problem"), and the card then says so in
+  amber. The catalog only stores and serves certifications. It can't add one,
+  change one or hide one, because each is signed by its certifier and checked
+  on your computer.
+* **Worked.** How often this version did its job on other people's machines,
+  from the same anonymous counts as installs.
+* **What it can reach.** Said as it is: a recipe's scripts are confined only
+  when your Yantra runs bash in bubblewrap. A connector is its own program
+  holding your key, and Setu does not yet limit where it connects.
+
+**Becoming a certifier.** Everything runs on your own computer or server:
+
+```
+setu certify keygen ~/keys/acme.key --as "Acme Labs"     # publish acme.key.pub
+setu certify fetch recipe:ha-fan-speed --into ~/review   # the exact version, by hash
+setu certify check ~/review/ha-fan-speed --since ~/review/old --run 'python3 scripts/fan.py f 40'
+#   a scan (secrets, running other code, hiding code, writing outside its folder,
+#   undeclared addresses), what changed since the last version, and your command
+#   run in Podman with no network and a read-only filesystem
+setu certify sign --subject recipe:ha-fan-speed --key ~/keys/acme.key \
+    --checks deployed,read-the-code,sandboxed-run \
+    --statement "Ran it a week against our staging Home Assistant; does what it says."
+setu certify publish recipe-ha-fan-speed-*.cert.json --to https://catalog.example
+```
+
+The check is a help, not a verdict: a clean report proves nothing. What you
+deploy, read and run is what you certify. To withdraw a certification, run
+`sign` again with `--revoke` and a statement saying why, then publish it.
+
 **Installing a listed connector.** `setu install notion` downloads the wheel
 the catalog names and checks it against the signed SHA-256. It refuses to
 install if the hash differs, if that version was withdrawn, or if the address

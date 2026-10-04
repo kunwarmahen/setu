@@ -118,6 +118,20 @@ the wheel yourself from that commit; never use a wheel the author sends. Then
 add it to `index.json` with the wheel's address and `sha256`, sign and publish.
 Accepting a submission publishes nothing by itself.
 
+## Certifications and "worked" counts
+
+The server also keeps two things it never judges:
+
+* **Certifications** (`POST /certifications`). Each one is signed by an
+  independent certifier and covers one version by hash. The server accepts it
+  only if the signature checks out and the hash is what your index lists, then
+  keeps it as sent. Whose certifications count is each reader's choice.
+  `GET /certifiers` shows who has certified, how many, and since when.
+* **Worked/failed reports** (`POST /works`). These come from people's Setu, for
+  recipes your index lists, under their `share-installs` switch.
+  `setu catalog counts` copies the totals for the version you list into
+  `index.json` before you sign it.
+
 ## Keeping it
 
 Everything is in the `setu-catalog-data` volume: the served index and its
