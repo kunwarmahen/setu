@@ -90,7 +90,8 @@ There are two ways in. Pick one (or both, under different names):
 
 | Tool | What it does |
 |---|---|
-| `list_entities` | Every device and sensor, one line each; filter by kind (`fan`, `light`) or a word |
+| `list_entities` | Every device and sensor, one line each; filter by kind (`fan`, `light`), a word, or a room (`area="Kitchen"`) |
+| `list_areas` | The home's rooms and zones as Home Assistant's areas, with how many entities each has |
 | `get_state` | One device's state and details (brightness, temperature, battery…) |
 | `get_history` | How something changed over the last hours |
 | `list_services` | What a kind of device can be told to do |

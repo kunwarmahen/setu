@@ -25,6 +25,7 @@ description = "Everything in See and control, plus locks, alarms, garage and ent
 
 [verbs]
 list_entities = "read"
+list_areas = "read"
 get_state = "read"
 get_history = "read"
 list_services = "read"

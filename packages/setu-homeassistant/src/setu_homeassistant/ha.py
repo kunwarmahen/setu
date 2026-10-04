@@ -12,6 +12,13 @@ lamp, though the API spells them alike: ``POST /api/services/<domain>/
 "Secure" is decided here by domain, and for covers by the device class
 Home Assistant reports (garage, gate, door), never by the model's word.
 
+ROOMS ARE AREAS. People ask by room ("the kitchen lights"); Home
+Assistant groups entities into areas. Its REST API has no area endpoint,
+but its template endpoint does (``areas()``, ``area_entities()``), so
+one fixed template -- nothing the model wrote is ever in it -- maps
+every area to its entities, and the area a person named is matched to
+that map here, by id or by name.
+
 ANSWERS ARE SHORT. A house has hundreds of entities with dozens of
 attributes each; the whole ``/api/states`` would fill a local model's
 context on its own. Listings are one line per entity and capped, and a
@@ -37,6 +44,12 @@ SECURE_COVERS = frozenset({"garage", "gate", "door"})
 #: At most this many entities per listing, and points per history.
 MAX_ENTITIES = 200
 MAX_POINTS = 60
+#: Every area, its name, and each of its entities, one tab-separated line
+#: per pair (an area with none still gets a line). Fixed: nothing from a
+#: tool call is ever put in it.
+AREA_MAP = ("{% for a in areas() %}{% set es = area_entities(a) %}"
+            "{% if es %}{% for e in es %}{{ a }}\t{{ area_name(a) }}\t{{ e }}\n{% endfor %}"
+            "{% else %}{{ a }}\t{{ area_name(a) }}\n{% endif %}{% endfor %}")
 #: An attribute value longer than this is cut, so one camera's token list
 #: or a media player's queue does not drown the rest.
 MAX_ATTR = 200
@@ -67,16 +80,59 @@ class HomeAssistant:
         except ValueError:
             return response.text
 
+    def _template(self, template: str) -> str:
+        """Render a FIXED template on Home Assistant's own engine."""
+        response = self.http.post("/api/template", json={"template": template})
+        answer = self._answer(response, "/api/template")
+        return answer if isinstance(answer, str) else str(answer)
+
+    def areas(self) -> dict[str, tuple[str, list[str]]]:
+        """area id -> (its name, its entity ids), one request."""
+        found: dict[str, tuple[str, list[str]]] = {}
+        for line in self._template(AREA_MAP).splitlines():
+            parts = line.split("\t")
+            if len(parts) < 2 or not parts[0]:
+                continue
+            area_id, name = parts[0].strip(), parts[1].strip()
+            entry = found.setdefault(area_id, (name, []))
+            if len(parts) > 2 and parts[2].strip():
+                entry[1].append(parts[2].strip())
+        return found
+
+    def area_id(self, area: str, areas: dict[str, tuple[str, list[str]]]) -> str:
+        """The area a person named -- its id or its name, any case."""
+        wanted = _key(area)
+        for area_id, (name, _) in areas.items():
+            if wanted in (_key(area_id), _key(name)):
+                return area_id
+        known = ", ".join(name for name, _ in areas.values()) or "none"
+        raise HomeAssistantError(f"no area called {area!r} (areas: {known}); "
+                                 "list_areas shows them")
+
+    def list_areas(self) -> str:
+        areas = self.areas()
+        if not areas:
+            return "this Home Assistant has no areas set up; use list_entities with search"
+        lines = [f"{area_id} — {name}: {len(ids)} entit{'y' if len(ids) == 1 else 'ies'}"
+                 for area_id, (name, ids) in sorted(areas.items(), key=lambda kv: kv[1][0])]
+        return f"{len(areas)} areas:\n" + "\n".join(lines)
+
     # ---- reading -------------------------------------------------------------
 
     def list_entities(self, domain: str = "", search: str = "",
-                      limit: int = MAX_ENTITIES) -> str:
+                      limit: int = MAX_ENTITIES, area: str = "") -> str:
+        inside: set[str] | None = None
+        if area.strip():
+            areas = self.areas()
+            inside = set(areas[self.area_id(area, areas)][1])
         states = self._get("/api/states")
         domain, needle = domain.strip().lower().rstrip("."), search.strip().lower()
         rows = []
         for st in sorted(states, key=lambda s: s.get("entity_id", "")):
             eid = st.get("entity_id", "")
             name = str((st.get("attributes") or {}).get("friendly_name") or "")
+            if inside is not None and eid not in inside:
+                continue
             if domain and eid.split(".")[0] != domain:
                 continue
             if needle and needle not in eid.lower() and needle not in name.lower():
@@ -85,7 +141,8 @@ class HomeAssistant:
         limit = max(1, min(int(limit or MAX_ENTITIES), MAX_ENTITIES))
         if not rows:
             what = " ".join(x for x in (domain and f"domain {domain!r}",
-                                        needle and f"matching {needle!r}") if x)
+                                        needle and f"matching {needle!r}",
+                                        area.strip() and f"in area {area.strip()!r}") if x)
             return f"no entities {what}".strip()
         more = (f"\n… and {len(rows) - limit} more; narrow with domain or search"
                 if len(rows) > limit else "")
@@ -178,6 +235,11 @@ class HomeAssistant:
         if not changed:
             return f"called {domain}.{service}; no state changed (yet)"
         return f"called {domain}.{service}; now:\n" + "\n".join(_line(s) for s in changed[:20])
+
+
+def _key(text: str) -> str:
+    """'Living Room', 'living_room' and 'living-room' are one area."""
+    return "".join(ch for ch in text.lower() if ch.isalnum())
 
 
 def _line(st: dict[str, Any]) -> str:

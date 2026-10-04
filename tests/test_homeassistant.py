@@ -42,7 +42,7 @@ from setu.client import http as setu_http
 from setu.manifest import ManifestError, find, parse
 from setu.vault import FileVault
 from setu_homeassistant.bridge import Bridge
-from setu_homeassistant.ha import HomeAssistant, HomeAssistantError
+from setu_homeassistant.ha import AREA_MAP, HomeAssistant, HomeAssistantError
 from setu_homeassistant.server import build
 
 LONG_LIVED = "eyJ-long-lived"
@@ -159,6 +159,16 @@ class FakeHA:
                 fake.posts.append((url.path, body))
                 if url.path.startswith("/api/services/"):
                     return self._send(200, [{**STATES[0], "state": "on"}])
+                if url.path == "/api/template":
+                    # Home Assistant renders a template to plain text; this
+                    # fake knows only the connector's one fixed template
+                    if body.get("template") != AREA_MAP:
+                        return self._send(400, {"message": "unknown template"})
+                    lines = []
+                    for area_id, (name, ids) in AREAS.items():
+                        lines += ([f"{area_id}\t{name}\t{e}" for e in ids]
+                                  or [f"{area_id}\t{name}"])
+                    return self._send(200, ("\n".join(lines) + "\n").encode(), "text/plain")
                 if url.path == "/api/mcp":
                     if "id" not in body:
                         return self._send(202)
@@ -198,6 +208,11 @@ def sign_in(fake: FakeHA, account="home", level=None, seen=None, connector="home
         return connections.connect_homeassistant(
             find(connector), account, level=level, base_url=fake.base, vault=FileVault(),
             http=http, long_lived=token, open_browser=browser, timeout=10)
+
+
+AREAS = {"kitchen": ("Kitchen", ["light.kitchen"]),
+         "living_room": ("Living Room", ["sensor.living_temperature"]),
+         "garage": ("Garage", [])}
 
 
 def rest(fake: FakeHA, token=LONG_LIVED) -> HomeAssistant:
@@ -349,7 +364,7 @@ def tool_names(level: str, fake: FakeHA) -> set[str]:
 
 class TestRest:
     def test_tools_follow_the_level(self, ha):
-        reads = {"list_entities", "get_state", "get_history", "list_services"}
+        reads = {"list_entities", "list_areas", "get_state", "get_history", "list_services"}
         assert tool_names("read", ha) == reads
         assert tool_names("control", ha) == reads | {"call_service"}
         assert tool_names("full", ha) == reads | {"call_service", "call_secure_service"}
@@ -479,3 +494,38 @@ def test_a_harness_reaches_the_home_through_setu_run(home, ha, connector, first_
     finally:
         assert client.close() == 0
     assert "refresh-1" not in json.dumps(ha.posts)
+
+
+# ---- rooms ---------------------------------------------------------------------
+
+
+class TestAreas:
+    """Asked by room; Home Assistant's REST has no area endpoint, so one
+    fixed template maps areas to entities (nothing a tool was given is in it)."""
+
+    def test_the_areas_with_their_counts(self, ha):
+        out = rest(ha).list_areas()
+        assert out.startswith("3 areas:")
+        assert "kitchen — Kitchen: 1 entity" in out and "garage — Garage: 0 entities" in out
+
+    def test_entities_in_a_room_by_name_or_id(self, ha):
+        client = rest(ha)
+        for named in ("Living Room", "living_room", "living-room"):
+            out = client.list_entities(area=named)
+            assert "sensor.living_temperature" in out and "light.kitchen" not in out
+        assert "light.kitchen" in client.list_entities(domain="light", area="kitchen")
+        assert client.list_entities(area="Garage") == "no entities in area 'Garage'"
+
+    def test_an_unknown_area_names_the_known_ones(self, ha):
+        with pytest.raises(HomeAssistantError, match="Kitchen, Living Room, Garage"):
+            rest(ha).list_entities(area="attic")
+
+    def test_what_was_asked_is_never_in_the_template(self, ha):
+        with pytest.raises(HomeAssistantError):
+            rest(ha).list_entities(area="{% for x in states %}{{x}}{% endfor %}")
+        assert all(body.get("template") == AREA_MAP
+                   for path, body in ha.posts if path == "/api/template")
+
+    def test_list_areas_is_a_read_at_every_level(self):
+        manifest = find("homeassistant")
+        assert manifest.verb("list_areas") == "read"
