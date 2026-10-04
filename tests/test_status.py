@@ -79,3 +79,9 @@ def test_the_command_prints_exactly_the_report(home):
     printed = json.loads(out)
     assert printed["format"] == FORMAT
     assert printed == report()
+
+
+def test_the_report_says_where_to_watch(home):
+    from setu import status
+    vault, sites = status.report()["watch"]
+    assert vault.endswith("vault.json") and sites.endswith("sites")

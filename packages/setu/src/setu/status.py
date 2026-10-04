@@ -28,6 +28,12 @@ the manifest's ``[browser]`` table: hosts, spending guards, pace, guide.
 A profile path is not a secret the way a key is, but it is where the
 cookies are, so it is said only to the harness, as the key's location is.
 
+WHERE TO WATCH. ``watch`` names the two places whose change means the
+report would change: the vault (every connect, disconnect and level) and
+the folder of sites added here (a new site, a kept guide). A harness
+mid-session compares their times before each turn and asks again only
+when one moved -- cheaper than running ``setu status`` every turn.
+
 The ``format`` field names the shape. A harness should refuse a format it
 does not know rather than guess at one.
 """
@@ -41,7 +47,7 @@ from typing import Any
 
 from setu import __version__, catalog, config, connections
 from setu import browser as site_browser
-from setu.manifest import Manifest, ManifestError, installed
+from setu.manifest import Manifest, ManifestError, installed, sites_dir
 from setu.vault import FileVault, Vault
 
 FORMAT = "setu.status.v1"
@@ -185,4 +191,5 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
                      "recipes": index.recipes} if index is not None else None),
         "problems": problems + [f"{c['id']}: withdrawn by Setu -- {c['yanked']}"
                                 for c in cards if c["yanked"]],
+        "watch": [str(getattr(vault, "path", "")) or None, str(sites_dir())],
     }
