@@ -550,7 +550,7 @@ def upload_recipe(folder: Path, address: str, token: str) -> dict[str, Any]:
 
 
 def fetch_recipe(name: str, into: Path, home: Path | None = None,
-                 fetch: Any = None) -> Path:
+                 fetch: Any = None, count: bool = True) -> Path:
     """A listed recipe, checked against the signed index, written to
     ``into/NAME`` for the harness to show and install. Counted, as a
     connector's install is, when the catalog is a server."""
@@ -579,7 +579,40 @@ def fetch_recipe(name: str, into: Path, home: Path | None = None,
         dest = target / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(text, encoding="utf-8")
-    _ping_one(index, home, name, digest[:12])
+    if count:
+        _ping_one(index, home, name, digest[:12])
+    return target
+
+
+def fetch_connector(connector: str, into: Path, home: Path | None = None,
+                    fetch: Any = None) -> Path:
+    """A listed connector's wheel, checked by hash and unpacked into
+    ``into/ID`` to be read -- not installed, not counted."""
+    import io
+    import zipfile
+
+    index = kept(home)
+    if index is None:
+        raise CatalogError("no catalog kept: `setu catalog use URL` first")
+    entry = index.connectors.get(connector)
+    wheel = (entry or {}).get("wheel") or {}
+    url, digest = str(wheel.get("url") or ""), str(wheel.get("sha256") or "").lower()
+    if entry is None or not _fetchable(url) or len(digest) != 64:
+        raise CatalogError(f"{connector}: the catalog names no wheel for it")
+    raw = (fetch or _download)(url)
+    if hashlib.sha256(raw).hexdigest() != digest:
+        raise CatalogError(f"{connector}: the wheel is not the one the signed catalog names")
+    target = Path(into) / connector
+    root = target.resolve()
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        for member in archive.infolist():
+            dest = (target / member.filename).resolve()
+            if root not in dest.parents and dest != root:
+                raise CatalogError(f"{connector}: the wheel writes outside itself "
+                                   f"({member.filename}) -- refused")
+            if not member.is_dir():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(archive.read(member))
     return target
 
 
