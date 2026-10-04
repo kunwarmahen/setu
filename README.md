@@ -179,6 +179,12 @@ connector goes at a person's pace (3 seconds between pages, at most 10 actions
 a session) and runs in a real browser window on a screen nobody sees. Use it to
 read and for the occasional post you approve, not to automate an account.
 
+`setu list` also shows a week of what went wrong on each browser
+connection, as your agent's site tools reported it (for example "robot
+check 2×, signed out 1× this week"). It keeps the kind and the time,
+never the page. A harness reports these with `setu site event REF KIND`,
+where the kinds are robot_check, signed_out, refused, limit and handoff.
+
 `setu list` shows when each browser connection was last used. It reads
 that from the profile itself: the browser rewrites its history and
 cookies whenever pages are opened on it. Setu reads only the files'

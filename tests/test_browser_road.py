@@ -468,3 +468,44 @@ class TestLastUsed:
         assert connections.last_used({"auth": "google",
                                       "last_used": "2026-10-01T00:00:00Z"}) \
             == "2026-10-01T00:00:00Z"
+
+
+class TestHealth:
+    """A week of what went wrong, per browser connection (health.py)."""
+
+    def test_events_are_counted_and_shown(self, home, capsys):
+        connected(home)
+        for kind in ("robot_check", "robot_check", "signed_out"):
+            assert main(["site", "event", "x:personal", kind]) == 0
+        row = next(r for r in status.report()["connections"] if r["ref"] == "x:personal")
+        assert row["health"]["counts"] == {"robot_check": 2, "signed_out": 1}
+        capsys.readouterr()
+        assert main(["list"]) == 0
+        assert "robot check 2×, signed out 1× this week" in capsys.readouterr().out
+
+    def test_older_than_a_week_is_dropped(self, home):
+        from setu import health
+        health.record("x:personal", "limit", now=1_000_000.0)
+        health.record("x:personal", "handoff", now=1_000_000.0 + health.WEEK + 1)
+        assert health.week("x:personal", now=1_000_000.0 + health.WEEK + 2)["counts"] \
+            == {"handoff": 1}
+
+    def test_unknown_kinds_and_connections_are_refused(self, home, capsys):
+        connected(home)
+        assert main(["site", "event", "x:personal", "page_text"]) == 2
+        assert main(["site", "event", "nobody:here", "limit"]) == 2
+
+    def test_a_broken_file_is_an_empty_record(self, home):
+        from setu import health
+        health.path().parent.mkdir(parents=True, exist_ok=True)
+        health.path().write_text("{not json")
+        assert health.week("x:personal") == {}
+        health.record("x:personal", "limit")
+        assert health.week("x:personal")["counts"] == {"limit": 1}
+
+    def test_disconnect_forgets_it(self, home):
+        from setu import health
+        connected(home)
+        health.record("x:personal", "limit")
+        assert main(["disconnect", "x:personal"]) == 0
+        assert health.week("x:personal") == {}

@@ -45,7 +45,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from setu import __version__, catalog, config, connections
+from setu import __version__, catalog, config, connections, health
 from setu import browser as site_browser
 from setu.manifest import Manifest, ManifestError, installed, sites_dir
 from setu.vault import FileVault, Vault
@@ -166,6 +166,8 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
             "level_label": label,
             "scopes": list(entry.get("scopes") or []),
             "last_used": connections.last_used(entry),
+            # a week of what went wrong on a browser connection (health.py)
+            "health": health.week(ref) if entry.get("auth") == "browser" else {},
             "installed": manifest is not None,
             "base_url": entry.get("base_url"),
             "mcp": (None if entry.get("auth") == "browser" else

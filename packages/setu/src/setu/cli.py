@@ -14,6 +14,7 @@
     setu connect amazon --as personal    a site with no API: sign in in a window of its own
     setu connect --site example.com      any other site: Setu writes its rules once you sign in
     setu site guide example [--set TEXT] a site added here: its short guide, shown or replaced
+    setu site event amazon:personal robot_check   a harness noting what went wrong (a week kept)
     setu config browser PATH             which browser that window is (default: Chrome on PATH)
     setu catalog                         the signed catalog: labels, installs, withdrawn
     setu catalog use PATH                check an index (and PATH.sig) and keep it
@@ -48,7 +49,7 @@ from pathlib import Path
 import httpx
 
 from setu import browser as site_browser
-from setu import catalog, config, connections, google, helper, homeassistant
+from setu import catalog, config, connections, google, health, helper, homeassistant
 from setu.manifest import ManifestError, find, installed
 from setu.vault import FileVault, VaultError
 
@@ -224,6 +225,25 @@ def _connect_browser_json(manifest, args: argparse.Namespace) -> int:
         ask=_json_ask(args))
     _emit("connected", ref=ref, email=entry["email"], level=level.name,
           level_label=level.label, asked_level=level.name)
+    return 0
+
+
+def _site(args: argparse.Namespace) -> int:
+    return _site_event(args) if args.site_command == "event" else _site_guide(args)
+
+
+def _site_event(args: argparse.Namespace) -> int:
+    """A harness's site tools saying something went wrong (health.py).
+    Quiet on success: it runs behind the agent's turn."""
+    from setu import health
+    if FileVault().get(args.ref) is None:
+        print(f"error: no connection {args.ref!r}", file=sys.stderr)
+        return 2
+    try:
+        health.record(args.ref, args.kind)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 
@@ -417,6 +437,8 @@ def _list(_args: argparse.Namespace) -> int:
                 pass
         used = connections.last_used(vault.get(ref) or {}) or "never"
         print(f"{ref:<22} {entry.get('email') or '':<30} {label:<16} last used {used}")
+        if seen := health.line(ref):
+            print(f"{'':<22} {seen}")
     print(f"\nkeys live in {vault.path} (readable by you only); no command prints them")
     return 0
 
@@ -489,6 +511,7 @@ def _disconnect(args: argparse.Namespace) -> int:
     if not existed:
         print(f"no connection {args.ref!r}")
         return 1
+    health.forget(args.ref)
     if entry.get("auth") == "browser":
         print(f"disconnected {args.ref}: its browser profile is deleted, so this computer "
               f"is signed out. {entry.get('email') or 'The site'} may still list the "
@@ -619,6 +642,10 @@ def build_parser() -> argparse.ArgumentParser:
     guide = site_sub.add_parser("guide", help="show its guide, or replace it with --set")
     guide.add_argument("id", help="the site's id, e.g. example")
     guide.add_argument("--set", help="the new guide (replaces the old one)")
+    event = site_sub.add_parser("event", help="a site's tools: note what went wrong "
+                                "(robot_check, signed_out, refused, limit, handoff)")
+    event.add_argument("ref", help="the connection, e.g. amazon:personal")
+    event.add_argument("kind", help="robot_check, signed_out, refused, limit or handoff")
 
     sub.add_parser("list", help="your connections")
 
@@ -654,7 +681,7 @@ def build_parser() -> argparse.ArgumentParser:
 COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list,
             "run": _run, "mcp-config": _mcp_config, "status": _status,
             "disconnect": _disconnect, "config": _config, "catalog": _catalog,
-            "site": _site_guide}
+            "site": _site}
 
 
 def main(argv: list[str] | None = None) -> int:
