@@ -296,8 +296,10 @@ read is skipped, and `setu connectors` and `setu status` say why.
 * **[Samay](https://github.com/kunwarmahen/samay)** runs Yantra on a schedule, so a scheduled run reaches
   your accounts the same way a run at your keyboard does: reads without
   asking, nothing else unless it was allowed when the schedule was made.
-* **[dvara](https://github.com/kunwarmahen/dvara)** — not yet: its agents serve several people and get no
-  Setu accounts.
+* **[dvara](https://github.com/kunwarmahen/dvara)** serves several people, so each person can have a Setu
+  folder of their own (`SETU_HOME`); their agent reaches only those
+  accounts ([dvara's note 19](https://github.com/kunwarmahen/dvara/blob/main/notes/19-their-own-accounts.md)). Sign them in at the machine:
+  `SETU_HOME=<their folder> setu connect gmail`.
 
 ## Set up (about 15 minutes, once)
 
