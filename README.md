@@ -287,6 +287,18 @@ read is skipped, and `setu connectors` and `setu status` say why.
 
 ---
 
+## Works with
+
+* **[Yantra](https://github.com/kunwarmahen/yantra)** finds Setu at startup and connects every account
+  you signed in to; its web page has a Connections panel for signing in
+  and out. Setu's manifest, not the connector, decides what reads,
+  writes or spends ([Yantra's README](https://github.com/kunwarmahen/yantra#works-with)).
+* **[Samay](https://github.com/kunwarmahen/samay)** runs Yantra on a schedule, so a scheduled run reaches
+  your accounts the same way a run at your keyboard does: reads without
+  asking, nothing else unless it was allowed when the schedule was made.
+* **[dvara](https://github.com/kunwarmahen/dvara)** — not yet: its agents serve several people and get no
+  Setu accounts.
+
 ## Set up (about 15 minutes, once)
 
 ### 1. Install
