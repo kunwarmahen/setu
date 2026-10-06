@@ -3,7 +3,9 @@
     setu connectors                      what is installed, and its levels
     setu connect gmail --client-file F   sign in (browser), Read only by default
     setu list                            your connections -- never a key
-    setu run gmail:personal              start the connector (an MCP server)
+    setu run gmail:personal              start the connector (an MCP server); it holds
+                                         no key and has no network -- Setu makes its requests
+    setu log gmail:personal              the requests Setu made for it, and what it refused
     setu mcp-config gmail:personal       the snippet a harness needs
     setu disconnect gmail:personal       revoke at Google, then forget
     setu status --json                   the same, for a harness to read
@@ -69,7 +71,17 @@ from pathlib import Path
 import httpx
 
 from setu import browser as site_browser
-from setu import catalog, certify, config, connections, google, health, helper, homeassistant
+from setu import (
+    catalog,
+    certify,
+    config,
+    connections,
+    google,
+    health,
+    helper,
+    homeassistant,
+    proxy,
+)
 from setu.manifest import ManifestError, find, installed
 from setu.vault import FileVault, VaultError
 
@@ -569,11 +581,30 @@ def _run(args: argparse.Namespace) -> int:
               "A harness opens its profile with its own browser tools (setu status --json)",
               file=sys.stderr)
         return 2
-    with httpx.Client() as http:
-        # a server of the person's own (Home Assistant) is the connection's
-        # address, not the manifest's
-        return helper.run(args.ref, manifest.command, vault=vault, http=http,
-                          api_base=entry.get("base_url") or manifest.api_base)
+    # a server of the person's own (Home Assistant) is the connection's
+    # address, not the manifest's
+    base = entry.get("base_url") or manifest.api_base
+    try:
+        # the site's answers pass through here now, not only token refreshes
+        with httpx.Client(timeout=60.0) as http:
+            if args.callback or manifest.token_mode == "callback":
+                return helper.run(args.ref, manifest.command, vault=vault, http=http,
+                                  api_base=base)
+            return helper.run_proxied(args.ref, manifest, vault=vault, http=http,
+                                      api_base=base)
+    except connections.ConnectionFailed as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+
+def _log(args: argparse.Namespace) -> int:
+    path = proxy.log_path(args.ref)
+    if not path.exists():
+        print(f"no requests made for {args.ref} yet ({path})")
+        return 0
+    lines = path.read_text(encoding="utf-8").splitlines()
+    print("\n".join(lines[-args.lines:]))
+    return 0
 
 
 def _mcp_config(args: argparse.Namespace) -> int:
@@ -928,6 +959,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="start a connector for a connection")
     run.add_argument("ref", help="e.g. gmail:personal")
+    run.add_argument("--callback", action="store_true",
+                     help="hand the connector a short-lived token instead of making its "
+                          "requests (for trying a connector that cannot go through Setu)")
+
+    log = sub.add_parser("log", help="the requests Setu made for a connection")
+    log.add_argument("ref")
+    log.add_argument("-n", dest="lines", type=int, default=40)
 
     mcp_config = sub.add_parser("mcp-config", help="print the MCP config for a harness")
     mcp_config.add_argument("ref")
@@ -973,7 +1011,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list,
-            "run": _run, "mcp-config": _mcp_config, "status": _status,
+            "run": _run, "log": _log, "mcp-config": _mcp_config, "status": _status,
             "disconnect": _disconnect, "config": _config, "catalog": _catalog,
             "site": _site, "install": _install, "certify": _certify}
 

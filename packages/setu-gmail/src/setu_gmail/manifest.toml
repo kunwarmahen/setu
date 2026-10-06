@@ -49,3 +49,14 @@ list_labels = "read"
 list_drafts = "read"
 create_draft = "write"
 send_message = "write"
+
+# What Setu itself lets each level send to Gmail, whatever the
+# connector's code asks for -- a second wall underneath Google's scopes.
+[requests.read]
+allow = ["GET /gmail/v1/users/me/*"]
+
+[requests.draft]
+allow = ["POST /gmail/v1/users/me/drafts"]
+
+[requests.send]
+allow = ["POST /gmail/v1/users/me/messages/send"]

@@ -31,3 +31,26 @@ get_history = "read"
 list_services = "read"
 call_service = "write"
 call_secure_service = "spend"
+
+# What Setu itself lets each level send to Home Assistant, whatever the
+# connector's code asks for. Home Assistant's tokens have no scopes, so
+# this is the only wall that is not the connector's own. It knows paths,
+# not devices: a garage door is a cover like a blind, so "See and
+# control" leaves that one to the connector, which asks.
+[requests.read]
+allow = ["GET /api/*", "POST /api/template"]
+
+[requests.control]
+allow = ["POST /api/services/*"]
+deny = [
+    "POST /api/services/lock/*", "POST /api/services/alarm_control_panel/*",
+    "POST /api/services/siren/*", "POST /api/services/valve/*",
+    "POST /api/services/button/*", "POST /api/services/script/*",
+    "POST /api/services/automation/*", "POST /api/services/notify/*",
+    "POST /api/services/update/*", "POST /api/services/homeassistant/*",
+    "POST /api/services/hassio/*", "POST /api/services/shell_command/*",
+    "POST /api/services/rest_command/*", "POST /api/services/python_script/*",
+]
+
+[requests.full]
+allow = []

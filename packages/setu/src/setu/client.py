@@ -9,17 +9,22 @@ and gets an ``httpx.Client`` whose requests are already signed. Where
 the token came from is decided by whoever started the process, not by
 the connector:
 
-* started by ``setu run`` -- a private pipe (``SETU_TOKEN_FD``), asked
-  again whenever the token is due, and once more after a 401;
+* started by ``setu run`` -- no token at all: requests go over a unix
+  socket (``SETU_PROXY``) to Setu, which adds the token itself and sends
+  them on to the site (proxy.py);
+* started by ``setu run`` for a connector granted the callback -- a
+  private pipe (``SETU_TOKEN_FD``), asked again whenever the token is
+  due, and once more after a 401;
 * started by hand for a quick try -- ``SETU_ACCESS_TOKEN`` in the
   environment, used as-is until it stops working.
 
-ONE CALL, EVERY MODE. The stricter mode, where the connector holds no
-token at all and every request goes through Setu, arrives as a
-different base address and transport behind the same call. A connector
-written against ``setu.http()`` today runs unchanged under it, which is
-the whole reason the call exists instead of each connector reading
-tokens itself.
+ONE CALL, EVERY MODE. Under the proxy the client's base address is
+Setu's and its transport is the socket; in the other modes it is the
+site's, with a token attached. A connector written against
+``setu.http()`` runs unchanged under each, which is the whole reason the
+call exists instead of each connector reading tokens itself. So a
+connector asks for PATHS (``/gmail/v1/users/me/labels``), never whole
+addresses: the proxy refuses to guess which site a full URL meant.
 
 THE BASE ADDRESS IS GIVEN, NOT HARD-CODED. ``SETU_API_BASE`` names the
 host a connector talks to; its manifest supplies the real one. That is
@@ -39,7 +44,19 @@ from dataclasses import dataclass
 
 import httpx
 
-from setu.helper import ENV_ACCESS_TOKEN, ENV_API_BASE, ENV_FD, ENV_LEVEL, ENV_SCOPES
+from setu.helper import (
+    ENV_ACCESS_TOKEN,
+    ENV_API_BASE,
+    ENV_FD,
+    ENV_LEVEL,
+    ENV_PROXY,
+    ENV_PROXY_KEY,
+    ENV_SCOPES,
+)
+from setu.proxy import GRANT_PATH, KEY_HEADER
+
+#: The base address a proxied client is given; the socket is the route.
+PROXY_BASE = "http://setu"
 
 #: Ask for a new token this long before the old one would expire.
 SKEW = 60
@@ -104,18 +121,51 @@ class EnvSource:
         return self._granted
 
 
+class ProxySource:
+    """No token: what the connection holds, asked of Setu over the socket.
+    ``access_token`` is always empty -- there is nothing to hand over."""
+
+    def __init__(self, path: str, key: str) -> None:
+        self.path, self.key = path, key
+        self._granted: Granted | None = None
+
+    def client(self, timeout: float = 30.0) -> httpx.Client:
+        return httpx.Client(base_url=PROXY_BASE, transport=httpx.HTTPTransport(uds=self.path),
+                            headers={KEY_HEADER: self.key}, timeout=timeout)
+
+    def get(self, *, force: bool = False) -> Granted:
+        if self._granted is None or force:
+            with self.client() as http:
+                try:
+                    response = http.get(GRANT_PATH)
+                except httpx.HTTPError as exc:
+                    raise NoToken(f"setu is not answering on {self.path}: {exc}") from None
+            if response.status_code != 200:
+                raise NoToken(response.json().get("error", f"HTTP {response.status_code}"))
+            reply = response.json()
+            self._granted = Granted(access_token="", expires_at=float("inf"),
+                                    scopes=frozenset(reply.get("scopes") or ()),
+                                    account=reply.get("account", ""),
+                                    email=reply.get("email", ""),
+                                    level=reply.get("level", ""))
+        return self._granted
+
+
 _source_lock = threading.Lock()
-_source: PipeSource | EnvSource | None = None
+_source: PipeSource | EnvSource | ProxySource | None = None
 
 
-def source() -> PipeSource | EnvSource:
+def source() -> PipeSource | EnvSource | ProxySource:
     """The process's one token source, chosen from how it was started."""
     global _source
     with _source_lock:
         if _source is None:
             fd = os.environ.get(ENV_FD)
             token = os.environ.get(ENV_ACCESS_TOKEN)
-            if fd:
+            proxy = os.environ.get(ENV_PROXY)
+            if proxy:
+                _source = ProxySource(proxy, os.environ.get(ENV_PROXY_KEY, ""))
+            elif fd:
                 _source = PipeSource(int(fd))
             elif token:
                 _source = EnvSource(token, os.environ.get(ENV_SCOPES, ""),
@@ -129,7 +179,7 @@ def source() -> PipeSource | EnvSource:
 class SetuAuth(httpx.Auth):
     """Signs each request; on a 401, asks once for a fresh token and retries."""
 
-    def __init__(self, tokens: PipeSource | EnvSource) -> None:
+    def __init__(self, tokens: PipeSource | EnvSource | ProxySource) -> None:
         self.tokens = tokens
 
     def auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response]:
@@ -141,11 +191,15 @@ class SetuAuth(httpx.Auth):
             yield request
 
 
-def http(default_base: str = "", *, tokens: PipeSource | EnvSource | None = None,
+def http(default_base: str = "", *,
+         tokens: PipeSource | EnvSource | ProxySource | None = None,
          transport: httpx.BaseTransport | None = None, timeout: float = 30.0) -> httpx.Client:
     """An ``httpx.Client`` that is already signed in."""
+    tokens = tokens or source()
+    if isinstance(tokens, ProxySource) and transport is None:
+        return tokens.client(timeout)
     base = os.environ.get(ENV_API_BASE) or default_base
-    return httpx.Client(base_url=base, auth=SetuAuth(tokens or source()),
+    return httpx.Client(base_url=base, auth=SetuAuth(tokens),
                         transport=transport, timeout=timeout)
 
 

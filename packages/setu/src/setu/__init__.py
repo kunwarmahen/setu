@@ -3,9 +3,10 @@
 Setu (सेतु) is a bridge between a person's accounts and the agents that
 work for them. Three promises shape every module here:
 
-* **The key never reaches the model.** Tokens rest in the vault; a
-  connector asks for one over a private pipe and receives an access
-  token for its own connection only (helper.py, client.py).
+* **The key never reaches the model, nor the connector.** Tokens rest
+  in the vault; a connector runs with no network and asks Setu to make
+  each request, which Setu checks against the level, signs and sends to
+  the connector's own site (proxy.py, sandbox.py, client.py).
 * **Access is chosen in words and enforced by the site.** A person picks
   "Read only"; Google is asked for ``gmail.readonly`` and nothing else,
   so the limit holds whatever any code does (manifest.py, google.py).

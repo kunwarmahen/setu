@@ -12,6 +12,9 @@ summary = "Home Assistant's own Assist tools, through its MCP server: see and co
 road = "mcp"
 auth = "homeassistant"
 command = ["setu-homeassistant-mcp"]
+# Every request goes to Home Assistant's MCP server; at See only, Setu
+# itself refuses a tool the verbs below do not class as read.
+mcp_path = "/api/mcp"
 
 [levels.read]
 label = "See only"
@@ -28,3 +31,6 @@ GetDateTime = "read"
 llm__GetDateTime = "read"
 todo__get_items = "read"
 "*" = "write"
+
+[requests.read]
+allow = ["POST /api/mcp", "GET /api/mcp", "DELETE /api/mcp"]

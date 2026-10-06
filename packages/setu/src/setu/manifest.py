@@ -41,6 +41,22 @@ agent -- handed to the person), how slowly to go, and a short guide to
 the site. Its levels are named for the classes they reach (``read``,
 ``write``), and a click or a typed word is never a read.
 
+REQUESTS ARE CHECKED A SECOND TIME, BY SETU. A connector does not hold
+the key: it asks Setu, over a socket, to make each request for it (see
+proxy.py). The ``[requests.<level>]`` tables say which requests each
+level may make, as ``"METHOD /path"`` with ``*`` globs: ``allow`` adds to
+the levels below it, ``deny`` applies to its own level only (a "control"
+level that may call services, except locks). A request no rule allows
+is refused before it leaves the computer -- underneath the site's own
+scopes, and the only check at all where the site has none. A manifest
+with no ``[requests]`` lets its connector make any request to its own
+host, and says so. ``mcp_path`` names the address of a site's own MCP
+server: requests there are read, and a ``tools/call`` at the first level
+must name a tool the verbs class as ``read``.
+
+``token_mode = "callback"`` is the exception, for an API that cannot go
+through Setu: the connector is handed a short-lived token instead.
+
 Discovery is by entry point: a connector package names its manifest in
 the ``setu.connectors`` group, so installing it is registering it.
 
@@ -74,7 +90,11 @@ ANY_TOOL = "*"
 #: Auth kinds whose provider enforces scopes, so each level must name some.
 SCOPED_AUTH = ("google",)
 KNOWN_KEYS = {"id", "name", "summary", "road", "auth", "command", "api_base",
-              "hosts", "whoami", "levels", "verbs", "browser", "generated"}
+              "hosts", "whoami", "levels", "verbs", "browser", "generated",
+              "requests", "mcp_path", "token_mode"}
+TOKEN_MODES = ("proxy", "callback")
+#: The methods a ``[requests]`` rule may name.
+METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
 #: The browser road's own keys, in its ``[browser]`` table.
 BROWSER_KEYS = {"start_url", "login_url", "signed_in", "home_from_cookie", "spend_pages",
                 "spend_words", "pace", "max_actions", "guide", "headed"}
@@ -94,6 +114,14 @@ class Level:
     label: str
     scopes: tuple[str, ...]
     description: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class Requests:
+    """One level's ``[requests]`` rules, as written."""
+
+    allow: tuple[str, ...] = ()
+    deny: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +177,10 @@ class Manifest:
     #: Written by ``setu connect --site`` with cautious defaults: no one
     #: named its sign-in cookies, so a sign-in is proved by the page.
     generated: bool = False
+    #: Per level, the requests Setu makes for it; empty = any to its host.
+    requests: dict[str, Requests] = field(default_factory=dict)
+    mcp_path: str = ""
+    token_mode: str = "proxy"
 
     @property
     def default_level(self) -> Level:
@@ -214,6 +246,11 @@ def parse(data: dict[str, Any], source: str = "manifest") -> Manifest:
     browser = _browser(data, levels, verbs, source) if road == "browser" else None
     if road != "browser" and "browser" in data:
         raise ManifestError(f"{source}: a [browser] table belongs to road = \"browser\"")
+    requests = _requests(data, levels, source)
+    mode = data.get("token_mode", "proxy")
+    if mode not in TOKEN_MODES:
+        raise ManifestError(f"{source}: token_mode is {mode!r} (known: "
+                            f"{', '.join(TOKEN_MODES)})")
     who = data.get("whoami")
     return Manifest(
         id=data["id"], name=data["name"], summary=data.get("summary", ""),
@@ -222,7 +259,31 @@ def parse(data: dict[str, Any], source: str = "manifest") -> Manifest:
         whoami=WhoAmI(url=who["url"], field=who["field"]) if who else None,
         levels=tuple(levels), verbs=verbs, browser=browser,
         generated=bool(data.get("generated", False)),
+        requests=requests, mcp_path=str(data.get("mcp_path", "")), token_mode=mode,
     )
+
+
+def _requests(data: dict[str, Any], levels: list[Level], source: str) -> dict[str, Requests]:
+    spec = data.get("requests") or {}
+    names = {level.name for level in levels}
+    found: dict[str, Requests] = {}
+    for name, table in spec.items():
+        if name not in names:
+            raise ManifestError(f"{source}: [requests.{name}] names no level")
+        if not isinstance(table, dict) or set(table) - {"allow", "deny"}:
+            raise ManifestError(f"{source}: [requests.{name}] takes allow and deny")
+        rules = {}
+        for key in ("allow", "deny"):
+            rules[key] = tuple(table.get(key) or ())
+            for rule in rules[key]:
+                method, _, path = str(rule).partition(" ")
+                if method not in METHODS or not path.startswith("/"):
+                    raise ManifestError(f"{source}: [requests.{name}] {key} {rule!r} is "
+                                        "not \"METHOD /path\"")
+        found[name] = Requests(allow=rules["allow"], deny=rules["deny"])
+    if data.get("road") == "browser" and (found or data.get("mcp_path")):
+        raise ManifestError(f"{source}: a browser road makes no requests through Setu")
+    return found
 
 
 def _browser(data: dict[str, Any], levels: list[Level], verbs: dict[str, str],

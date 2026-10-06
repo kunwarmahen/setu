@@ -90,7 +90,17 @@ def test_the_report_says_where_to_watch(home):
 def test_each_card_says_what_it_can_reach_as_it_is(home):
     from setu import status
     cards = {c["id"]: c for c in status.report()["connectors"]}
-    assert "does not yet limit where it connects" in cards["gmail"]["contained"]
-    assert "gmail.googleapis.com" in cards["gmail"]["contained"] \
-        or "googleapis" in cards["gmail"]["contained"]
+    assert cards["gmail"]["contained"].startswith("holds no key")
+    assert "to gmail.googleapis.com only, and only what your level allows" \
+        in cards["gmail"]["contained"]
     assert "pages' own scripts are not limited" in cards["amazon"]["contained"]
+
+
+def test_the_card_says_when_there_is_no_sandbox_and_when_a_token_is_held():
+    from setu.status import contained
+    loose = contained("api", ["api.example.com"], "Example", rules=True, confined=False)
+    assert "holds no key" in loose and "not sandboxed here" in loose
+    walled = contained("api", ["api.example.com"], "Example", rules=False, confined=True)
+    assert "has no network" in walled and "lists none per level" in walled
+    held = contained("api", ["api.example.com"], "Example", token_mode="callback")
+    assert "holding a short-lived Example key" in held

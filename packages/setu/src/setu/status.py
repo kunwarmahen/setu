@@ -45,7 +45,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from setu import __version__, catalog, certify, config, connections, health
+from setu import __version__, catalog, certify, config, connections, health, sandbox
 from setu import browser as site_browser
 from setu.manifest import Manifest, ManifestError, installed, sites_dir
 from setu.vault import FileVault, Vault
@@ -124,23 +124,38 @@ def _connector(manifest: Manifest, connected: bool,
         # the browser road's rules, for the harness that drives the profile
         "browser": _browser_card(manifest),
         # what it can reach if something was missed -- as it is, not as hoped
-        "contained": contained(manifest.road, list(manifest.hosts), manifest.name),
+        "contained": contained(manifest.road, list(manifest.hosts), manifest.name,
+                               token_mode=manifest.token_mode,
+                               rules=bool(manifest.requests or manifest.mcp_path)),
     }
 
 
-def contained(road: str, hosts: list[str], name: str) -> str:
-    """One honest line on what a connector can reach. Today a connector
-    is its own program holding the connection's key, and Setu does not
-    confine its network; the line says that rather than a hope. (Setu
-    making the requests itself, so the key never enters the program, is
-    the proxy design -- not built.)"""
+def contained(road: str, hosts: list[str], name: str, *, token_mode: str = "proxy",
+              rules: bool | None = None, confined: bool | None = None) -> str:
+    """One honest line on what a connector can reach -- as it is on this
+    computer, not as hoped. Under the proxy the connector holds no key
+    and Setu makes its requests (proxy.py); bubblewrap is what takes its
+    network away (sandbox.py), and where bubblewrap is missing the line
+    says that too. ``rules``: whether its manifest limits requests per
+    level (None: not known, for a connector not installed yet)."""
     where = (", ".join(hosts[:4]) + ("…" if len(hosts) > 4 else "") if hosts
-             else "no fixed host (it uses the address you connected)")
+             else "the address you connected")
     if road == "browser":
         return (f"a browser profile: the agent's site tools keep to {where}; buying and "
                 "paying are handed to you; the pages' own scripts are not limited")
-    return (f"runs as its own program with your {name} key; declares {where}; Setu does "
-            "not yet limit where it connects")
+    if token_mode == "callback":
+        return (f"runs as its own program holding a short-lived {name} key; declares "
+                f"{where}; Setu does not limit where it connects")
+    which = {True: ", and only what your level allows",
+             False: " (any request there: it lists none per level)", None: ""}[rules]
+    if confined is None:
+        confined = sandbox.available()
+    if confined:
+        return (f"holds no key and has no network: Setu makes each request, to {where} "
+                f"only{which}")
+    return (f"holds no key: Setu makes each request, to {where} only{which}; but it is "
+            "not sandboxed here (bubblewrap is missing), so it can read your files and "
+            "reach the internet, without your key")
 
 
 def report(vault: Vault | None = None) -> dict[str, Any]:
@@ -226,7 +241,9 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
                           "author_signed": catalog.author_line(c),
                           "contained": contained(str(c.get("road") or "api"),
                                                  list(c.get("hosts") or []),
-                                                 str(c.get("name") or cid)),
+                                                 str(c.get("name") or cid),
+                                                 token_mode=str(c.get("token_mode")
+                                                                or "proxy")),
                           "certified": certify.certified(index, "connector", cid)}
                          for cid, c in index.connectors.items()
                          if cid not in manifests and (c.get("wheel") or {}).get("sha256")]}
