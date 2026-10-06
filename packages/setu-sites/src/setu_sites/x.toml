@@ -29,6 +29,7 @@ headed = true
 guide = """
 Home timeline: https://x.com/home. Your mentions: https://x.com/notifications/mentions. Someone's posts: https://x.com/NAME. Search, newest first: https://x.com/search?q=WORDS&f=live. A post's own page shows its replies.
 The timeline grows as it scrolls: use scroll for more, rather than reloading.
+A profile may pin a post above the rest, marked "Pinned", often months old: the newest post is the first one after it.
 Posting: type into the "Post text" box with fill, then click Post. Replying, liking, reposting and following are clicks. Each is asked about.
 Go at a person's pace and read only what the question needs: X locks accounts that look automated.
 """
