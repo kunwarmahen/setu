@@ -57,6 +57,7 @@ from typing import Any
 
 from setu import config
 from setu.manifest import Manifest
+from setu.seal import ENV_KEY
 from setu.vault import default_home
 
 PROFILES = "profiles"
@@ -153,6 +154,12 @@ def cookie_names(profile: Path, hosts: tuple[str, ...]) -> set[str]:
                    for h in hosts)}
 
 
+def child_env() -> dict[str, str]:
+    """This process's environment, less a locked folder's key: a browser
+    has no business holding it."""
+    return {k: v for k, v in os.environ.items() if k != ENV_KEY}
+
+
 def dump_dom(browser: str, profile: Path, url: str,
              run: Callable[..., Any] = subprocess.run) -> str:
     """The page at ``url`` as ``profile`` sees it, from a headless run of
@@ -162,7 +169,8 @@ def dump_dom(browser: str, profile: Path, url: str,
             "--no-default-browser-check", COOKIE_KEY_ARG, f"--timeout={DUMP_MS}",
             "--dump-dom", url]
     try:
-        done = run(argv, capture_output=True, text=True, timeout=DUMP_SECONDS)
+        done = run(argv, capture_output=True, text=True, timeout=DUMP_SECONDS,
+                   env=child_env())
     except (subprocess.TimeoutExpired, OSError):
         return ""
     return done.stdout or ""
@@ -210,7 +218,7 @@ def window(browser: str, profile: Path, url: str,
             "--no-default-browser-check", COOKIE_KEY_ARG, url]
     # its own session: the terminal's Ctrl-C reaches Setu, which asks the
     # browser to close properly instead of cutting it off mid-write
-    proc = popen(argv, start_new_session=True)
+    proc = popen(argv, start_new_session=True, env=child_env())
     try:
         proc.wait()
     except KeyboardInterrupt:

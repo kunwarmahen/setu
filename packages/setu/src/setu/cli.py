@@ -6,6 +6,10 @@
     setu run gmail:personal              start the connector (an MCP server); it holds
                                          no key and has no network -- Setu makes its requests
     setu log gmail:personal              the requests Setu made for it, and what it refused
+    setu lock set                        lock this folder with a passphrase (asked, hidden)
+    setu lock unlock                     print the key that opens it (for whoever holds it)
+    setu lock seal                       pack its browser sign-ins away again
+    setu lock status | change | remove
     setu mcp-config gmail:personal       the snippet a harness needs
     setu disconnect gmail:personal       revoke at Google, then forget
     setu status --json                   the same, for a harness to read
@@ -67,6 +71,8 @@ bounds the wait (default 300).
 from __future__ import annotations
 
 import argparse
+import base64
+import contextlib
 import json
 import os
 import shutil
@@ -89,6 +95,7 @@ from setu import (
     helper,
     homeassistant,
     proxy,
+    seal,
 )
 from setu.manifest import ManifestError, find, installed
 from setu.vault import FileVault, VaultError
@@ -630,6 +637,93 @@ def _run(args: argparse.Namespace) -> int:
         return 2
 
 
+def _passphrases(args: argparse.Namespace, prompts: list[str]) -> list[str]:
+    """One line of stdin per prompt with --passphrase-stdin; else asked, hidden."""
+    if args.passphrase_stdin:
+        lines = [sys.stdin.readline().rstrip("\n") for _ in prompts]
+        if not all(lines):
+            raise seal.WrongPassphrase("expected one passphrase per line on stdin")
+        return lines
+    import getpass
+
+    return [getpass.getpass(prompt) for prompt in prompts]
+
+
+def _lock(args: argparse.Namespace) -> int:
+    """``setu lock``: a folder whose keys only a passphrase opens (seal.py)."""
+    vault = FileVault()
+    home, profiles = vault.home, vault.home / site_browser.PROFILES
+    try:
+        if args.action == "status":
+            data = {"locked": seal.read_lock(home) is not None,
+                    "open": seal.held_key(home) is not None,
+                    "sealed_profiles": seal.sealed_profiles(profiles)}
+            print(json.dumps(data) if args.json else
+                  ("locked" if data["locked"] else "not locked")
+                  + (", key held" if data["open"] else "")
+                  + (f"; sealed browser sign-ins: {', '.join(data['sealed_profiles'])}"
+                     if data["sealed_profiles"] else ""))
+            return 0
+        if args.action == "seal":
+            done = seal.seal_profiles(home, profiles)
+            print(json.dumps({"sealed": done}) if args.json else
+                  f"sealed: {', '.join(done) or 'nothing was open'}")
+            return 0
+        if args.action == "set":
+            (phrase,) = _passphrases(args, ["new passphrase: "])
+            with _held(seal.create(home, phrase)):
+                for ref in vault.list():
+                    vault.put(ref, vault.get(ref) or {})     # written back sealed
+            done = seal.seal_profiles(home, profiles)
+            print(f"locked {home}: {len(vault.list())} connection(s) sealed"
+                  + (f", browser sign-ins packed: {', '.join(done)}" if done else ""))
+            return 0
+        if args.action == "unlock":
+            (phrase,) = _passphrases(args, ["passphrase: "])
+            private = seal.unlock_key(home, phrase)
+            opened = seal.open_profiles(home, profiles, private)
+            key = base64.b64encode(private).decode()
+            print(json.dumps({"key": key, "profiles": opened}) if args.json else key)
+            return 0
+        if args.action == "change":
+            old, new = _passphrases(args, ["passphrase now: ", "new passphrase: "])
+            seal.change(home, old, new)
+            print("passphrase changed")
+            return 0
+        if args.action == "remove":
+            (phrase,) = _passphrases(args, ["passphrase: "])
+            private = seal.unlock_key(home, phrase)
+            with _held(private):
+                entries = {ref: vault.get(ref) or {} for ref in vault.list()}
+            seal.open_profiles(home, profiles, private)
+            seal.lock_path(home).unlink()
+            for ref, entry in entries.items():
+                vault.put(ref, entry)                        # written back open
+            print(f"{home} is no longer locked")
+            return 0
+    except (seal.Locked, seal.WrongPassphrase) as exc:
+        if args.json:
+            print(json.dumps({"error": str(exc)}))
+        else:
+            print(f"error: {exc}", file=sys.stderr)
+        return 2
+    return 2
+
+
+@contextlib.contextmanager
+def _held(private: bytes):
+    """``SETU_VAULT_KEY`` for the length of one command's own work."""
+    before = os.environ.get(seal.ENV_KEY)
+    os.environ[seal.ENV_KEY] = base64.b64encode(private).decode()
+    try:
+        yield
+    finally:
+        if before is None:
+            os.environ.pop(seal.ENV_KEY, None)
+        else:
+            os.environ[seal.ENV_KEY] = before
+
+
 def _log(args: argparse.Namespace) -> int:
     path = proxy.log_path(args.ref)
     if not path.exists():
@@ -1001,6 +1095,13 @@ def build_parser() -> argparse.ArgumentParser:
                      help="hand the connector a short-lived token instead of making its "
                           "requests (for trying a connector that cannot go through Setu)")
 
+    lock = sub.add_parser("lock", help="lock this folder with a passphrase")
+    lock.add_argument("action", choices=["set", "unlock", "seal", "status", "change",
+                                         "remove"])
+    lock.add_argument("--passphrase-stdin", action="store_true",
+                      help="read the passphrase (for change: old, then new) from stdin")
+    lock.add_argument("--json", action="store_true")
+
     log = sub.add_parser("log", help="the requests Setu made for a connection")
     log.add_argument("ref")
     log.add_argument("-n", dest="lines", type=int, default=40)
@@ -1049,7 +1150,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list,
-            "run": _run, "log": _log, "mcp-config": _mcp_config, "status": _status,
+            "run": _run, "log": _log, "lock": _lock, "mcp-config": _mcp_config, "status": _status,
             "disconnect": _disconnect, "config": _config, "catalog": _catalog,
             "site": _site, "install": _install, "certify": _certify}
 

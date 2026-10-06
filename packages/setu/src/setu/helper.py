@@ -58,7 +58,7 @@ from typing import Any
 
 import httpx
 
-from setu import connections, sandbox
+from setu import connections, sandbox, seal
 from setu.manifest import Manifest
 from setu.proxy import Proxy, log_path
 from setu.vault import Vault, default_home
@@ -146,7 +146,7 @@ def run_proxied(ref: str, manifest: Manifest, *, vault: Vault, http: httpx.Clien
     # the upstream is Setu's to know; a stub's address in the environment
     # (as tests give) is where Setu sends, not where the connector does
     base = child_env.pop(ENV_API_BASE, "") or api_base
-    for name in (ENV_ACCESS_TOKEN, ENV_FD, ENV_SCOPES, ENV_LEVEL):
+    for name in (ENV_ACCESS_TOKEN, ENV_FD, ENV_SCOPES, ENV_LEVEL, seal.ENV_KEY):
         child_env.pop(name, None)
     argv = resolve(manifest.command)
     if not argv or (shutil.which(argv[0]) is None and not Path(argv[0]).exists()):
@@ -179,6 +179,7 @@ def run(ref: str, command: Sequence[str], *, vault: Vault, http: httpx.Client,
     # Never let a token from the parent's environment ride along: the
     # child gets its key from the pipe or not at all.
     child_env.pop(ENV_ACCESS_TOKEN, None)
+    child_env.pop(seal.ENV_KEY, None)     # a locked folder's key stays with Setu
     server = threading.Thread(target=serve, args=(ours, ref),
                               kwargs={"vault": vault, "http": http}, daemon=True)
     server.start()

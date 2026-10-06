@@ -25,6 +25,13 @@ and ``gmail:personal`` in two sessions) would otherwise each write back
 the file as they read it, and the slower one would erase the faster
 one's fresh token.
 
+A LOCKED FOLDER SEALS EVERY SECRET (seal.py). With a ``lock.json`` in
+the folder, each entry's ``secret`` is written sealed to the folder's
+public key, and read back open only when ``SETU_VAULT_KEY`` holds its
+private key. Without it, ``get`` returns the entry with ``secret`` None
+and ``locked`` True -- what was chosen stays readable, the key does not
+-- and writing such an entry back keeps the sealed secret it had.
+
 NOTHING HERE LEAVES THE PROCESS. The vault is read by Setu itself --
 the sign-in, the refresh, the credential helper -- and by nothing a
 model can call. A connector never opens this file; it asks the helper
@@ -41,6 +48,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Protocol
+
+from setu import seal
 
 #: Override the home directory -- tests, a second profile, a container.
 ENV_HOME = "SETU_HOME"
@@ -71,14 +80,34 @@ class FileVault:
     # ---- the four verbs --------------------------------------------------
 
     def put(self, ref: str, entry: dict[str, Any]) -> None:
+        entry = {k: v for k, v in entry.items() if k != "locked"}
+        public = seal.public_key(self.home)
         with self._locked():
             data = self._read()
+            secret = entry.get("secret")
+            if public is not None and isinstance(secret, dict) and "sealed" not in secret:
+                entry["secret"] = {"sealed": seal.seal(
+                    public, json.dumps(secret).encode(), f"secret:{ref}")}
+            elif secret is None and isinstance(data.get(ref), dict) \
+                    and data[ref].get("secret") is not None:
+                entry["secret"] = data[ref]["secret"]   # read while locked: keep it
             data[ref] = entry
             self._write(data)
 
     def get(self, ref: str) -> dict[str, Any] | None:
         entry = self._read().get(ref)
-        return dict(entry) if isinstance(entry, dict) else None
+        if not isinstance(entry, dict):
+            return None
+        entry = dict(entry)
+        secret = entry.get("secret")
+        if isinstance(secret, dict) and "sealed" in secret:
+            private = seal.held_key(self.home)
+            if private is None:
+                entry["secret"], entry["locked"] = None, True
+            else:
+                entry["secret"] = json.loads(seal.open_sealed(
+                    private, secret["sealed"], f"secret:{ref}"))
+        return entry
 
     def delete(self, ref: str) -> bool:
         with self._locked():

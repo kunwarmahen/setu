@@ -45,10 +45,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from setu import __version__, catalog, certify, config, connections, health, sandbox
+from setu import __version__, catalog, certify, config, connections, health, sandbox, seal
 from setu import browser as site_browser
 from setu.manifest import Manifest, ManifestError, installed, sites_dir
-from setu.vault import FileVault, Vault
+from setu.vault import FileVault, Vault, default_home
 
 FORMAT = "setu.status.v1"
 
@@ -184,6 +184,8 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
         index = None
         problems.append(f"catalog: {exc}")
     rows = []
+    home = getattr(vault, "home", None) or default_home()
+    sealed = set(seal.sealed_profiles(home / site_browser.PROFILES))
     for ref in vault.list():
         entry = connections.public(vault.get(ref) or {})
         manifest = manifests.get(entry.get("connector", ""))
@@ -195,8 +197,12 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
                 pass
         else:
             problems.append(f"{ref}: its connector {entry.get('connector')!r} is not installed")
+        sealed_profile = (entry.get("auth") == "browser" and entry.get("profile") and
+                          Path(entry["profile"]).name in sealed)
         rows.append({
             "ref": ref,
+            # sealed, and no key held to open it (seal.py): not usable now
+            "locked": bool(entry.get("locked") or sealed_profile),
             "connector": entry.get("connector", ""),
             "account": entry.get("account", ""),
             "email": entry.get("email", ""),
@@ -251,4 +257,7 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
         "problems": problems + [f"{c['id']}: withdrawn by Setu -- {c['yanked']}"
                                 for c in cards if c["yanked"]],
         "watch": [str(getattr(vault, "path", "")) or None, str(sites_dir())],
+        # a folder locked with a passphrase, and whether its key is held now
+        "lock": {"locked": seal.read_lock(home) is not None,
+                 "open": seal.held_key(home) is not None},
     }

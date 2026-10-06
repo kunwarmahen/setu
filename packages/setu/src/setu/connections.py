@@ -439,6 +439,9 @@ def token(ref: str, *, vault: Vault, http: httpx.Client, force: bool = False) ->
     if entry.get("auth") == "browser":
         raise ConnectionFailed(f"{ref} is a browser profile, not a token: the harness's "
                                "browser tools open it")
+    if entry.get("locked"):
+        raise ConnectionFailed(f"{ref} is locked: its folder opens with its person's "
+                               "passphrase (setu lock unlock)")
     secret = entry["secret"]
     if entry.get("auth") == "homeassistant":
         return _ha_token(ref, entry, vault=vault, http=http, force=force)
