@@ -207,3 +207,39 @@ def test_typed_text_lands_in_a_box_even_when_nobody_tapped_one():
     script = sent[0][1]["expression"]
     assert "document.activeElement" in script and ".focus()" in script
     assert sent[1][1] == {"text": "me@example.com"}
+
+
+def _recording_window(value=None):
+    window = object.__new__(remote.Window)
+    window.size = (412, 700)
+    sent = []
+
+    def send(method, params=None):
+        sent.append((method, params))
+        return {"result": {"value": value}} if method == "Runtime.evaluate" else {}
+    window._send = send
+    return window, sent
+
+
+def test_enter_in_a_form_that_does_not_submit_presses_its_button(monkeypatch):
+    """Amazon's password page ignored an Enter from outside; its own
+    button always works. The page's own submission is waited for first."""
+    monkeypatch.setattr(remote, "ENTER_GRACE", 0)
+    window, sent = _recording_window("form")
+    window.act({"type": "key", "key": "Enter"})
+    kinds = [(m, (p or {}).get("type")) for m, p in sent]
+    assert kinds == [("Runtime.evaluate", None), ("Input.dispatchKeyEvent", "keyDown"),
+                     ("Input.dispatchKeyEvent", "keyUp"), ("Runtime.evaluate", None)]
+    down = sent[1][1]
+    assert down["code"] == "Enter" and down["text"] == "\r"
+    assert sent[3][1]["expression"] == remote.SUBMIT_IF_NOT
+    assert "__setuSubmitted !== false" in remote.SUBMIT_IF_NOT     # never twice
+
+
+def test_enter_outside_a_form_and_other_keys_are_only_keys(monkeypatch):
+    monkeypatch.setattr(remote, "ENTER_GRACE", 0)
+    window, sent = _recording_window("none")
+    window.act({"type": "key", "key": "Enter"})
+    window.act({"type": "key", "key": "Backspace"})
+    assert [p["expression"] for m, p in sent if m == "Runtime.evaluate"] == [
+        remote.WATCH_SUBMIT]

@@ -21,9 +21,13 @@ a browser holding somebody's session. Frames come from
 is ``Input.insertText``, into the box they tapped -- or, when nothing
 that takes text has focus, the page's first visible empty box. On a
 phone people type under the picture and press Send without tapping the
-page first, and text sent to nothing went nowhere, silently. The page is shown at the phone's own size, as a
-phone (``Emulation.setDeviceMetricsOverride`` and a mobile user agent),
-so it reads like their own browser would.
+page first, and text sent to nothing went nowhere, silently. And they
+press their keyboard's Go rather than the page's Enter button, so Go in
+that box sends the text and then presses Enter, in that order. Enter in
+a form that does not submit by itself (Amazon's password page ignored
+it) presses the form's own button. The page is shown at the phone's own
+size, as a phone (``Emulation.setDeviceMetricsOverride`` and a mobile
+user agent), so it reads like their own browser would.
 
 WHO CAN OPEN IT. The link carries a random token, works for ten minutes,
 and binds to the FIRST device that opens it (a cookie): a second one is
@@ -78,6 +82,27 @@ START_SIZE = (412, 800)
 MOBILE_UA = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like "
              "Gecko) Chrome/{version} Mobile Safari/537.36")
 KEYS = {"Enter": (13, "\r"), "Backspace": (8, ""), "Tab": (9, "\t")}
+#: Before Enter: note whether a form submits, and whether Enter is pressed
+#: in one at all.
+WATCH_SUBMIT = """(() => {
+  window.__setuSubmitted = false;
+  addEventListener("submit", () => { window.__setuSubmitted = true; },
+                   {capture: true, once: true});
+  const a = document.activeElement;
+  return a && a.form ? "form" : "none";
+})()"""
+#: After Enter, when it was pressed in a form and nothing submitted: press
+#: the form's own submit button, as a tap on it would. A page that moved on
+#: has no ``__setuSubmitted`` left, so nothing is pressed twice.
+SUBMIT_IF_NOT = """(() => {
+  const a = document.activeElement;
+  if (window.__setuSubmitted !== false || !a || !a.form) return "left";
+  const button = [...a.form.elements].find(el => el.type === "submit" && !el.disabled);
+  if (button) button.click(); else a.form.requestSubmit();
+  return "submitted";
+})()"""
+#: How long a page has to act on Enter before its form is submitted for it.
+ENTER_GRACE = 0.6
 #: Run before typed text: when nothing that takes text has focus, focus the
 #: first visible box that does -- an empty one first. On a phone a person
 #: types in the box under the picture and presses Send, often without
@@ -287,16 +312,36 @@ class Window:
             self._send("Runtime.evaluate", {"expression": FOCUS_A_BOX})
             self._send("Input.insertText", {"text": str(event.get("text", ""))[:500]})
         elif kind == "key" and event.get("key") in KEYS:
-            code, text = KEYS[event["key"]]
-            self._send("Input.dispatchKeyEvent", {"type": "keyDown", "key": event["key"],
-                                                  "windowsVirtualKeyCode": code,
-                                                  **({"text": text} if text else {})})
-            self._send("Input.dispatchKeyEvent", {"type": "keyUp", "key": event["key"],
-                                                  "windowsVirtualKeyCode": code})
+            key = event["key"]
+            code, text = KEYS[key]
+            # every field a page may look at, as a real keyboard sends them
+            press = {"key": key, "code": key, "windowsVirtualKeyCode": code,
+                     "nativeVirtualKeyCode": code}
+            in_form = key == "Enter" and self._value(WATCH_SUBMIT) == "form"
+            self._send("Input.dispatchKeyEvent", {"type": "keyDown", **press,
+                                                  **({"text": text, "unmodifiedText": text}
+                                                     if text else {})})
+            self._send("Input.dispatchKeyEvent", {"type": "keyUp", **press})
+            if in_form:
+                # Some sign-in pages never submit on a key from outside (the
+                # first real phone pressed Enter on Amazon's password page
+                # and nothing happened); their own button always works.
+                time.sleep(ENTER_GRACE)
+                self._value(SUBMIT_IF_NOT)
         elif kind == "back":
             self._send("Runtime.evaluate", {"expression": "history.back()"})
         elif kind == "size":
             self.resize(int(event["width"]), int(event["height"]))
+
+    def _value(self, script: str) -> Any:
+        """What a script in the page returns; None when it could not run
+        (the page moved on)."""
+        try:
+            return self._send("Runtime.evaluate", {"expression": script,
+                                                   "returnByValue": True}
+                              ).get("result", {}).get("value")
+        except (BrowserSignInFailed, OSError, ValueError):
+            return None
 
     def look(self) -> bool:
         """Whether a sign-in cookie is set now (names only)."""
@@ -322,11 +367,12 @@ flex-wrap:wrap}}#bar input{{flex:1 1 60%;font-size:16px;padding:8px}}
 button{{font-size:15px;padding:8px 10px}}#say{{padding:8px;color:#bbb}}
 </style></head><body>
 <div id="say">Signing in to {site}. Type in the box below and press Send: it goes into the
-page's first empty box, or the one you tapped on the picture. This page works once, for
-10 minutes.</div>
+page's first empty box, or the one you tapped on the picture. Your keyboard's Go sends it
+and presses Enter. This page works once, for 10 minutes.</div>
 <img id="s" src="{base}/stream" alt="the sign-in page">
 <div id="bar"><input id="t" autocomplete="off" autocapitalize="off" type="password"
-placeholder="type here, then Send"><button id="v">show</button>
+enterkeyhint="go"
+placeholder="type here, then Send or your keyboard's Go"><button id="v">show</button>
 <button id="send">Send</button><button data-k="Enter">Enter</button>
 <button data-k="Backspace">&#9003;</button><button data-k="Tab">Tab</button>
 <button id="back">Back</button><button id="done">I've signed in</button></div>
@@ -342,8 +388,11 @@ s.addEventListener("touchend",e=>{{const r=s.getBoundingClientRect(),c=e.changed
  e.preventDefault()}});
 s.addEventListener("click",e=>{{const r=s.getBoundingClientRect();
  post("/input",{{type:"tap",fx:(e.clientX-r.left)/r.width,fy:(e.clientY-r.top)/r.height}})}});
-document.getElementById("send").onclick=()=>{{post("/input",{{type:"text",text:t.value}});
- t.value=""}};
+const sendText=async()=>{{if(t.value){{const v=t.value;t.value="";
+ await post("/input",{{type:"text",text:v}})}}}};
+document.getElementById("send").onclick=()=>sendText();
+t.addEventListener("keydown",async e=>{{if(e.key==="Enter"){{e.preventDefault();
+ await sendText();post("/input",{{type:"key",key:"Enter"}})}}}});
 document.getElementById("v").onclick=e=>{{t.type=t.type=="password"?"text":"password";
  e.target.textContent=t.type=="password"?"show":"hide"}};
 document.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>post("/input",
