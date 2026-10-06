@@ -163,7 +163,9 @@ sign-in.
 [dvara](https://github.com/kunwarmahen/dvara)) can sign in through a window
 streamed to them. `setu connect amazon --json --remote` runs the browser here
 on their profile and serves a page showing it live; they tap and type on
-their phone as if it were the page. The link works for 10 minutes, opens on
+their phone as if it were the page. What they send from the box under the
+picture goes into the box they tapped, or the page's first empty one if
+they didn't. The link works for 10 minutes, opens on
 the first device only, and stops once they're signed in. Chrome is driven
 over a private pipe, never a port. Where the page listens is yours to set:
 

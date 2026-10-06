@@ -193,3 +193,17 @@ def test_in_a_locked_folder_the_new_sign_in_is_packed_away(home, chrome, monkeyp
     profiles = FileVault().home / "profiles"
     assert seal.sealed_profiles(profiles) == ["shop-personal"]
     assert not (profiles / "shop-personal").exists()
+
+
+def test_typed_text_lands_in_a_box_even_when_nobody_tapped_one():
+    """On a phone, a person types under the picture and presses Send
+    without tapping the page's box: typing into nothing did nothing."""
+    window = object.__new__(remote.Window)
+    window.size = (412, 700)
+    sent = []
+    window._send = lambda method, params=None: sent.append((method, params)) or {}
+    window.act({"type": "text", "text": "me@example.com"})
+    assert [m for m, _ in sent] == ["Runtime.evaluate", "Input.insertText"]
+    script = sent[0][1]["expression"]
+    assert "document.activeElement" in script and ".focus()" in script
+    assert sent[1][1] == {"text": "me@example.com"}

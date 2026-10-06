@@ -18,7 +18,10 @@ gives Setu the DevTools protocol on two inherited file descriptors: no
 port that another program on the machine could connect to and take over
 a browser holding somebody's session. Frames come from
 ``Page.startScreencast``; taps are mouse clicks at the same place; text
-is ``Input.insertText``. The page is shown at the phone's own size, as a
+is ``Input.insertText``, into the box they tapped -- or, when nothing
+that takes text has focus, the page's first visible empty box. On a
+phone people type under the picture and press Send without tapping the
+page first, and text sent to nothing went nowhere, silently. The page is shown at the phone's own size, as a
 phone (``Emulation.setDeviceMetricsOverride`` and a mobile user agent),
 so it reads like their own browser would.
 
@@ -75,6 +78,26 @@ START_SIZE = (412, 800)
 MOBILE_UA = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like "
              "Gecko) Chrome/{version} Mobile Safari/537.36")
 KEYS = {"Enter": (13, "\r"), "Backspace": (8, ""), "Tab": (9, "\t")}
+#: Run before typed text: when nothing that takes text has focus, focus the
+#: first visible box that does -- an empty one first. On a phone a person
+#: types in the box under the picture and presses Send, often without
+#: tapping the page's own box; typing into nothing did nothing, silently.
+#: A box they tapped into is left alone.
+FOCUS_A_BOX = """(() => {
+  const takes = el => el && (el.isContentEditable || el.tagName === "TEXTAREA" ||
+    (el.tagName === "INPUT" &&
+     !/^(button|submit|reset|checkbox|radio|hidden|file|image|range|color)$/i.test(el.type)));
+  if (takes(document.activeElement)) return "kept";
+  const usable = el => { const r = el.getBoundingClientRect();
+    return takes(el) && !el.disabled && !el.readOnly && r.width > 0 && r.height > 0 &&
+           getComputedStyle(el).visibility !== "hidden"; };
+  const boxes = [...document.querySelectorAll("input, textarea, [contenteditable]")]
+    .filter(usable);
+  const box = boxes.find(el => !el.value) || boxes[0];
+  if (!box) return "none";
+  box.focus();
+  return "focused";
+})()"""
 
 
 class WindowSettingsError(ValueError):
@@ -261,6 +284,7 @@ class Window:
                 "type": "mouseWheel", "x": width / 2, "y": height / 2, "deltaX": 0,
                 "deltaY": float(event["fy"]) * height})
         elif kind == "text":
+            self._send("Runtime.evaluate", {"expression": FOCUS_A_BOX})
             self._send("Input.insertText", {"text": str(event.get("text", ""))[:500]})
         elif kind == "key" and event.get("key") in KEYS:
             code, text = KEYS[event["key"]]
@@ -297,8 +321,9 @@ body{{margin:0;font:15px system-ui,sans-serif;background:#111;color:#eee}}
 flex-wrap:wrap}}#bar input{{flex:1 1 60%;font-size:16px;padding:8px}}
 button{{font-size:15px;padding:8px 10px}}#say{{padding:8px;color:#bbb}}
 </style></head><body>
-<div id="say">Signing in to {site}. Tap the picture as you would the page; type in the box
-below and press Send. This page works once, for 10 minutes.</div>
+<div id="say">Signing in to {site}. Type in the box below and press Send: it goes into the
+page's first empty box, or the one you tapped on the picture. This page works once, for
+10 minutes.</div>
 <img id="s" src="{base}/stream" alt="the sign-in page">
 <div id="bar"><input id="t" autocomplete="off" autocapitalize="off" type="password"
 placeholder="type here, then Send"><button id="v">show</button>
