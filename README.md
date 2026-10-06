@@ -167,7 +167,11 @@ their phone as if it were the page. What they send from the box under the
 picture goes into the box they tapped, or the page's first empty one if
 they didn't; their keyboard's Go sends it and presses Enter; and Enter in a
 form that doesn't submit by itself presses the form's own button. The link works for 10 minutes, opens on
-the first device only, and stops once they're signed in. Chrome is driven
+the first device only, and stops once they're signed in: the sign-in cookie
+is there *and* the page has left the sign-in, with no password or code box
+showing. A cookie an earlier session left behind is still there while a site
+asks for the password again (Amazon does, for its orders page), so the
+cookie alone would end the window before anybody typed. Chrome is driven
 over a private pipe, never a port. Where the page listens is yours to set:
 
 | Setting | |
