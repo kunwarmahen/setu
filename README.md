@@ -159,6 +159,28 @@ nothing is saved. Each connection has its own profile under
 `~/.local/state/setu/profiles/`, so one site can never use another site's
 sign-in.
 
+**Not at this computer?** Someone using your agents from their phone (through
+[dvara](https://github.com/kunwarmahen/dvara)) can sign in through a window
+streamed to them. `setu connect amazon --json --remote` runs the browser here
+on their profile and serves a page showing it live; they tap and type on
+their phone as if it were the page. The link works for 10 minutes, opens on
+the first device only, and stops once they're signed in. Chrome is driven
+over a private pipe, never a port. Where the page listens is yours to set:
+
+| Setting | |
+|---|---|
+| `SETU_WINDOW_HOST` | the address it listens on (default `127.0.0.1`) |
+| `SETU_WINDOW_PORT` | its port (default: any free one) |
+| `SETU_WINDOW_URL` | the address in the link, when it differs (a tunnel, a reverse proxy) |
+
+Which is safe for what: your **home network address** works for people at
+home, but it's plain HTTP, so what they type crosses your Wi-Fi with only the
+Wi-Fi's own encryption. A **Tailscale** address is encrypted end to end and
+reachable from anywhere they are on your tailnet. For the open internet, put
+it behind **your own HTTPS** (listen on `127.0.0.1`, give the public address
+in `SETU_WINDOW_URL`). A site Setu wrote the rules for itself (`--site`) is
+checked by its page, so it is signed in to at this computer.
+
 There is no program to run for these, so `setu run` and `setu mcp-config` say
 so. Your agent's own browser opens the profile instead. In
 [Yantra](https://github.com/kunwarmahen/yantra) that gives the agent tools

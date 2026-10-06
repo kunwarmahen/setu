@@ -66,6 +66,14 @@ pasted back from the page that would not load, checked like the local
 page's visit would be. One that does not belong is answered with a
 ``paste_refused`` event and the wait goes on. ``--timeout SECONDS``
 bounds the wait (default 300).
+
+``setu connect amazon --json --remote`` is a browser-road site signed in
+to from ANOTHER device: Setu runs the browser on the connection's
+profile and serves a page that streams it (remote.py). Events:
+``started``, ``link`` (the address to send the person, and when it
+stops working), ``opened`` (a device opened it), then ``connected`` or
+``error``. Where it listens and the address in the link are
+``SETU_WINDOW_HOST``, ``SETU_WINDOW_PORT`` and ``SETU_WINDOW_URL``.
 """
 
 from __future__ import annotations
@@ -478,6 +486,8 @@ def _connect_json(args: argparse.Namespace) -> int:
     if args.site:
         return _connect_site_json(args)
     manifest = find(_connector_named(args))
+    if args.remote:
+        return _connect_remote_json(manifest, args)
     if args.paste and manifest.auth == "browser":
         _emit("error", message=f"{manifest.name} is signed in to in a window on this "
               "computer; there is no address to paste back")
@@ -521,6 +531,44 @@ def _pasted(args: argparse.Namespace) -> google.Pasted | None:
 
     threading.Thread(target=read, daemon=True).start()
     return pasted
+
+
+def _connect_remote_json(manifest, args: argparse.Namespace) -> int:
+    """A browser-road sign-in, streamed to another device (remote.py)."""
+    from setu import remote
+
+    spec = manifest.browser
+    if manifest.auth != "browser" or spec is None:
+        _emit("error", message=f"{manifest.name} signs in with a link, not a browser window: "
+              "--paste is its road from another device")
+        return 2
+    if manifest.generated or not spec.signed_in:
+        _emit("error", message=f"{manifest.name}'s sign-in is checked by its page, which "
+              "needs someone at this computer: sign in to it here")
+        return 2
+    level = manifest.level(args.level)
+    ref = connections.ref_for(manifest.id, args.account)
+    found = _site_browser(args)
+    try:
+        window = remote.window_for(
+            lambda url, until: _emit("link", url=url, expires_at=until),
+            lambda: _emit("opened"), site=manifest.name, patterns=spec.signed_in,
+            hosts=manifest.hosts, open_for=(remote.OPEN_FOR if args.timeout ==
+                                            google.SIGN_IN_TIMEOUT else args.timeout))
+    except remote.WindowSettingsError as exc:
+        _emit("error", message=str(exc), setup="window")
+        return 2
+    _emit("started", ref=ref, level=level.name, level_label=level.label, scopes=[])
+    vault = FileVault()
+    entry = connections.connect_browser(manifest, args.account, level=level.name, vault=vault,
+                                        browser=found, window=window)
+    # a locked folder with nobody holding its key: the new sign-in is
+    # packed away at once, like every other one in it
+    if seal.read_lock(vault.home) is not None and seal.held_key(vault.home) is None:
+        seal.seal_profiles(vault.home, vault.home / site_browser.PROFILES)
+    _emit("connected", ref=ref, email=entry["email"], level=level.name,
+          level_label=level.label, asked_level=level.name)
+    return 0
 
 
 def _connect_homeassistant_json(manifest, args: argparse.Namespace) -> int:
@@ -1013,6 +1061,9 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument("--client-file", help="the Desktop app OAuth client JSON")
     connect.add_argument("--no-browser", action="store_true",
                          help="print the address instead of opening a browser")
+    connect.add_argument("--remote", action="store_true",
+                         help="with --json: a browser-road site signed in to from another "
+                              "device, through a streamed window (SETU_WINDOW_*)")
     connect.add_argument("--paste", action="store_true",
                          help="with --json: also take the address the sign-in ended on, "
                               "pasted back on stdin (signing in on another device)")
