@@ -45,7 +45,10 @@ in the link are the owner's choice (``SETU_WINDOW_HOST``,
 
 SIGNED IN MEANS A SIGN-IN COOKIE, as at the machine: the manifest's
 ``signed_in`` names, read from the running browser
-(``Storage.getCookies``, names only). A site Setu wrote the rules for
+(``Storage.getCookies``, names only) -- AND A PAGE THAT HAS STOPPED
+ASKING: no password or code box, not a sign-in address. A cookie an
+earlier session left is still there when the site wants the password
+again, and the window used to close before anybody typed. A site Setu wrote the rules for
 itself (``--site``) has no names to look for and is signed in to at the
 machine.
 """
@@ -122,6 +125,18 @@ FOCUS_A_BOX = """(() => {
   if (!box) return "none";
   box.focus();
   return "focused";
+})()"""
+#: Whether the page is still part of a sign-in: a password or one-time-code
+#: box showing, or an address that is a sign-in, a second step or a check.
+#: A sign-in cookie left from an earlier session (Amazon keeps ``at-main``
+#: while asking for the password again) is no sign-in while this is true.
+STILL_ASKING = """(() => {
+  const shown = el => { const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== "hidden"; };
+  const boxes = [...document.querySelectorAll(
+    'input[type=password], input[autocomplete="one-time-code"]')].filter(shown);
+  return boxes.length > 0 ||
+    /sign[-_]?in|log[-_]?in|\\/ap\\/|mfa|challenge|verify|captcha|otp/i.test(location.pathname);
 })()"""
 
 
@@ -344,7 +359,10 @@ class Window:
             return None
 
     def look(self) -> bool:
-        """Whether a sign-in cookie is set now (names only)."""
+        """Whether they're signed in now: a sign-in cookie is set (names
+        only) AND the page has left the sign-in. The cookie alone was
+        fooled by one an earlier session left behind -- the window closed
+        on Amazon's password page before anybody typed a thing."""
         try:      # the browser's whole cookie jar, asked of the browser itself
             cookies = self.browser.call("Storage.getCookies").get("cookies", [])
         except BrowserSignInFailed:
@@ -353,7 +371,8 @@ class Window:
             host = str(cookie.get("domain", "")).lstrip(".")
             if any(host == h or host.endswith("." + h) for h in self.hosts) and any(
                     fnmatch.fnmatchcase(str(cookie.get("name", "")), p) for p in self.patterns):
-                return True
+                # None: the page is between pages; look again next time
+                return self._value(STILL_ASKING) is False
         return False
 
 

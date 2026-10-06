@@ -8,7 +8,8 @@ once.
 
 Chrome is a fake here that speaks the DevTools protocol on fds 3 and 4,
 like the real one under --remote-debugging-pipe: it sends one frame, and
-sets the sign-in cookie when Enter is pressed after some text.
+sets the sign-in cookie, and leaves the sign-in page, when Enter is
+pressed after some text.
 """
 
 from __future__ import annotations
@@ -32,6 +33,9 @@ os.makedirs(os.path.join(profile, "Default"), exist_ok=True)
 open(os.path.join(profile, "Local State"), "w").write("{}")
 inp, out = os.fdopen(3, "rb", buffering=0), os.fdopen(4, "wb", buffering=0)
 typed, cookies, buf = [], [], b""
+# a cookie an earlier session left: there, while the page still asks
+if os.environ.get("FAKE_STALE_COOKIE"): cookies.append({"name": "session", "domain": "shop.test"})
+asking = True
 def send(m): out.write(json.dumps(m).encode() + b"\0")
 JPEG = ("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////"
         "////////////////////////////////////////2wBDAf//////////////////////////////////"
@@ -49,7 +53,10 @@ while True:
         elif method == "Target.attachToTarget": result = {"sessionId": "S1"}
         elif method == "Browser.getVersion": result = {"product": "Chrome/130.0"}
         elif method == "Input.insertText": typed.append(m["params"]["text"])
+        elif method == "Runtime.evaluate" and "location.pathname" in m["params"]["expression"]:
+            result = {"result": {"value": asking}}
         elif method == "Input.dispatchKeyEvent" and m["params"]["type"] == "keyDown" and typed:
+            asking = False
             cookies.append({"name": "session", "domain": "shop.test"})
             db = sqlite3.connect(os.path.join(profile, "Default", "Cookies"))
             db.execute("create table if not exists cookies (host_key text, name text)")
@@ -148,6 +155,30 @@ def test_saying_done_without_signing_in_saves_nothing(home, chrome):
         me.post(link + "/done", json={})
     with pytest.raises(connections.ConnectionFailed, match="has not signed you in"):
         sign_in(chrome, phone)
+
+
+def test_a_cookie_left_from_before_is_not_a_sign_in(home, chrome, monkeypatch):
+    """Amazon keeps its sign-in cookie while asking for the password again:
+    the window closed on the password page, and nothing had been signed in."""
+    monkeypatch.setenv("FAKE_STALE_COOKIE", "1")
+    with pytest.raises(connections.ConnectionFailed, match="nobody signed in"):
+        sign_in(chrome, lambda link: httpx.get(link), open_for=1.5)
+
+
+def test_with_a_cookie_left_from_before_signing_in_still_works(home, chrome, monkeypatch):
+    monkeypatch.setenv("FAKE_STALE_COOKIE", "1")
+    entry, _links = sign_in(chrome, person({}))
+    assert entry["email"] == "shop.test"
+
+
+def test_a_page_between_pages_is_looked_at_again():
+    window = object.__new__(remote.Window)
+    window.hosts, window.patterns = ("shop.test",), ("session",)
+    window.browser = type("B", (), {"call": lambda self, m, p=None: {
+        "cookies": [{"name": "session", "domain": ".shop.test"}]}})()
+    for value, signed in ((None, False), (True, False), (False, True)):
+        window._value = lambda script, v=value: v
+        assert window.look() is signed
 
 
 def test_listening_everywhere_needs_the_address_a_phone_opens(monkeypatch):
