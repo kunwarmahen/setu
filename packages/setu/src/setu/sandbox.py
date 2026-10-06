@@ -19,6 +19,13 @@ WITHOUT BUBBLEWRAP the connector still holds no key -- every request
 still goes through Setu and its rules -- but it has the computer's
 network and can read your files, and ``setu status`` says so in those
 words rather than claiming a wall that is not there.
+
+ASKED WITH THE REAL WALL. Whether bubblewrap may build the sandbox is
+tried with the same system mounts and the same new namespaces every
+connector gets. A narrower try can pass where the real one fails: in a
+rootless container whose ``/proc`` is partly masked, a network-only
+sandbox starts, and a fresh ``/proc`` is refused. Then every connector
+would fail to start, while the card claimed a wall -- worse than no wall.
 """
 
 from __future__ import annotations
@@ -36,6 +43,15 @@ from pathlib import Path
 ENV_SANDBOX = "SETU_SANDBOX"
 
 
+#: The system as every connector sees it: read-only, with its own /dev,
+#: /proc, /tmp and /run.
+SYSTEM = ("--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
+          "--tmpfs", "/tmp", "--tmpfs", "/run")
+#: The namespaces a connector gets of its own: no network, no other
+#: process to see or signal.
+UNSHARE = ("--unshare-net", "--unshare-pid", "--unshare-ipc", "--die-with-parent")
+
+
 @cache
 def available() -> bool:
     """Whether bubblewrap is here and may make a network-less sandbox."""
@@ -45,7 +61,7 @@ def available() -> bool:
     if bwrap is None:
         return False
     try:
-        done = subprocess.run([bwrap, "--ro-bind", "/", "/", "--unshare-net", "true"],
+        done = subprocess.run([bwrap, *SYSTEM, *UNSHARE, "--", "true"],
                               capture_output=True, timeout=10)
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -68,8 +84,7 @@ def wrap(argv: Sequence[str], *, keep: Sequence[Path], hide: Sequence[Path] = ()
     read-write at the same path (the socket's); ``hide`` are folders
     emptied whatever else is bound (Setu's home)."""
     home = (home or Path.home()).resolve()
-    args = ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
-            "--tmpfs", "/tmp", "--tmpfs", "/run", "--tmpfs", str(home)]
+    args = ["bwrap", *SYSTEM, "--tmpfs", str(home)]
     program = Path(argv[0])
     back = _python_paths() + ([program.resolve().parent] if program.is_absolute() else [])
     seen: set[Path] = set()
@@ -83,6 +98,5 @@ def wrap(argv: Sequence[str], *, keep: Sequence[Path], hide: Sequence[Path] = ()
         args += ["--tmpfs", str(Path(path).expanduser().resolve())]
     for path in keep:
         args += ["--bind", str(path), str(path)]
-    args += ["--unshare-net", "--unshare-pid", "--unshare-ipc", "--die-with-parent",
-             "--chdir", "/", "--"]
+    args += [*UNSHARE, "--chdir", "/", "--"]
     return args + list(argv)

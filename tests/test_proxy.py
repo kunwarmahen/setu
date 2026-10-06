@@ -245,3 +245,26 @@ def test_the_sandbox_hides_the_home_folder_but_keeps_this_python(tmp_path):
     assert pairs.index(("--tmpfs", home)) < pairs.index(("--tmpfs", f"{home}/setu")) \
         < pairs.index(("--bind", f"{home}/sock"))
     assert argv[-3:] == [sys.executable, "-c", "pass"]
+
+
+def test_the_sandbox_is_tried_with_the_wall_every_connector_gets(monkeypatch):
+    """A network-only try passes in a rootless container whose /proc is
+    masked, where the real wrap cannot mount a fresh /proc: then the card
+    would claim a wall and every connector would fail to start."""
+    tried = []
+
+    def run(argv, **kw):
+        tried.append(argv)
+        return type("Done", (), {"returncode": 0})()
+
+    monkeypatch.delenv(sandbox.ENV_SANDBOX, raising=False)
+    monkeypatch.setattr(sandbox.shutil, "which", lambda name: "/usr/bin/bwrap")
+    monkeypatch.setattr(sandbox.subprocess, "run", run)
+    sandbox.available.cache_clear()
+    try:
+        assert sandbox.available()
+    finally:
+        sandbox.available.cache_clear()
+    real = sandbox.wrap(["true"], keep=[])
+    for flag in ("--proc", "--dev", "--unshare-net", "--unshare-pid", "--unshare-ipc"):
+        assert flag in tried[0] and flag in real

@@ -632,7 +632,11 @@ setu log gmail:personal       # each request Setu made, and each it refused
 The log keeps the method and the address, never what you searched for or
 what was sent. Without bubblewrap (`sudo apt install bubblewrap`), the
 connector still holds no key, but it can read your files and reach the
-internet, and `setu status` says so.
+internet, and `setu status` says so. The same holds where bubblewrap is
+installed but may not build the whole sandbox, such as a rootless
+container whose `/proc` is masked (Podman's default; `--security-opt
+unmask=/proc/*` lifts it). Setu tries the real sandbox before saying it
+has one, so it never claims a wall it can't build.
 
 **A folder locked with a passphrase.** When your sign-ins sit on
 somebody else's computer (a family member's server running
