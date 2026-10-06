@@ -125,14 +125,15 @@ def connect(manifest: Manifest, account: str, *, level: str | None,
             client: google.Client, vault: Vault, http: httpx.Client,
             open_browser: Callable[[str], Any] | None = webbrowser.open,
             on_url: Callable[[str], Any] | None = None,
-            timeout: float = google.SIGN_IN_TIMEOUT) -> dict[str, Any]:
+            timeout: float = google.SIGN_IN_TIMEOUT,
+            pasted: google.Pasted | None = None) -> dict[str, Any]:
     if manifest.auth != "google":
         raise ConnectionFailed(f"{manifest.id} signs in with {manifest.auth!r}, "
                                "which this Setu does not know yet")
     ref = ref_for(manifest.id, account)
     asked = manifest.level(level)
     payload = google.sign_in(client, asked.scopes, http=http, open_browser=open_browser,
-                             on_url=on_url, timeout=timeout)
+                             on_url=on_url, timeout=timeout, pasted=pasted)
     got = google.granted(payload)
     held = manifest.level_for_scopes(got)
     if held is None:
@@ -181,7 +182,8 @@ def connect_homeassistant(manifest: Manifest, account: str, *, level: str | None
                           long_lived: str | None = None,
                           open_browser: Callable[[str], Any] | None = webbrowser.open,
                           on_url: Callable[[str], Any] | None = None,
-                          timeout: float = google.SIGN_IN_TIMEOUT) -> dict[str, Any]:
+                          timeout: float = google.SIGN_IN_TIMEOUT,
+                          pasted: google.Pasted | None = None) -> dict[str, Any]:
     """Sign in to a Home Assistant at ``base_url``: its login page, or a
     pasted ``long_lived`` token, checked against the server first."""
     if manifest.auth != "homeassistant":
@@ -194,7 +196,7 @@ def connect_homeassistant(manifest: Manifest, account: str, *, level: str | None
         secret: dict[str, Any] = {"kind": "long_lived", "access_token": long_lived.strip()}
     else:
         payload = homeassistant.sign_in(base, http=http, open_browser=open_browser,
-                                        on_url=on_url, timeout=timeout)
+                                        on_url=on_url, timeout=timeout, pasted=pasted)
         if not payload.get("refresh_token"):
             raise ConnectionFailed(f"{base} sent no refresh token, so the connection "
                                    "would die within the hour. Nothing was saved.")

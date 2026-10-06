@@ -43,7 +43,7 @@ from urllib.parse import urlencode, urlparse
 
 import httpx
 
-from setu.google import SIGN_IN_TIMEOUT, RedirectListener
+from setu.google import SIGN_IN_TIMEOUT, Pasted, RedirectListener
 
 
 class HomeAssistantError(Exception):
@@ -95,10 +95,11 @@ def _post(http: httpx.Client, url: str, form: dict[str, str], what: str) -> dict
 def sign_in(base: str, *, http: httpx.Client,
             open_browser: Callable[[str], Any] | None = webbrowser.open,
             on_url: Callable[[str], Any] | None = None,
-            timeout: float = SIGN_IN_TIMEOUT) -> dict[str, Any]:
+            timeout: float = SIGN_IN_TIMEOUT,
+            pasted: Pasted | None = None) -> dict[str, Any]:
     """Login page -> code -> tokens. Returns the token answer plus the
     ``client_id`` the refresh will need."""
-    listener = RedirectListener()
+    listener = RedirectListener(pasted=pasted)
     try:
         client_id = listener.redirect_uri
         state = secrets.token_urlsafe(24)

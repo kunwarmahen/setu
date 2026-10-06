@@ -55,6 +55,13 @@ JSON object per line on stdout -- ``started``, ``url`` (the address to
 open), then ``connected`` or ``error`` -- so nothing reads prose. A
 site Setu wrote the rules for may also send ``ask`` (a question for the
 person) and then read one line, ``yes`` or ``no``, from stdin.
+
+``setu connect --json --paste`` is for a person signing in on ANOTHER
+device (a phone, through a chat): every line on stdin is an address
+pasted back from the page that would not load, checked like the local
+page's visit would be. One that does not belong is answered with a
+``paste_refused`` event and the wait goes on. ``--timeout SECONDS``
+bounds the wait (default 300).
 """
 
 from __future__ import annotations
@@ -64,6 +71,7 @@ import json
 import os
 import shutil
 import sys
+import threading
 import webbrowser
 from collections.abc import Callable
 from pathlib import Path
@@ -456,9 +464,17 @@ def _connect_json(args: argparse.Namespace) -> int:
     """The sign-in, as events. The browser is never opened from here: the
     harness shows the address to the person, in the page they are using --
     except for a site signed in to in a window of its own (``window``)."""
+    if args.paste and (args.site or args.token_stdin):
+        _emit("error", message="--paste is for a sign-in page (Google, Home Assistant), "
+              "not a browser window or a pasted token")
+        return 2
     if args.site:
         return _connect_site_json(args)
     manifest = find(_connector_named(args))
+    if args.paste and manifest.auth == "browser":
+        _emit("error", message=f"{manifest.name} is signed in to in a window on this "
+              "computer; there is no address to paste back")
+        return 2
     if manifest.auth == "homeassistant":
         return _connect_homeassistant_json(manifest, args)
     if manifest.auth == "browser":
@@ -477,11 +493,27 @@ def _connect_json(args: argparse.Namespace) -> int:
         entry = connections.connect(
             manifest, args.account, level=level.name, client=client,
             vault=FileVault(), http=http, open_browser=None,
-            on_url=lambda url: _emit("url", url=url))
+            on_url=lambda url: _emit("url", url=url, paste=args.paste),
+            timeout=args.timeout, pasted=_pasted(args))
     held = manifest.level(entry["level"])
     _emit("connected", ref=ref, email=entry.get("email") or "", level=held.name,
           level_label=held.label, asked_level=entry.get("asked_level", held.name))
     return 0
+
+
+def _pasted(args: argparse.Namespace) -> google.Pasted | None:
+    """With ``--paste``: every stdin line is an address pasted back."""
+    if not args.paste:
+        return None
+    pasted = google.Pasted(on_refused=lambda why: _emit("paste_refused", message=why))
+
+    def read() -> None:
+        for line in sys.stdin:
+            if line.strip():
+                pasted.put(line.strip())
+
+    threading.Thread(target=read, daemon=True).start()
+    return pasted
 
 
 def _connect_homeassistant_json(manifest, args: argparse.Namespace) -> int:
@@ -492,14 +524,15 @@ def _connect_homeassistant_json(manifest, args: argparse.Namespace) -> int:
         return 2
     level = manifest.level(args.level)
     ref = connections.ref_for(manifest.id, args.account)
-    token = _read_token(args)
+    token = None if args.paste else _read_token(args)
     _emit("started", ref=ref, level=level.name, level_label=level.label, scopes=[],
           base_url=homeassistant.normalise_url(base))
     with httpx.Client() as http:
         entry = connections.connect_homeassistant(
             manifest, args.account, level=level.name, base_url=base, vault=FileVault(),
             http=http, long_lived=token, open_browser=None,
-            on_url=lambda url: _emit("url", url=url))
+            on_url=lambda url: _emit("url", url=url, paste=args.paste),
+            timeout=args.timeout, pasted=_pasted(args))
     _remember_ha(base)
     _emit("connected", ref=ref, email=entry["email"], level=level.name,
           level_label=level.label, asked_level=level.name)
@@ -886,6 +919,11 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument("--client-file", help="the Desktop app OAuth client JSON")
     connect.add_argument("--no-browser", action="store_true",
                          help="print the address instead of opening a browser")
+    connect.add_argument("--paste", action="store_true",
+                         help="with --json: also take the address the sign-in ended on, "
+                              "pasted back on stdin (signing in on another device)")
+    connect.add_argument("--timeout", type=float, default=google.SIGN_IN_TIMEOUT,
+                         help="seconds to wait for the sign-in (default 300)")
     connect.add_argument("--json", action="store_true",
                          help="events as JSON lines, for a harness's page (no browser)")
     connect.add_argument("--url", help="your Home Assistant's address "

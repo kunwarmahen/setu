@@ -25,6 +25,16 @@ each one was a failure before it was a line of code:
   field, because the consent screen lets a person untick a box and the
   token is then smaller than what was asked.
 
+SIGNING IN FROM ANOTHER DEVICE. A person on a phone, talking to an
+agent on somebody else's computer, can sign in on the phone -- but the
+phone's browser then goes to ``127.0.0.1``, which on a phone is the
+phone, and the page fails to load. Its address still carries the code.
+So a sign-in may also take that address PASTED back (``Pasted``): the
+same ``state`` check, the same PKCE verifier held here, the same
+one-time code. An address from another sign-in, or something that is not
+one at all, is turned away without ending the wait, so a wrong paste
+can be followed by the right one.
+
 Only a desktop client file is accepted. A "web application" client needs
 its redirect address registered in advance, which a random local port
 cannot be; the error says which kind to create instead.
@@ -35,6 +45,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import queue
 import secrets
 import threading
 import time
@@ -152,10 +163,44 @@ class _Catcher(BaseHTTPRequestHandler):
         pass
 
 
-class RedirectListener:
-    """A one-shot local page for the browser to come back to."""
+class Pasted:
+    """Addresses a person pasted back, for the sign-in that is waiting.
+    ``on_refused`` hears, in words, each one that was turned away."""
 
-    def __init__(self, host: str = "127.0.0.1") -> None:
+    def __init__(self, on_refused: Callable[[str], Any] | None = None) -> None:
+        self._queue: queue.Queue[str] = queue.Queue()
+        self.on_refused = on_refused
+
+    def put(self, address: str) -> None:
+        self._queue.put(address)
+
+    def take(self, state: str) -> dict[str, str] | None:
+        """The first pasted address that belongs to this sign-in, if any."""
+        while True:
+            try:
+                address = self._queue.get_nowait()
+            except queue.Empty:
+                return None
+            got = {k: v[0] for k, v in parse_qs(urlparse(address.strip()).query).items()}
+            if "code" not in got and "error" not in got:
+                self._refuse("that is not the address the sign-in ended on -- copy the "
+                             "whole address of the page that would not load")
+            elif got.get("state") != state:
+                self._refuse("that address belongs to a different sign-in")
+            else:
+                return got
+
+    def _refuse(self, why: str) -> None:
+        if self.on_refused is not None:
+            self.on_refused(why)
+
+
+class RedirectListener:
+    """A one-shot local page for the browser to come back to -- or, given
+    ``pasted``, the same address pasted back from another device."""
+
+    def __init__(self, host: str = "127.0.0.1", pasted: Pasted | None = None) -> None:
+        self.pasted = pasted
         self._httpd = HTTPServer((host, 0), _Catcher)
         self._httpd.result = None  # type: ignore[attr-defined]
         self._httpd.timeout = 0.5
@@ -166,6 +211,8 @@ class RedirectListener:
         while time.monotonic() < deadline:
             self._httpd.handle_request()
             got = self._httpd.result  # type: ignore[attr-defined]
+            if got is None and self.pasted is not None:
+                got = self.pasted.take(state)
             if got is None:
                 continue
             if got.get("error"):
@@ -243,10 +290,11 @@ def sign_in(client: Client, scopes: Iterable[str], *, http: httpx.Client,
             open_browser: Callable[[str], Any] | None = webbrowser.open,
             on_url: Callable[[str], Any] | None = None,
             login_hint: str | None = None,
-            timeout: float = SIGN_IN_TIMEOUT) -> dict[str, Any]:
+            timeout: float = SIGN_IN_TIMEOUT,
+            pasted: Pasted | None = None) -> dict[str, Any]:
     """Browser → code → tokens. Returns Google's token response."""
     scopes = list(scopes)
-    listener = RedirectListener()
+    listener = RedirectListener(pasted=pasted)
     try:
         verifier, challenge = make_pkce()
         state = secrets.token_urlsafe(24)

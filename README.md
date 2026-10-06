@@ -298,7 +298,11 @@ read is skipped, and `setu connectors` and `setu status` say why.
   asking, nothing else unless it was allowed when the schedule was made.
 * **[dvara](https://github.com/kunwarmahen/dvara)** serves several people, so each person can have a Setu
   folder of their own (`SETU_HOME`); their agent reaches only those
-  accounts ([dvara's note 19](https://github.com/kunwarmahen/dvara/blob/main/notes/19-their-own-accounts.md)). Sign them in at the machine:
+  accounts ([dvara's note 19](https://github.com/kunwarmahen/dvara/blob/main/notes/19-their-own-accounts.md)). They sign in from the chat
+  on their phone with `/connect gmail`: dvara runs `setu connect --json
+  --paste` in their folder, and the address of the page their phone
+  couldn't load is pasted back to it
+  ([dvara's note 20](https://github.com/kunwarmahen/dvara/blob/main/notes/20-signing-in-from-the-chat.md)). Or at the machine:
   `SETU_HOME=<their folder> setu connect gmail`.
 
 ## Set up (about 15 minutes, once)

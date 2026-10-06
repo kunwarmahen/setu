@@ -255,3 +255,43 @@ class TestTheClientFile:
                 listener.wait("expected", timeout=5)
         finally:
             listener.close()
+
+
+class TestSigningInFromAnotherDevice:
+    """A phone's browser cannot reach this computer's 127.0.0.1, so the
+    address it failed to load is pasted back instead."""
+
+    def phone(self, fake: FakeGoogle, pasted: google.Pasted, first: str | None = None):
+        """The person on a phone: allows, the page fails, they paste."""
+        def browser(url: str) -> None:
+            query = parse_qs(urlparse(url).query)
+            if first is not None:
+                pasted.put(first)
+            pasted.put(f"{query['redirect_uri'][0]}?state={query['state'][0]}"
+                       "&code=the-code&scope=x")
+        with fake.client() as http:
+            return connections.connect(find("gmail"), "personal", level=None, client=CLIENT,
+                                       vault=FileVault(), http=http, open_browser=browser,
+                                       timeout=10, pasted=pasted)
+
+    def test_the_pasted_address_finishes_the_sign_in(self, home):
+        fake = FakeGoogle()
+        entry = self.phone(fake, google.Pasted())
+        assert entry["email"] == "me@example.com"
+        assert fake.forms[0]["code"] == "the-code" and fake.forms[0]["code_verifier"]
+
+    def test_a_wrong_paste_is_turned_away_and_the_right_one_still_works(self, home):
+        refused: list[str] = []
+        fake = FakeGoogle()
+        entry = self.phone(fake, google.Pasted(refused.append),
+                           first="http://127.0.0.1:1/?state=someone-elses&code=stolen")
+        assert entry["email"] == "me@example.com"
+        assert refused == ["that address belongs to a different sign-in"]
+        assert [f["code"] for f in fake.forms] == ["the-code"]   # never "stolen"
+
+    def test_something_that_is_not_the_address_says_what_to_copy(self):
+        refused: list[str] = []
+        pasted = google.Pasted(refused.append)
+        pasted.put("hello, is this working?")
+        assert pasted.take("s") is None
+        assert "copy the whole address" in refused[0]
