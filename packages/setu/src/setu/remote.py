@@ -20,7 +20,9 @@ a browser holding somebody's session. Frames come from
 ``Page.startScreencast``; taps are mouse clicks at the same place; text
 is typed key by key, a key-down and a key-up for each character as a
 keyboard sends them, into the box they tapped -- or, when nothing
-that takes text has focus, the page's first visible empty box. On a
+that takes text has focus, the page's first visible empty box. Taps
+are touches, a finger down and up, as the phone the page is told about
+would send them. On a
 phone people type under the picture and press Send without tapping the
 page first, and text sent to nothing went nowhere, silently. And they
 press their keyboard's Go rather than the page's Enter button, so Go in
@@ -107,6 +109,8 @@ MOBILE_HINTS = {"platform": "Android", "platformVersion": "14.0.0", "architectur
                 "model": "Pixel 8", "mobile": True}
 #: How a phone's own browser fills ``navigator.platform``.
 MOBILE_PLATFORM = "Linux armv81"
+#: How long a finger stays down for a tap, at random within this range.
+TAP_HOLD = (0.05, 0.12)
 #: The pause between typed characters, at random within this range: a
 #: person's pace, not a paste.
 KEY_GAP = (0.03, 0.09)
@@ -398,10 +402,15 @@ class Window:
         kind = event.get("type")
         width, height = self.size
         if kind == "tap":
+            # a finger, as the phone it says it is: touchstart, a moment,
+            # touchend, and the page's own click from those. A mouse that
+            # lands with no movement on a page that says touch is what X's
+            # sign-in took for a robot.
             x, y = float(event["fx"]) * width, float(event["fy"]) * height
-            for phase in ("mousePressed", "mouseReleased"):
-                self._send("Input.dispatchMouseEvent", {"type": phase, "x": x, "y": y,
-                                                        "button": "left", "clickCount": 1})
+            self._send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [
+                {"x": x, "y": y, "radiusX": 11, "radiusY": 11, "force": 1}]})
+            time.sleep(random.uniform(*TAP_HOLD))
+            self._send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
         elif kind == "scroll":
             self._send("Input.dispatchMouseEvent", {
                 "type": "mouseWheel", "x": width / 2, "y": height / 2, "deltaX": 0,

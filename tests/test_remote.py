@@ -271,6 +271,18 @@ def test_text_is_typed_key_by_key_as_a_keyboard_sends_it(monkeypatch):
     assert "Input.insertText" not in [m for m, _ in sent]
 
 
+def test_a_tap_is_a_finger_not_a_mouse(monkeypatch):
+    """X's sign-in said "temporarily limited" to a page that said touch
+    phone and got mouse clicks landing with no movement."""
+    monkeypatch.setattr(remote, "TAP_HOLD", (0, 0))
+    window, sent = _recording_window()
+    window.act({"type": "tap", "fx": 0.5, "fy": 0.25})
+    assert [(m, p["type"]) for m, p in sent] == [("Input.dispatchTouchEvent", "touchStart"),
+                                                 ("Input.dispatchTouchEvent", "touchEnd")]
+    point = sent[0][1]["touchPoints"][0]
+    assert (point["x"], point["y"]) == (206.0, 175.0)
+
+
 def test_the_phone_says_the_same_thing_in_its_user_agent_and_its_hints():
     """A user agent that says Android while navigator.platform and the
     client hints say Linux is two answers to one question."""
