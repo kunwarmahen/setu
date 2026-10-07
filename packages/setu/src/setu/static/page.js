@@ -45,8 +45,16 @@ function h(spec, attrs, ...kids) {
 class Unauthorized extends Error {}
 
 async function api(path) {
-  const res = await fetch(path, { headers: { Authorization: `Bearer ${token}` },
-                                  cache: "no-store" });
+  let res;
+  try {
+    res = await fetch(path, { headers: { Authorization: `Bearer ${token}` },
+                              cache: "no-store" });
+  } catch (_) {
+    // the request never left: Setu stopped, or something in the browser
+    // (an ad or privacy blocker) refused it
+    throw new Error("the browser couldn't reach Setu. Is setu serve still running? " +
+                    "An ad blocker can also stop this page's requests.");
+  }
   if (res.status === 401) throw new Unauthorized();
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.detail || `${res.status}`);
@@ -133,7 +141,7 @@ function connectionCard(row, names, logOpen) {
 async function drawLog(ref, details) {
   const body = details.querySelector(".log-body");
   try {
-    const data = await api(`/api/log?ref=${encodeURIComponent(ref)}&limit=200`);
+    const data = await api(`/api/requests?ref=${encodeURIComponent(ref)}&limit=200`);
     if (!data.entries.length) {
       body.replaceChildren(h("p.empty", {}, "No requests made for it yet."));
       return;

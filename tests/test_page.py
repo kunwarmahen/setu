@@ -43,7 +43,7 @@ def get(server, path, token=GOOD):
 
 def test_every_api_call_without_the_token_is_refused(served):
     for path in ("/api/status", "/api/connections", "/api/connectors",
-                 "/api/log?ref=gmail:personal"):
+                 "/api/requests?ref=gmail:personal"):
         assert get(served, path, token=None).status_code == 401
         assert get(served, path, token="wrong-token-of-some-length").status_code == 401
 
@@ -100,7 +100,7 @@ def test_the_log_comes_newest_first_with_the_outcome_kept_whole(served, home):
     path.write_text("2026-10-06T09:00:00 GET /gmail/v1/users/me/threads 200\n"
                     "2026-10-06T09:01:00 POST /gmail/v1/users/me/messages/send "
                     "refused: not at this level\n")
-    data = get(served, "/api/log?ref=gmail:personal").json()
+    data = get(served, "/api/requests?ref=gmail:personal").json()
     assert [e["method"] for e in data["entries"]] == ["POST", "GET"]
     assert data["entries"][0]["outcome"] == "refused: not at this level"
 
@@ -110,7 +110,7 @@ def test_the_log_reads_the_older_half_after_a_rotation(served, home):
     path.parent.mkdir(parents=True)
     path.with_suffix(".log.1").write_text("2026-10-05T09:00:00 GET /old 200\n")
     path.write_text("2026-10-06T09:00:00 GET /new 200\n")
-    data = get(served, "/api/log?ref=gmail:personal&limit=5").json()
+    data = get(served, "/api/requests?ref=gmail:personal&limit=5").json()
     assert [e["path"] for e in data["entries"]] == ["/new", "/old"]
 
 
@@ -118,7 +118,7 @@ def test_a_log_is_only_for_a_connection_the_folder_holds(served, home):
     (home / "logs").mkdir(parents=True)
     (home / "elsewhere.log").write_text("2026-10-06T09:00:00 GET /private 200\n")
     for ref in ("../elsewhere", "gmail:nobody", ""):
-        res = get(served, f"/api/log?ref={ref}")
+        res = get(served, f"/api/requests?ref={ref}")
         assert res.status_code == 404 and "/private" not in res.text
 
 
@@ -139,6 +139,12 @@ def test_an_embedder_that_is_not_an_origin_is_refused():
     for bad in ("*", "https://*.example.com", "http://x/path", "javascript:alert(1)"):
         with pytest.raises(ValueError):
             page.embedders(bad)
+
+
+def test_no_address_looks_like_tracking_to_a_blocker(served):
+    # blockers drop "/log?" addresses; the page then only said "Failed to fetch"
+    js = get(served, "/page.js", token=None).text
+    assert "/log?" not in js and "/api/requests?" in js
 
 
 def test_this_page_only_reads(served):

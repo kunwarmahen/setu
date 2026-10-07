@@ -8,7 +8,7 @@ API on the same server:
     GET /api/status                     the folder, its lock, the catalog, problems
     GET /api/connections                one card per connection -- never a key
     GET /api/connectors                 what is installed, with its levels in words
-    GET /api/log?ref=REF&limit=N        the requests Setu made for one, newest first
+    GET /api/requests?ref=REF&limit=N   the requests Setu made for one, newest first
 
 ONE ANSWER, THREE ROADS. Every endpoint is built from ``status.report()``
 -- the same dict ``setu status --json`` prints and a harness imports --
@@ -35,6 +35,10 @@ a stylesheet -- with no data in them, and the policy allows scripts only
 from the page's own address. Something that slipped into a connection's
 name could be shown, never run. No CORS headers are sent, so a page on
 another site cannot read an answer even if it could send a request.
+
+NOT CALLED "log". Ad and privacy blockers drop any address with
+``/log?`` in it as tracking, and the page would say only "Failed to
+fetch". The request log is ``/api/requests``.
 
 LOCALHOST BY DEFAULT, deliberately; reaching the network is a decision
 (``--host``), as it is for Samay and Dvara.
@@ -146,7 +150,7 @@ class Api:
             return 200, {"connections": self.connections()}
         if parts == ["connectors"]:
             return 200, {"connectors": self.connectors()}
-        if parts == ["log"]:
+        if parts == ["requests"]:
             ref = (query.get("ref") or [""])[0]
             limit = _int((query.get("limit") or ["100"])[0], "limit")
             return 200, self.log(ref, max(1, min(limit, MAX_LOG_LINES)))

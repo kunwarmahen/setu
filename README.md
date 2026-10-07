@@ -818,7 +818,7 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   all of it, so Setu never revokes a grant another connection still uses.
 * **The page** (`page.py`, `static/`): `setu serve` serves three static
   files and `GET /api/status`, `/api/connections`, `/api/connectors` and
-  `/api/log?ref=REF&limit=N`. It uses only the standard library, port 8775,
+  `/api/requests?ref=REF&limit=N`. It uses only the standard library, port 8775,
   and needs `Authorization: Bearer` on every `/api` call. Each answer is
   built from `status.report()` minus the harness-only `mcp` and `browser`
   blocks. A log is served only for a ref the vault holds. Every answer
