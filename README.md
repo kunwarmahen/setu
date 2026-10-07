@@ -172,7 +172,14 @@ is there *and* the page has left the sign-in, with no password or code box
 showing. A cookie an earlier session left behind is still there while a site
 asks for the password again (Amazon does, for its orders page), so the
 cookie alone would end the window before anybody typed. Chrome is driven
-over a private pipe, never a port. Where the page listens is yours to set:
+over a private pipe, never a port. What they type arrives key by key, as a
+keyboard sends it, and the page sees one consistent phone: its user agent,
+its client hints and `navigator.platform` all say Android, and
+`navigator.webdriver` is off. A site whose rules say it turns away a browser
+with no window (X's do) gets a real one, on a screen of its own that nobody
+sees (Xvfb, started for the sign-in and stopped after it), never on your
+desktop. Without Xvfb installed, that sign-in is refused and says what to
+install. Where the page listens is yours to set:
 
 | Setting | |
 |---|---|

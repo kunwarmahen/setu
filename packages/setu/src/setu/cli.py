@@ -554,7 +554,8 @@ def _connect_remote_json(manifest, args: argparse.Namespace) -> int:
             lambda url, until: _emit("link", url=url, expires_at=until),
             lambda: _emit("opened"), site=manifest.name, patterns=spec.signed_in,
             hosts=manifest.hosts, open_for=(remote.OPEN_FOR if args.timeout ==
-                                            google.SIGN_IN_TIMEOUT else args.timeout))
+                                            google.SIGN_IN_TIMEOUT else args.timeout),
+            headed=spec.headed)
     except remote.WindowSettingsError as exc:
         _emit("error", message=str(exc), setup="window")
         return 2

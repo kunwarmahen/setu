@@ -18,7 +18,8 @@ gives Setu the DevTools protocol on two inherited file descriptors: no
 port that another program on the machine could connect to and take over
 a browser holding somebody's session. Frames come from
 ``Page.startScreencast``; taps are mouse clicks at the same place; text
-is ``Input.insertText``, into the box they tapped -- or, when nothing
+is typed key by key, a key-down and a key-up for each character as a
+keyboard sends them, into the box they tapped -- or, when nothing
 that takes text has focus, the page's first visible empty box. On a
 phone people type under the picture and press Send without tapping the
 page first, and text sent to nothing went nowhere, silently. And they
@@ -26,8 +27,22 @@ press their keyboard's Go rather than the page's Enter button, so Go in
 that box sends the text and then presses Enter, in that order. Enter in
 a form that does not submit by itself (Amazon's password page ignored
 it) presses the form's own button. The page is shown at the phone's own
-size, as a phone (``Emulation.setDeviceMetricsOverride`` and a mobile
-user agent), so it reads like their own browser would.
+size, as a phone (``Emulation.setDeviceMetricsOverride``, touch, and a
+mobile user agent whose client hints say the same phone), so it reads
+like their own browser would. A user agent that says Android while the
+hints say Linux is two answers to one question, and that is what a bot
+check looks for. Nor does the page hear that the browser is automated:
+Chrome on a DevTools pipe sets ``navigator.webdriver``, and the person
+in the window is not a robot, so that flag is switched off.
+
+A SITE THAT REFUSES A HEADLESS BROWSER GETS A REAL WINDOW. A manifest's
+``headed = true`` (X's) means headless Chrome is turned away, whatever
+it calls itself: it is a different build, and it shows. For such a site
+the window's Chrome runs headed, on a screen of its own that nothing
+shows (Xvfb, started for the sign-in and stopped after it) -- never on
+the owner's desktop, where a stranger's sign-in has no business. With no
+Xvfb installed the sign-in is refused and says what to install, rather
+than quietly running headless and being turned away.
 
 WHO CAN OPEN IT. The link carries a random token, works for ten minutes,
 and binds to the FIRST device that opens it (a cookie): a second one is
@@ -60,7 +75,9 @@ import fcntl
 import fnmatch
 import json
 import os
+import random
 import secrets
+import select
 import shutil
 import subprocess
 import sys
@@ -84,6 +101,23 @@ LOOK_EVERY = 2.0
 START_SIZE = (412, 800)
 MOBILE_UA = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like "
              "Gecko) Chrome/{version} Mobile Safari/537.36")
+#: The same phone, in the client hints (``navigator.userAgentData`` and
+#: the ``Sec-CH-UA-*`` headers) that a page reads beside the user agent.
+MOBILE_HINTS = {"platform": "Android", "platformVersion": "14.0.0", "architecture": "",
+                "model": "Pixel 8", "mobile": True}
+#: How a phone's own browser fills ``navigator.platform``.
+MOBILE_PLATFORM = "Linux armv81"
+#: The pause between typed characters, at random within this range: a
+#: person's pace, not a paste.
+KEY_GAP = (0.03, 0.09)
+#: A browser driven over the DevTools pipe tells every page so:
+#: ``navigator.webdriver`` is true. A person signing in through the window
+#: is no robot, and a site that reads the flag (X does) turns them away.
+NOT_AUTOMATED = "--disable-blink-features=AutomationControlled"
+#: The invisible screen a headed window paints into.
+XVFB_SCREEN = "1280x1024x24"
+#: How long Xvfb has to say which display it took.
+XVFB_START = 5.0
 KEYS = {"Enter": (13, "\r"), "Backspace": (8, ""), "Tab": (9, "\t")}
 #: Before Enter: note whether a form submits, and whether Enter is pressed
 #: in one at all.
@@ -173,7 +207,7 @@ class Browser:
     """Chrome on a profile, spoken to over ``--remote-debugging-pipe``."""
 
     def __init__(self, program: str, profile: Path, *, headless: bool = True,
-                 extra: list[str] | None = None) -> None:
+                 extra: list[str] | None = None, display: str | None = None) -> None:
         to_chrome_r, to_chrome_w = os.pipe()
         from_chrome_r, from_chrome_w = os.pipe()
         # Chrome's two ends moved above 9, so putting them on 3 and 4 in the
@@ -181,7 +215,8 @@ class Browser:
         to_chrome_r, from_chrome_w = (_high(fd) for fd in (to_chrome_r, from_chrome_w))
         argv = [program, f"--user-data-dir={profile}", "--no-first-run",
                 "--no-default-browser-check", COOKIE_KEY_ARG, "--remote-debugging-pipe",
-                *(["--headless=new"] if headless else []), *(extra or []), "about:blank"]
+                NOT_AUTOMATED, *(["--headless=new"] if headless else []), *(extra or []),
+                "about:blank"]
         # the protocol is on fds 3 and 4 in Chrome: a few lines of Python
         # put the two inherited ends there and become Chrome (a shell
         # cannot: dash takes one-digit descriptors only)
@@ -192,7 +227,8 @@ class Browser:
             [sys.executable, "-c", trampoline, str(to_chrome_r), str(from_chrome_w), *argv],
             pass_fds=(to_chrome_r, from_chrome_w),
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True, env=child_env())
+            start_new_session=True,
+            env={**child_env(), **({"DISPLAY": display} if display else {})})
         os.close(to_chrome_r)
         os.close(from_chrome_w)
         self._out = os.fdopen(to_chrome_w, "wb", buffering=0)
@@ -259,6 +295,52 @@ class Browser:
                 pass
 
 
+class Screen:
+    """An X display nothing shows: Xvfb, for a window that must be headed.
+
+    Xvfb picks a free display number itself and writes it to a pipe
+    (``-displayfd``), so two sign-ins starting at once cannot take the
+    same one."""
+
+    def __init__(self) -> None:
+        if shutil.which("Xvfb") is None:
+            raise BrowserSignInFailed(
+                "this site turns away a browser with no window, and there is no screen to "
+                "give it one: install Xvfb (Debian/Ubuntu: apt install xvfb; Fedora: "
+                "dnf install xorg-x11-server-Xvfb) and try again")
+        read, write = os.pipe()
+        self.proc = subprocess.Popen(
+            ["Xvfb", "-displayfd", str(write), "-screen", "0", XVFB_SCREEN,
+             "-nolisten", "tcp"], pass_fds=(write,), stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        os.close(write)
+        number = b""
+        deadline = time.monotonic() + XVFB_START
+        try:
+            while not number.endswith(b"\n") and time.monotonic() < deadline:
+                ready, _w, _x = select.select([read], [], [], 0.1)
+                if ready:
+                    chunk = os.read(read, 16)
+                    if not chunk:
+                        break
+                    number += chunk
+        finally:
+            os.close(read)
+        if not number.strip().isdigit():
+            self.close()
+            raise BrowserSignInFailed("Xvfb did not start, so the window had no screen")
+        self.display = f":{number.strip().decode()}"
+
+    def close(self) -> None:
+        if self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait()
+
+
 # ---- one sign-in --------------------------------------------------------------------------
 
 
@@ -277,9 +359,10 @@ class Window:
         target = browser.call("Target.createTarget", {"url": "about:blank"})["targetId"]
         self.session = browser.call("Target.attachToTarget",
                                     {"targetId": target, "flatten": True})["sessionId"]
-        version = browser.call("Browser.getVersion").get("product", "Chrome/130").split("/")[-1]
-        self._send("Network.setUserAgentOverride", {"userAgent": MOBILE_UA.format(
-            version=version)})
+        product = browser.call("Browser.getVersion").get("product", "Chrome/130")
+        self._send("Network.setUserAgentOverride", phone_agent(product))
+        self._send("Emulation.setTouchEmulationEnabled", {"enabled": True,
+                                                         "maxTouchPoints": 5})
         self.resize(*START_SIZE)
         self._send("Page.enable")
         self._send("Page.navigate", {"url": url})
@@ -325,7 +408,7 @@ class Window:
                 "deltaY": float(event["fy"]) * height})
         elif kind == "text":
             self._send("Runtime.evaluate", {"expression": FOCUS_A_BOX})
-            self._send("Input.insertText", {"text": str(event.get("text", ""))[:500]})
+            self.type(str(event.get("text", ""))[:500])
         elif kind == "key" and event.get("key") in KEYS:
             key = event["key"]
             code, text = KEYS[key]
@@ -347,6 +430,18 @@ class Window:
             self._send("Runtime.evaluate", {"expression": "history.back()"})
         elif kind == "size":
             self.resize(int(event["width"]), int(event["height"]))
+
+    def type(self, text: str) -> None:
+        """Each character as a keyboard sends it: down, with its text, then
+        up. Pasted text (``Input.insertText``) fires no key events at all,
+        and a page that listens for them sees a box fill by itself."""
+        for i, char in enumerate(text):
+            if i:
+                time.sleep(random.uniform(*KEY_GAP))
+            press = key_fields(char)
+            self._send("Input.dispatchKeyEvent", {"type": "keyDown", **press, "text": char,
+                                                  "unmodifiedText": char})
+            self._send("Input.dispatchKeyEvent", {"type": "keyUp", **press})
 
     def _value(self, script: str) -> Any:
         """What a script in the page returns; None when it could not run
@@ -555,24 +650,66 @@ def serve(window: Window, site: str, *, host: str, port: int, public: str | None
         server.server_close()
 
 
+def key_fields(char: str) -> dict[str, Any]:
+    """The fields a keyboard fills for one typed character: ``key`` always;
+    the physical ``code`` and key codes for a letter, digit or space, which
+    are the keys a page might check."""
+    fields: dict[str, Any] = {"key": char}
+    if char.isascii() and char.isalpha():
+        fields["code"] = f"Key{char.upper()}"
+    elif char.isascii() and char.isdigit():
+        fields["code"] = f"Digit{char}"
+    elif char == " ":
+        fields["code"] = "Space"
+    if "code" in fields:
+        code = ord(char.upper())
+        fields |= {"windowsVirtualKeyCode": code, "nativeVirtualKeyCode": code}
+    return fields
+
+
+def phone_agent(product: str) -> dict[str, Any]:
+    """``Network.setUserAgentOverride``'s parameters for a phone running the
+    same Chrome as ``product`` (``Chrome/130.0.6723.58``, or
+    ``HeadlessChrome/…``): the user agent, ``navigator.platform`` and the
+    client hints, all saying the same phone."""
+    version = product.split("/")[-1]
+    major = version.split(".")[0]
+    brand = "Chromium" if product.lower().startswith("chromium") else "Google Chrome"
+    brands = [{"brand": "Not)A;Brand", "version": "99"}, {"brand": "Chromium", "version": major},
+              *([{"brand": brand, "version": major}] if brand != "Chromium" else [])]
+    full = [{**b, "version": "99.0.0.0" if b["brand"].startswith("Not") else version}
+            for b in brands]
+    return {"userAgent": MOBILE_UA.format(version=version), "platform": MOBILE_PLATFORM,
+            "userAgentMetadata": {**MOBILE_HINTS, "brands": brands, "fullVersionList": full,
+                                  "fullVersion": version}}
+
+
 def window_for(on_link: Callable[[str, float], Any], on_opened: Callable[[], Any] = lambda: None,
                *, site: str, patterns: tuple[str, ...], hosts: tuple[str, ...],
-               open_for: float = OPEN_FOR) -> Callable[..., None]:
+               open_for: float = OPEN_FOR, headed: bool = False) -> Callable[..., None]:
     """A ``window`` for ``connections.connect_browser``: the same profile
-    and the same cookie check afterwards, signed in to from elsewhere."""
+    and the same cookie check afterwards, signed in to from elsewhere.
+    ``headed`` is the manifest's: Chrome gets a window, on a screen of its
+    own that nothing shows."""
     host, port, public = settings()
 
     def window(browser: str, profile: Path, url: str, **_kw: Any) -> None:
         profile.mkdir(parents=True, exist_ok=True)
         os.chmod(profile.parent, 0o700)
         os.chmod(profile, 0o700)
-        chrome = Browser(shutil.which(browser) or browser, profile)
+        screen = Screen() if headed else None
         try:
-            seen = serve(Window(chrome, url, patterns, hosts), site, host=host, port=port,
-                         public=public, open_for=open_for, on_link=on_link,
-                         on_opened=on_opened)
+            chrome = Browser(shutil.which(browser) or browser, profile, headless=not headed,
+                             display=screen.display if screen else None)
+            try:
+                seen = serve(Window(chrome, url, patterns, hosts), site, host=host,
+                             port=port, public=public, open_for=open_for, on_link=on_link,
+                             on_opened=on_opened)
+            finally:
+                chrome.close()
         finally:
-            chrome.close()
+            if screen is not None:
+                screen.close()
         if seen == "expired":
             raise BrowserSignInFailed(f"nobody signed in to {site} within "
                                       f"{int(open_for // 60)} minutes; nothing was saved")

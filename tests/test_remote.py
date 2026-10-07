@@ -9,7 +9,13 @@ once.
 Chrome is a fake here that speaks the DevTools protocol on fds 3 and 4,
 like the real one under --remote-debugging-pipe: it sends one frame, and
 sets the sign-in cookie, and leaves the sign-in page, when Enter is
-pressed after some text.
+pressed after some text typed key by key. It writes down how it was
+started (headless or not, which display), for the headed window's tests.
+
+And: A SITE THAT TURNS AWAY A HEADLESS BROWSER NEVER GETS ONE. X's
+manifest says ``headed``; the window ran headless anyway and X refused
+it. Nor does it get the owner's own screen, or text that arrives with no
+key presses, or a phone whose client hints say it is a Linux desktop.
 """
 
 from __future__ import annotations
@@ -31,6 +37,11 @@ import json, os, sqlite3, sys
 profile = next(a.split("=", 1)[1] for a in sys.argv if a.startswith("--user-data-dir="))
 os.makedirs(os.path.join(profile, "Default"), exist_ok=True)
 open(os.path.join(profile, "Local State"), "w").write("{}")
+started = os.environ.get("FAKE_STARTED")
+if started:
+    open(started, "w").write(json.dumps({
+        "headless": "--headless=new" in sys.argv, "display": os.environ.get("DISPLAY"),
+        "says_automated": "--disable-blink-features=AutomationControlled" not in sys.argv}))
 inp, out = os.fdopen(3, "rb", buffering=0), os.fdopen(4, "wb", buffering=0)
 typed, cookies, buf = [], [], b""
 # a cookie an earlier session left: there, while the page still asks
@@ -52,10 +63,13 @@ while True:
         if method == "Target.createTarget": result = {"targetId": "T1"}
         elif method == "Target.attachToTarget": result = {"sessionId": "S1"}
         elif method == "Browser.getVersion": result = {"product": "Chrome/130.0"}
-        elif method == "Input.insertText": typed.append(m["params"]["text"])
+        elif (method == "Input.dispatchKeyEvent" and m["params"]["type"] == "keyDown"
+              and m["params"].get("text") not in (None, "\r")):
+            typed.append(m["params"]["text"])
         elif method == "Runtime.evaluate" and "location.pathname" in m["params"]["expression"]:
             result = {"result": {"value": asking}}
-        elif method == "Input.dispatchKeyEvent" and m["params"]["type"] == "keyDown" and typed:
+        elif (method == "Input.dispatchKeyEvent" and m["params"]["type"] == "keyDown"
+              and m["params"]["key"] == "Enter" and typed):
             asking = False
             cookies.append({"name": "session", "domain": "shop.test"})
             db = sqlite3.connect(os.path.join(profile, "Default", "Cookies"))
@@ -84,6 +98,7 @@ def chrome(tmp_path, monkeypatch):
     monkeypatch.delenv(remote.ENV_URL, raising=False)
     monkeypatch.delenv(remote.ENV_PORT, raising=False)
     monkeypatch.setattr(remote, "LOOK_EVERY", 0.2)
+    monkeypatch.setattr(remote, "KEY_GAP", (0, 0))
     return str(path)
 
 
@@ -233,11 +248,87 @@ def test_typed_text_lands_in_a_box_even_when_nobody_tapped_one():
     window.size = (412, 700)
     sent = []
     window._send = lambda method, params=None: sent.append((method, params)) or {}
-    window.act({"type": "text", "text": "me@example.com"})
-    assert [m for m, _ in sent] == ["Runtime.evaluate", "Input.insertText"]
+    window.act({"type": "text", "text": "me"})
+    assert [m for m, _ in sent] == ["Runtime.evaluate"] + ["Input.dispatchKeyEvent"] * 4
     script = sent[0][1]["expression"]
     assert "document.activeElement" in script and ".focus()" in script
-    assert sent[1][1] == {"text": "me@example.com"}
+
+
+def test_text_is_typed_key_by_key_as_a_keyboard_sends_it(monkeypatch):
+    """Pasted text fires no key events: a page listening for them saw a
+    box fill by itself. Each character is a key-down with its text, then
+    a key-up, at a person's pace."""
+    monkeypatch.setattr(remote, "KEY_GAP", (0, 0))
+    window, sent = _recording_window()
+    window.type("a1 @")
+    keys = [p for m, p in sent if m == "Input.dispatchKeyEvent"]
+    assert [(k["type"], k["key"]) for k in keys] == [
+        ("keyDown", "a"), ("keyUp", "a"), ("keyDown", "1"), ("keyUp", "1"),
+        ("keyDown", " "), ("keyUp", " "), ("keyDown", "@"), ("keyUp", "@")]
+    assert [k["text"] for k in keys if k["type"] == "keyDown"] == ["a", "1", " ", "@"]
+    assert keys[0]["code"] == "KeyA" and keys[0]["windowsVirtualKeyCode"] == 65
+    assert keys[2]["code"] == "Digit1" and "code" not in keys[6]
+    assert "Input.insertText" not in [m for m, _ in sent]
+
+
+def test_the_phone_says_the_same_thing_in_its_user_agent_and_its_hints():
+    """A user agent that says Android while navigator.platform and the
+    client hints say Linux is two answers to one question."""
+    agent = remote.phone_agent("HeadlessChrome/130.0.6723.58")
+    assert "Android" in agent["userAgent"] and "Headless" not in agent["userAgent"]
+    assert "Chrome/130.0.6723.58 Mobile" in agent["userAgent"]
+    assert agent["platform"].startswith("Linux arm")
+    hints = agent["userAgentMetadata"]
+    assert hints["platform"] == "Android" and hints["mobile"] is True
+    assert {b["brand"]: b["version"] for b in hints["brands"]}["Google Chrome"] == "130"
+    assert not any("Headless" in b["brand"] for b in hints["brands"])
+    chromium = remote.phone_agent("Chromium/131.0.1")["userAgentMetadata"]["brands"]
+    assert [b["brand"] for b in chromium] == ["Not)A;Brand", "Chromium"]
+
+
+def _fake_xvfb(tmp_path, monkeypatch, *, display="7") -> None:
+    """An Xvfb that reports a display on -displayfd, then waits to be stopped."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    xvfb = bin_dir / "Xvfb"
+    xvfb.write_text(f"#!{sys.executable}\nimport os, sys, time\n"
+                    "fd = int(sys.argv[sys.argv.index('-displayfd') + 1])\n"
+                    f"os.write(fd, b'{display}\\n'); os.close(fd)\ntime.sleep(60)\n")
+    xvfb.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+
+def _headed_window(home, chrome, tmp_path, monkeypatch, *, headed: bool) -> dict:
+    started = tmp_path / "started.json"
+    monkeypatch.setenv("FAKE_STARTED", str(started))
+    monkeypatch.setenv("DISPLAY", ":0")            # the owner's own screen
+    window = remote.window_for(lambda _u, _t: None, site="X", patterns=("session",),
+                               hosts=("shop.test",), open_for=0.5, headed=headed)
+    with pytest.raises(BrowserSignInFailed, match="nobody signed in"):
+        window(chrome, home / "profiles" / "x-personal", "https://shop.test/")
+    return json.loads(started.read_text())
+
+
+def test_a_site_that_wants_a_window_gets_one_on_a_screen_nobody_sees(
+        home, chrome, tmp_path, monkeypatch):
+    _fake_xvfb(tmp_path, monkeypatch, display="7")
+    assert _headed_window(home, chrome, tmp_path, monkeypatch, headed=True) == {
+        "headless": False, "display": ":7", "says_automated": False}
+
+
+def test_any_other_site_stays_headless(home, chrome, tmp_path, monkeypatch):
+    seen = _headed_window(home, chrome, tmp_path, monkeypatch, headed=False)
+    assert seen["headless"] is True and seen["says_automated"] is False
+
+
+def test_with_no_xvfb_a_site_that_wants_a_window_is_refused_not_run_headless(
+        home, chrome, tmp_path, monkeypatch):
+    monkeypatch.setattr(remote.shutil, "which",
+                        lambda name: None if name == "Xvfb" else chrome)
+    window = remote.window_for(lambda _u, _t: None, site="X", patterns=("session",),
+                               hosts=("shop.test",), open_for=0.5, headed=True)
+    with pytest.raises(BrowserSignInFailed, match="install Xvfb"):
+        window(chrome, home / "profiles" / "x-personal", "https://shop.test/")
 
 
 def _recording_window(value=None):
