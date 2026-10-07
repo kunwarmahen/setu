@@ -484,14 +484,34 @@ the requests Setu made for it, newest first, including any it refused. Below
 the cards are the connectors you've installed but haven't connected yet, with
 each level explained in plain words and the command that connects one.
 
-For now the page only shows things. To connect, change a level or disconnect,
-use the command on the card.
+You can also make changes there:
+
+* **Connect** on a connector's card: pick its level and your name for the
+  account. For Google, an **Open the sign-in page** button appears; sign in
+  in that tab and the card fills in by itself. For Amazon, X and other
+  browser sign-ins, a window opens on this computer. **Cancel** stops it,
+  and nothing is saved.
+* **Change level** on a connection signs in again at the new level, as
+  `setu connect … --level` does.
+* **Disconnect** asks first, then revokes the key at the site and deletes
+  it here (for a browser sign-in, it deletes the profile).
+* **Add a site** opens a window on any site you name. You sign in, and
+  Setu writes careful rules for it. If it can't tell from the page whether
+  you signed in, it asks you.
+
+Opened from another device (with `--host`), the page uses the roads made
+for that: Google's sign-in ends on an address you paste back into the
+page, and a browser sign-in is streamed to you. Adding a site needs you at
+the computer. Locking the folder stays a terminal step (`setu lock`), so
+the passphrase is never typed into a page.
 
 It's safe to leave running:
 
 * **Only this computer can open it**, unless you choose otherwise with
   `--host`. If a browser reaches it at a different address (a port mapping,
   your own HTTPS proxy), say so with `--public-url` or `SETU_PAGE_URL`.
+* **A change must come from the page itself.** Besides the key, a request
+  to connect or disconnect that another website sends is refused.
 * **Every request needs the key** that comes after `#` in the address. Setu
   makes the key once and keeps it in its folder (`page.token`, readable by
   you only), or uses `SETU_PAGE_TOKEN` if you set one. Without the key, another
@@ -818,7 +838,12 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   all of it, so Setu never revokes a grant another connection still uses.
 * **The page** (`page.py`, `static/`): `setu serve` serves three static
   files and `GET /api/status`, `/api/connections`, `/api/connectors` and
-  `/api/requests?ref=REF&limit=N`. It uses only the standard library, port 8775,
+  `/api/requests?ref=REF&limit=N`. Changes are `POST /api/connect`,
+  `/api/add-site`, `/api/disconnect` and `/api/signin/{answer,paste,cancel}`,
+  with `GET /api/signin` for a sign-in's events. A sign-in is `setu connect
+  --json` run as a child process (`--paste` or `--remote` when the request
+  comes from another device). A POST from another site's `Origin` is
+  refused. It uses only the standard library, port 8775,
   and needs `Authorization: Bearer` on every `/api` call. Each answer is
   built from `status.report()` minus the harness-only `mcp` and `browser`
   blocks. A log is served only for a ref the vault holds. Every answer

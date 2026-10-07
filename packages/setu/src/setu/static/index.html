@@ -26,6 +26,8 @@
 
   <div id="problems" class="problems" hidden></div>
 
+  <div id="signin" class="signin" aria-live="polite" hidden></div>
+
   <section aria-labelledby="h-connections">
     <div class="section-head">
       <h2 id="h-connections">Your connections</h2>
@@ -41,15 +43,38 @@
       <h2 id="h-available">Available to connect</h2>
       <span class="count" id="n-available"></span>
     </div>
-    <p class="lede">Installed here, not signed in to yet. To connect one for now,
-      run the command shown on its card.</p>
+    <p class="lede">Installed here, not signed in to yet. Pick what agents may do
+      with it, then Connect. You can change the level later, and Disconnect
+      revokes the key.</p>
     <div id="available" class="cards"></div>
+  </section>
+
+  <section aria-labelledby="h-site">
+    <div class="section-head">
+      <h2 id="h-site">Add a site</h2>
+    </div>
+    <p class="lede">A site with no connector: a window opens on it here, you sign
+      in, and Setu writes careful rules for it. Agents can read it; anything that
+      would buy or pay is handed back to you.</p>
+    <div class="card">
+      <div class="actions">
+        <input id="site-address" class="field wide" type="text" placeholder="example.com"
+               aria-label="the site's address">
+        <label class="small">as <input id="site-account" class="field" type="text"
+               value="personal" maxlength="40" aria-label="your name for this account"></label>
+        <select id="site-level" aria-label="what agents may do there">
+          <option value="read">Read only</option>
+          <option value="write">Read and act</option>
+        </select>
+        <button id="site-go" class="btn go" type="button">Add</button>
+      </div>
+    </div>
   </section>
 </main>
 
 <footer class="foot">
   <span id="updated"></span>
-  <span>No key is ever shown here, or sent to this page.</span>
+  <span>No key is ever shown here, or sent to this page. Locking the folder stays in the terminal: setu lock.</span>
 </footer>
 </body>
 </html>

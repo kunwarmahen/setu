@@ -152,3 +152,30 @@ body.embedded section { margin-top: 18px; }
   .card { transition: border-color .15s; }
   .card:hover { border-color: var(--ink-3); }
 }
+
+/* -- the controls ---------------------------------------------------------------- */
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+.actions.col { flex-direction: column; align-items: flex-start; }
+.btn {
+  font: inherit; font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--sheet); color: var(--ink); cursor: pointer;
+  text-decoration: none; display: inline-block;
+}
+.btn.go { background: var(--teal); border-color: var(--teal); color: var(--sheet); }
+.btn.danger { color: var(--clay); border-color: var(--clay); align-self: flex-start; }
+.btn:disabled { opacity: .55; cursor: default; }
+.field, select {
+  font: inherit; font-size: 13px; color: var(--ink); background: var(--sheet);
+  border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; min-width: 0;
+}
+.field { width: 9em; }
+.field.wide { flex: 1 1 14em; width: auto; }
+.small { font-size: 13px; color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; }
+.ok { color: var(--ok); font-weight: 600; }
+.signin {
+  margin-top: 22px; padding: 14px 16px; border-radius: 12px; background: var(--sheet);
+  border: 1px solid var(--teal); display: grid; gap: 6px;
+}
+.signin.bad { border-color: var(--clay); background: var(--clay-soft); }
+.signin h3 { font-size: 15px; }
+.signin p { margin: 0; }

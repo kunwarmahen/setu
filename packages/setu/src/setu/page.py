@@ -9,6 +9,32 @@ API on the same server:
     GET /api/connections                one card per connection -- never a key
     GET /api/connectors                 what is installed, with its levels in words
     GET /api/requests?ref=REF&limit=N   the requests Setu made for one, newest first
+    POST /api/connect      {connector, account, level, road?}   start a sign-in
+    POST /api/add-site     {site, account, level}               a site Setu has no
+                                                                connector for
+    GET  /api/signin       the sign-in in progress, and what it has said so far
+    POST /api/signin/answer {yes}        "did you sign in?", when the page can't tell
+    POST /api/signin/paste  {address}    the address a sign-in ended on, pasted back
+    POST /api/signin/cancel
+    POST /api/disconnect   {ref}         revoke, then forget
+
+ONE SIGN-IN ROAD, THE ONE A HARNESS USES. Connecting is ``setu connect
+--json`` run as a child process, its events read line by line and its
+questions answered on its stdin -- the contract Yantra's page already
+drives, so there is one sign-in, not a second written for the page.
+Cancel ends the child. Changing a level is connecting again at the new
+one, as in the terminal. One sign-in at a time.
+
+WHERE THE PERSON IS DECIDES THE ROAD. Google's and Home Assistant's
+sign-ins come back to a port on this computer, and a browser-road site
+opens a window here. A page opened on this computer gets those. A page
+reached from elsewhere (``--host``) gets the roads made for another
+device: the address pasted back, or the streamed window (``--remote``).
+A request says which it wants only by where it comes from.
+
+A WRITE COMES FROM THE PAGE ITSELF. On top of the token, a POST whose
+``Origin`` is another site is refused -- a form on a page you happen to
+visit cannot start a sign-in or revoke a key.
 
 ONE ANSWER, THREE ROADS. Every endpoint is built from ``status.report()``
 -- the same dict ``setu status --json`` prints and a harness imports --
@@ -52,7 +78,10 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import re
 import secrets
+import subprocess
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
@@ -71,6 +100,10 @@ TOKEN_FILE = "page.token"
 
 #: The most log lines one request returns.
 MAX_LOG_LINES = 1000
+MAX_BODY = 64 * 1024
+#: What a person may call an account, and what a site's address may be.
+ACCOUNT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$")
+SITE_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 
 #: The page's own files, and what each is served as.
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
@@ -132,18 +165,105 @@ class ApiError(Exception):
         self.detail = detail
 
 
+def setu_argv() -> list[str]:
+    """This Setu, as a program: the same code the page runs."""
+    return [sys.executable, "-m", "setu.cli"]
+
+
+class SignIn:
+    """One ``setu connect --json`` in progress, its events kept in order.
+
+    ``answer`` and ``paste`` are lines on its stdin: ``yes``/``no`` for an
+    ``ask``, an address for ``--paste``. ``events`` is everything it said,
+    ending with ``done`` once it has exited.
+    """
+
+    def __init__(self, argv: list[str], ref: str) -> None:
+        self.ref = ref
+        self.events: list[dict[str, Any]] = []
+        self.cancelled = False
+        self._lock = threading.Lock()
+        self.process = subprocess.Popen(
+            argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True)
+        self._thread = threading.Thread(target=self._read, daemon=True, name="setu-signin")
+        self._thread.start()
+
+    def _add(self, event: dict[str, Any]) -> None:
+        with self._lock:
+            self.events.append(event)
+
+    def _read(self) -> None:
+        assert self.process.stdout is not None
+        last: dict[str, Any] = {}
+        for line in self.process.stdout:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue        # not a line of the contract; never guessed at
+            if isinstance(event, dict) and event.get("event"):
+                if event["event"] == "connected" and event.get("ref"):
+                    self.ref = str(event["ref"])
+                last = event
+                self._add(event)
+        self.process.wait()
+        why = (self.process.stderr.read() if self.process.stderr else "").strip()
+        for pipe in (self.process.stdin, self.process.stdout, self.process.stderr):
+            if pipe is not None:
+                pipe.close()
+        if self.cancelled:
+            self._add({"event": "cancelled"})
+        elif last.get("event") not in ("connected", "error"):
+            self._add({"event": "error",
+                       "message": why.splitlines()[-1] if why else "setu stopped early"})
+        self._add({"event": "done", "ref": self.ref})
+
+    @property
+    def running(self) -> bool:
+        return self.process.poll() is None
+
+    def say(self, line: str) -> None:
+        if not self.running or self.process.stdin is None:
+            raise ApiError(409, "that sign-in is over")
+        try:
+            self.process.stdin.write(line.replace("\n", " ").strip() + "\n")
+            self.process.stdin.flush()
+        except (BrokenPipeError, ValueError):
+            raise ApiError(409, "that sign-in is over") from None
+
+    def cancel(self) -> None:
+        self.cancelled = True
+        if self.running:
+            self.process.terminate()
+
+    def state(self) -> dict[str, Any]:
+        with self._lock:
+            return {"ref": self.ref, "running": self.running, "events": list(self.events)}
+
+
 class Api:
     """What each endpoint does, apart from HTTP -- so tests can call it
     straight, and the handler below stays a thin skin."""
 
-    def __init__(self, vault: FileVault | None = None) -> None:
+    def __init__(self, vault: FileVault | None = None,
+                 setu: list[str] | None = None) -> None:
         self.vault = vault or FileVault()
+        self.setu = setu or setu_argv()
+        self.signin: SignIn | None = None
+        self._signin_lock = threading.Lock()
 
-    def handle(self, method: str, path: str, query: dict[str, list[str]]
+    def handle(self, method: str, path: str, query: dict[str, list[str]],
+               body: dict | None = None, *, local: bool = True
                ) -> tuple[int, dict[str, Any]]:
-        if method != "GET":
-            raise ApiError(405, "this page only reads, for now")
         parts = [p for p in path.split("/") if p][1:]      # after "api"
+        if method == "POST":
+            return self._write(parts, body or {}, local)
+        if method != "GET":
+            raise ApiError(405, f"no such endpoint: {method} /api/{'/'.join(parts)}")
+        if parts == ["signin"]:
+            return 200, (self.signin.state() if self.signin else {"ref": None,
+                                                                   "running": False,
+                                                                   "events": []})
         if parts == ["status"]:
             return 200, self.status()
         if parts == ["connections"]:
@@ -155,6 +275,96 @@ class Api:
             limit = _int((query.get("limit") or ["100"])[0], "limit")
             return 200, self.log(ref, max(1, min(limit, MAX_LOG_LINES)))
         raise ApiError(404, f"no such endpoint: GET /api/{'/'.join(parts)}")
+
+    # ---- writes ---------------------------------------------------------------
+
+    def _write(self, parts: list[str], body: dict, local: bool) -> tuple[int, dict[str, Any]]:
+        if parts == ["connect"]:
+            return 200, self.connect(body, local)
+        if parts == ["add-site"]:
+            return 200, self.add_site(body, local)
+        if parts == ["disconnect"]:
+            return 200, self.disconnect(str(body.get("ref") or ""))
+        if parts == ["signin", "answer"]:
+            if not isinstance(body.get("yes"), bool):
+                raise ApiError(400, "yes must be true or false")
+            self._current().say("yes" if body["yes"] else "no")
+            return 200, {"ok": True}
+        if parts == ["signin", "paste"]:
+            address = str(body.get("address") or "").strip()
+            if not address.startswith(("http://", "https://")):
+                raise ApiError(400, "paste the whole address the page ended on")
+            self._current().say(address)
+            return 200, {"ok": True}
+        if parts == ["signin", "cancel"]:
+            if self.signin is not None:
+                self.signin.cancel()
+            return 200, {"ok": True}
+        raise ApiError(404, f"no such endpoint: POST /api/{'/'.join(parts)}")
+
+    def _current(self) -> SignIn:
+        if self.signin is None or not self.signin.running:
+            raise ApiError(409, "no sign-in is waiting")
+        return self.signin
+
+    def _start(self, argv: list[str], ref: str) -> dict[str, Any]:
+        with self._signin_lock:
+            if self.signin is not None and self.signin.running:
+                raise ApiError(409, f"a sign-in to {self.signin.ref} is already waiting -- "
+                                    "finish or cancel it first")
+            self.signin = SignIn(argv, ref)
+        return {"ref": ref, "started": True}
+
+    def connect(self, body: dict, local: bool) -> dict[str, Any]:
+        connector = str(body.get("connector") or "")
+        account = str(body.get("account") or "personal").strip()
+        level = str(body.get("level") or "")
+        if not ACCOUNT_RE.match(account):
+            raise ApiError(400, f"account name {account!r}: letters, digits, '.', '_' and "
+                                "'-', starting with a letter or digit")
+        cards = {c["id"]: c for c in self.connectors()}
+        card = cards.get(connector)
+        if card is None:
+            raise ApiError(404, f"no installed connector {connector!r}")
+        if level and level not in [lv["name"] for lv in card["levels"]]:
+            raise ApiError(400, f"{card['name']} has no access level {level!r}")
+        if not card["ready"]:
+            raise ApiError(409, f"{card['name']} {card['not_ready']}")
+        argv = [*self.setu, "connect", connector, "--as", account, "--json"]
+        argv += ["--level", level] if level else []
+        if not local:
+            # the person is on another device: the roads made for that
+            argv += ["--remote"] if card["road"] == "browser" else ["--paste"]
+        return self._start(argv, f"{connector}:{account}")
+
+    def add_site(self, body: dict, local: bool) -> dict[str, Any]:
+        site = str(body.get("site") or "").strip().lower()
+        site = site.removeprefix("https://").removeprefix("http://").split("/")[0]
+        account = str(body.get("account") or "personal").strip()
+        level = str(body.get("level") or "read")
+        if not SITE_RE.match(site):
+            raise ApiError(400, f"{site!r} is not a site's address (try: example.com)")
+        if not ACCOUNT_RE.match(account):
+            raise ApiError(400, f"account name {account!r} is not a plain word")
+        if level not in ("read", "write"):
+            raise ApiError(400, f"a site's levels are read and write, not {level!r}")
+        if not local:
+            # Setu learns the site's sign-in by watching the page, which takes
+            # someone at this computer (cli: _connect_remote_json says why)
+            raise ApiError(403, "adding a site needs you at the computer running Setu: "
+                                f"there, run setu connect --site {site} --as {account}")
+        return self._start([*self.setu, "connect", "--site", site, "--as", account,
+                            "--level", level, "--json"], f"{site}:{account}")
+
+    def disconnect(self, ref: str) -> dict[str, Any]:
+        if not ref or ref not in self.vault.list():
+            raise ApiError(404, f"no connection {ref!r}")
+        done = subprocess.run([*self.setu, "disconnect", ref], capture_output=True,
+                              text=True, timeout=120)
+        said = (done.stdout + done.stderr).strip()
+        if done.returncode != 0:
+            raise ApiError(502, said or "setu disconnect failed")
+        return {"disconnected": ref, "said": said}
 
     def status(self) -> dict[str, Any]:
         data = status.report(self.vault)
@@ -306,8 +516,27 @@ def _handler(server: PageServer):
                 return self._json(404, {"detail": "not found"})
             if not self._authorized():
                 return self._json(401, {"detail": "missing or wrong token"})
+            body: dict = {}
+            if method == "POST":
+                origin = self.headers.get("Origin")
+                allowed = {f"http://{self.headers.get('Host')}",
+                           f"https://{self.headers.get('Host')}", *server.embed}
+                if origin is not None and origin not in allowed:
+                    return self._json(403, {"detail": "a change comes from this page only"})
+                size = int(self.headers.get("Content-Length") or 0)
+                if size > MAX_BODY:
+                    return self._json(413, {"detail": "request too large"})
+                try:
+                    body = json.loads(self.rfile.read(size) or b"{}")
+                except json.JSONDecodeError:
+                    return self._json(400, {"detail": "the body is not JSON"})
+                if not isinstance(body, dict):
+                    return self._json(400, {"detail": "the body is a JSON object"})
+            # where the person is: this computer, or another device
+            local = self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
             try:
-                code, data = server.api.handle(method, url.path, parse_qs(url.query))
+                code, data = server.api.handle(method, url.path, parse_qs(url.query), body,
+                                               local=local)
             except ApiError as exc:
                 return self._json(exc.code, {"detail": exc.detail})
             except Exception as exc:     # a bug is a 500 that says what, not a hang

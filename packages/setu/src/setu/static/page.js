@@ -44,11 +44,16 @@ function h(spec, attrs, ...kids) {
 
 class Unauthorized extends Error {}
 
-async function api(path) {
+async function api(path, payload) {
   let res;
+  const init = { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" };
+  if (payload !== undefined) {
+    init.method = "POST";
+    init.headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(payload);
+  }
   try {
-    res = await fetch(path, { headers: { Authorization: `Bearer ${token}` },
-                              cache: "no-store" });
+    res = await fetch(path, init);
   } catch (_) {
     // the request never left: Setu stopped, or something in the browser
     // (an ad or privacy blocker) refused it
@@ -103,7 +108,27 @@ function drawStatus(st) {
 
 // -- connections -----------------------------------------------------------------
 
-function drawConnections(rows, names) {
+// Cards are redrawn only when what they show changed: a name half typed,
+// a level half picked, must survive the next refresh.
+const drawn = {};
+function changed(what, data) {
+  const key = JSON.stringify(data);
+  if (drawn[what] === key) return false;
+  drawn[what] = key;
+  return true;
+}
+
+function levelPicker(c, current) {
+  return h("select", { "aria-label": `${c.name}'s access level` },
+    c.levels.map((lv) => {
+      const opt = h("option", { value: lv.name }, lv.label);
+      if (lv.name === current) opt.selected = true;
+      return opt;
+    }));
+}
+
+function drawConnections(rows, names, cards) {
+  if (!changed("connections", [rows, Object.keys(cards)])) return;
   const box = document.getElementById("connections");
   document.getElementById("n-connections").textContent = rows.length ? `${rows.length}` : "";
   if (!rows.length) {
@@ -112,10 +137,11 @@ function drawConnections(rows, names) {
   }
   const open = new Set([...box.querySelectorAll("details.log[open]")]
     .map((d) => d.dataset.ref));
-  box.replaceChildren(...rows.map((row) => connectionCard(row, names, open.has(row.ref))));
+  box.replaceChildren(...rows.map((row) => connectionCard(row, names, open.has(row.ref),
+                                                          cards[row.connector])));
 }
 
-function connectionCard(row, names, logOpen) {
+function connectionCard(row, names, logOpen, c) {
   const name = names[row.connector] || row.connector;
   const card = h("article.card" + (row.locked ? ".is-locked" : ""), {},
     h("div.card-head", {},
@@ -130,12 +156,49 @@ function connectionCard(row, names, logOpen) {
     row.installed ? null : h("div.warn", {}, `Its connector (${row.connector}) is not ` +
                              "installed here any more."),
     h("span.ref", {}, row.ref));
+  if (c) card.append(changeLevel(row, c));
+  card.append(disconnectButton(row, names[row.connector] || row.connector));
   const log = h("details.log", { "data-ref": row.ref },
                 h("summary", {}, "What it did"), h("div.log-body", {}));
   log.addEventListener("toggle", () => { if (log.open) drawLog(row.ref, log); });
   if (logOpen) { log.open = true; }
   card.append(log);
   return card;
+}
+
+function changeLevel(row, c) {
+  const pick = levelPicker(c, row.level);
+  const go = h("button.btn", { type: "button" }, "Change level");
+  go.addEventListener("click", () => {
+    if (pick.value === row.level) return;
+    const label = c.levels.find((lv) => lv.name === pick.value).label;
+    if (!confirm(`Sign in to ${c.name} again, at "${label}"? Agents get the new level ` +
+                 "as soon as you finish.")) return;
+    startSignIn("/api/connect", { connector: row.connector, account: row.account,
+                                  level: pick.value });
+  });
+  return h("div.actions", {}, pick, go);
+}
+
+function disconnectButton(row, name) {
+  const go = h("button.btn.danger", { type: "button" }, "Disconnect");
+  go.addEventListener("click", async () => {
+    const what = row.road === "browser"
+      ? "This deletes its sign-in (the browser profile) here"
+      : "This revokes the key at the site and deletes it here";
+    if (!confirm(`Disconnect ${name} · ${row.account}? ${what}; agents lose it ` +
+                 "at once.")) return;
+    go.disabled = true;
+    try {
+      await api("/api/disconnect", { ref: row.ref });
+      say(`Disconnected ${row.ref}.`);
+      refresh();
+    } catch (err) {
+      say(`Couldn't disconnect: ${err.message}`, true);
+      go.disabled = false;
+    }
+  });
+  return go;
 }
 
 async function drawLog(ref, details) {
@@ -166,6 +229,7 @@ async function drawLog(ref, details) {
 // -- available -------------------------------------------------------------------
 
 function drawAvailable(connectors) {
+  if (!changed("available", connectors)) return;
   const free = connectors.filter((c) => !c.connected);
   const box = document.getElementById("available");
   document.getElementById("n-available").textContent = free.length ? `${free.length}` : "";
@@ -190,7 +254,158 @@ function availableCard(c) {
     c.yanked ? h("div.warn", {}, `Withdrawn: ${c.yanked}`) : null,
     c.contained ? h("div.contained", {}, c.contained) : null,
     c.ready ? null : h("div.warn", {}, `First it ${c.not_ready}.`),
-    h("div.cmd", { title: "run this in a terminal" }, `setu connect ${c.id}`));
+    c.ready ? connectForm(c) : null);
+}
+
+function connectForm(c) {
+  const account = h("input.field", { type: "text", value: "personal", maxlength: "40",
+                                     "aria-label": "your name for this account" });
+  const pick = levelPicker(c, c.default_level);
+  const go = h("button.btn.go", { type: "button" }, "Connect");
+  go.addEventListener("click", () => startSignIn("/api/connect", {
+    connector: c.id, account: account.value.trim() || "personal", level: pick.value }));
+  return h("div.actions", {}, h("label.small", {}, "as ", account), pick, go);
+}
+
+// -- add a site -------------------------------------------------------------------
+
+function wireAddSite() {
+  const site = document.getElementById("site-address");
+  const account = document.getElementById("site-account");
+  const level = document.getElementById("site-level");
+  document.getElementById("site-go").addEventListener("click", () => {
+    if (!site.value.trim()) { say("Type the site's address first.", true); return; }
+    startSignIn("/api/add-site", { site: site.value.trim(),
+                                   account: account.value.trim() || "personal",
+                                   level: level.value });
+  });
+}
+
+// -- a sign-in in progress ----------------------------------------------------------
+
+let watching = null;
+
+function say(text, bad) {
+  const box = document.getElementById("signin");
+  box.hidden = false;
+  box.classList.toggle("bad", Boolean(bad));
+  box.replaceChildren(h("p", {}, text));
+}
+
+async function startSignIn(path, payload) {
+  try {
+    await api(path, payload);
+  } catch (err) {
+    say(`Couldn't start: ${err.message}`, true);
+    return;
+  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  watchSignIn();
+}
+
+function watchSignIn() {
+  if (watching) return;
+  const tick = async () => {
+    let st;
+    try { st = await api("/api/signin"); } catch (_) { return; }
+    drawSignIn(st);
+    if (!st.running && st.events.some((e) => e.event === "done")) {
+      clearInterval(watching);
+      watching = null;
+      refresh();
+    }
+  };
+  watching = setInterval(tick, 1500);
+  tick();
+}
+
+let shownEvents = -1;
+
+function drawSignIn(st) {
+  if (st.events.length === shownEvents && st.running) return;   // nothing new
+  shownEvents = st.events.length;
+  const box = document.getElementById("signin");
+  box.hidden = false;
+  box.classList.remove("bad");
+  const rows = [h("h3", {}, `Signing in: ${st.ref}`)];
+  for (const e of st.events) {
+    const line = describe(e, st.running);
+    if (line) rows.push(line);
+  }
+  if (st.running) {
+    const stop = h("button.btn", { type: "button" }, "Cancel");
+    stop.addEventListener("click", () => api("/api/signin/cancel", {}).catch(() => {}));
+    rows.push(h("div.actions", {}, stop));
+  } else {
+    const close = h("button.btn", { type: "button" }, "Close");
+    close.addEventListener("click", () => { box.hidden = true; shownEvents = -1; });
+    rows.push(h("div.actions", {}, close));
+  }
+  box.replaceChildren(...rows);
+}
+
+function describe(e, running) {
+  switch (e.event) {
+    case "started":
+      return h("p.meta", {}, e.level_label ? `At "${e.level_label}".` : "Starting…");
+    case "url": {
+      if (!running) return null;          // a link to a sign-in that is over
+      const parts = [h("a.btn.go", { href: e.url, target: "_blank",
+                                     rel: "noopener noreferrer" }, "Open the sign-in page")];
+      if (e.paste && running) parts.push(pasteBox());
+      return h("div.actions.col", {}, parts,
+        h("p.meta", {}, e.paste
+          ? "Sign in there. When it ends on a page that won't load, copy that page's " +
+            "address and paste it here."
+          : "Sign in there; this finishes by itself when you're done."));
+    }
+    case "window":
+      return h("p", {}, "A window opened on this computer. Sign in there, then close " +
+                        "the window to finish.");
+    case "link":
+      if (!running) return null;
+      return h("div.actions.col", {},
+        h("a.btn.go", { href: e.url, target: "_blank", rel: "noopener noreferrer" },
+          "Open the sign-in window"),
+        h("p.meta", {}, "It works once, on the first device that opens it" +
+          (e.expires_at ? `, until ${new Date(e.expires_at * 1000).toLocaleTimeString()}` : "") +
+          "."));
+    case "opened":
+      return h("p.meta", {}, "Opened on a device.");
+    case "ask":
+      return running ? askBox(e.question) : null;
+    case "paste_refused":
+      return h("p.warn", {}, `That address didn't fit: ${e.message}`);
+    case "connected":
+      return h("p.ok", {}, `Connected ${e.ref}` + (e.email ? ` as ${e.email}` : "") +
+                           (e.level_label ? ` — ${e.level_label}` : "") + ".");
+    case "error":
+      return h("p.warn", {}, e.message);
+    case "cancelled":
+      return h("p.meta", {}, "Cancelled. Nothing was saved.");
+    default:
+      return null;
+  }
+}
+
+function pasteBox() {
+  const field = h("input.field.wide", { type: "url", placeholder: "http://127.0.0.1:…/?code=…",
+                                        "aria-label": "the address the sign-in ended on" });
+  const go = h("button.btn", { type: "button" }, "Send");
+  go.addEventListener("click", async () => {
+    try { await api("/api/signin/paste", { address: field.value.trim() }); field.value = ""; }
+    catch (err) { say(err.message, true); }
+  });
+  return h("div.actions", {}, field, go);
+}
+
+function askBox(question) {
+  const yes = h("button.btn.go", { type: "button" }, "Yes, I signed in");
+  const no = h("button.btn", { type: "button" }, "No");
+  const answer = (v) => api("/api/signin/answer", { yes: v }).catch(() => {});
+  yes.addEventListener("click", () => answer(true));
+  no.addEventListener("click", () => answer(false));
+  return h("div", {}, h("p", {}, question), h("div.actions", {}, yes, no));
 }
 
 // -- the loop --------------------------------------------------------------------
@@ -204,7 +419,8 @@ async function refresh() {
     gate.hidden = true;
     const names = Object.fromEntries(ctors.connectors.map((c) => [c.id, c.name]));
     drawStatus(st);
-    drawConnections(conns.connections, names);
+    const cards = Object.fromEntries(ctors.connectors.map((c) => [c.id, c]));
+    drawConnections(conns.connections, names, cards);
     drawAvailable(ctors.connectors);
     document.getElementById("updated").textContent =
       `Updated ${new Date().toLocaleTimeString()}`;
@@ -216,7 +432,11 @@ async function refresh() {
 
 document.addEventListener("DOMContentLoaded", () => {
   if (window.top !== window.self) document.body.classList.add("embedded");
+  wireAddSite();
   refresh();
+  // a sign-in started before this page was opened (or reloaded) is shown too
+  if (token) api("/api/signin").then((st) => { if (st.running) watchSignIn(); })
+    .catch(() => {});
   setInterval(() => { if (!document.hidden) refresh(); }, EVERY);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 });
