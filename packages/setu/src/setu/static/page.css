@@ -1,0 +1,154 @@
+/* Setu's page. One accent (river teal, for the bridge: links, the level
+   chip, the one main button) on warm paper; trouble is clay, locked is
+   ink. No fonts are fetched: a local tool asks nobody for anything.
+   Light and dark are the same tokens with swapped values. */
+:root {
+  color-scheme: light;
+  --paper:  #f5f3ee;
+  --sheet:  #fcfbf8;
+  --sunk:   #ebe8e0;
+  --line:   #dbd6ca;
+  --ink:    #1e1f1c;
+  --ink-2:  #4f5049;
+  --ink-3:  #75766d;
+  --teal:   #1f6f6b;
+  --teal-soft: rgba(31, 111, 107, .11);
+  --clay:   #a4432a;
+  --clay-soft: rgba(164, 67, 42, .10);
+  --ok:     #2f7a4b;
+  --focus:  rgba(31, 111, 107, .45);
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans",
+          "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  --deva: "Noto Sans Devanagari", "Noto Serif Devanagari", "Mangal",
+          "Kohinoor Devanagari", system-ui, sans-serif;
+  --measure: 920px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #131412; --sheet: #1a1b18; --sunk: #22231f; --line: #30322c;
+    --ink: #e8e7e1; --ink-2: #b0afa6; --ink-3: #8a8a81;
+    --teal: #5fbdb5; --teal-soft: rgba(95, 189, 181, .14);
+    --clay: #e58a6f; --clay-soft: rgba(229, 138, 111, .13);
+    --ok: #6cc28d; --focus: rgba(95, 189, 181, .5);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #131412; --sheet: #1a1b18; --sunk: #22231f; --line: #30322c;
+  --ink: #e8e7e1; --ink-2: #b0afa6; --ink-3: #8a8a81;
+  --teal: #5fbdb5; --teal-soft: rgba(95, 189, 181, .14);
+  --clay: #e58a6f; --clay-soft: rgba(229, 138, 111, .13);
+  --ok: #6cc28d; --focus: rgba(95, 189, 181, .5);
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 15px/1.5 var(--sans);
+}
+code, .mono { font-family: var(--mono); font-size: .9em; }
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
+a { color: var(--teal); }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+.top, main, .foot {
+  max-width: var(--measure); margin: 0 auto; padding-left: 16px; padding-right: 16px;
+}
+.top {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 8px 24px; padding-top: 28px; padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand h1 { font-size: 22px; }
+.mark { font-family: var(--deva); color: var(--teal); font-size: 22px; line-height: 1; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--ink-3); font-size: 13px; }
+.facts .folder { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px;
+  border-radius: 999px; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--line); color: var(--ink-2); background: var(--sheet);
+}
+.badge.locked { color: var(--clay); border-color: var(--clay); background: var(--clay-soft); }
+.badge.open { color: var(--ok); }
+
+main { padding-top: 8px; padding-bottom: 32px; }
+section { margin-top: 30px; }
+.section-head { display: flex; align-items: baseline; gap: 10px; }
+.section-head h2 { font-size: 17px; }
+.count { color: var(--ink-3); font-size: 13px; }
+.lede { margin: 4px 0 14px; color: var(--ink-2); max-width: 62ch; }
+
+.gate, .problems {
+  margin-top: 22px; padding: 14px 16px; border-radius: 10px;
+  background: var(--clay-soft); border: 1px solid var(--clay);
+}
+.gate h2 { font-size: 16px; margin-bottom: 4px; }
+.gate p { margin: 0; }
+.problems ul { margin: 0; padding-left: 18px; }
+.problems li { overflow-wrap: anywhere; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 410px), 1fr));
+         gap: 12px; }
+.card {
+  background: var(--sheet); border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0;
+}
+.card.is-locked { border-style: dashed; }
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.card-head h3 { font-size: 15px; overflow-wrap: anywhere; }
+.ref { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+.who { color: var(--ink-2); overflow-wrap: anywhere; }
+.chip {
+  display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12px;
+  font-weight: 600; color: var(--teal); background: var(--teal-soft); white-space: nowrap;
+}
+.meta { color: var(--ink-3); font-size: 13px; }
+.trouble { color: var(--clay); font-size: 13px; }
+.contained { color: var(--ink-3); font-size: 13px; }
+.warn { color: var(--clay); font-size: 13px; }
+
+.levels { margin: 2px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.levels li { font-size: 13px; color: var(--ink-2); }
+.levels b { color: var(--ink); font-weight: 600; }
+.levels .default { color: var(--teal); font-size: 12px; margin-left: 4px; }
+
+.cmd {
+  margin-top: 4px; padding: 6px 10px; border-radius: 8px; background: var(--sunk);
+  font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; user-select: all;
+}
+
+details.log { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 6px; }
+details.log summary { cursor: pointer; color: var(--teal); font-size: 13px; font-weight: 600; }
+.log-body { margin-top: 8px; max-height: 280px; overflow: auto; }
+.log-row {
+  display: grid; grid-template-columns: auto auto 1fr; gap: 2px 10px; padding: 4px 0;
+  border-bottom: 1px dashed var(--line); font-size: 12px;
+}
+.log-row:last-child { border-bottom: 0; }
+.log-row .when { color: var(--ink-3); font-family: var(--mono); white-space: nowrap; }
+.log-row .verb { font-family: var(--mono); font-weight: 600; }
+.log-row .path { font-family: var(--mono); overflow-wrap: anywhere; min-width: 0; }
+.log-row .outcome { grid-column: 2 / -1; color: var(--ink-3); }
+.log-row .outcome.refused { color: var(--clay); }
+.empty { color: var(--ink-3); font-size: 13px; padding: 8px 0; }
+
+.foot {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px;
+  padding-top: 14px; padding-bottom: 28px; border-top: 1px solid var(--line);
+  color: var(--ink-3); font-size: 12px;
+}
+
+/* inside a harness's panel: less frame, the harness has its own */
+body.embedded .top { padding-top: 12px; padding-bottom: 10px; }
+body.embedded .brand { display: none; }
+body.embedded section { margin-top: 18px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .card { transition: border-color .15s; }
+  .card:hover { border-color: var(--ink-3); }
+}

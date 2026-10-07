@@ -13,6 +13,7 @@
     setu mcp-config gmail:personal       the snippet a harness needs
     setu disconnect gmail:personal       revoke at Google, then forget
     setu status --json                   the same, for a harness to read
+    setu serve [--port 8775]             all of it in a browser, at the address it prints
     setu config client-file PATH         remember the client file, for every harness
     setu connect homeassistant --as home   your Home Assistant's own login page
     setu connect homeassistant --token-stdin   or a long-lived token, pasted
@@ -824,6 +825,23 @@ def _status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _serve(args: argparse.Namespace) -> int:
+    """``setu serve``: the page (page.py), until Ctrl-C."""
+    from setu import page
+
+    vault = FileVault()
+    server = page.PageServer(page.Api(vault), page.page_token(vault.home), host=args.host,
+                             port=args.port, public_url=args.public_url)
+    print(f"Setu's page for {vault.home}:\n  {server.page_url}\n"
+          "(the part after # is its key: open it once, the page keeps it. Ctrl-C stops.)",
+          flush=True)
+    try:
+        server.serve_forever()
+    finally:
+        server.httpd.server_close()
+    return 0
+
+
 def _disconnect(args: argparse.Namespace) -> int:
     vault = FileVault()
     entry = vault.get(args.ref) or {}
@@ -1166,6 +1184,14 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="connections and connectors, for a harness")
     status.add_argument("--json", action="store_true", help="machine-readable, no secrets")
 
+    serve = sub.add_parser("serve", help="Setu's page: connections, levels and logs in a "
+                           "browser")
+    serve.add_argument("--host", default="127.0.0.1",
+                       help="where to listen (default: this computer only)")
+    serve.add_argument("--port", type=int, default=8775)
+    serve.add_argument("--public-url", help="the address a browser uses, when it is not "
+                       "where Setu listens (a port mapping, a proxy); or $SETU_PAGE_URL")
+
     disconnect = sub.add_parser("disconnect", help="revoke and forget a connection")
     disconnect.add_argument("ref")
 
@@ -1203,6 +1229,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list,
             "run": _run, "log": _log, "lock": _lock, "mcp-config": _mcp_config, "status": _status,
+            "serve": _serve,
             "disconnect": _disconnect, "config": _config, "catalog": _catalog,
             "site": _site, "install": _install, "certify": _certify}
 

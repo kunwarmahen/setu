@@ -462,7 +462,47 @@ setu connect --site example.com    # any other site: Setu writes cautious rules 
 setu site guide example --set "…"  # that site's short guide (shown without --set)
 setu config browser PATH           # which browser that window is (default: Chrome on PATH)
 setu catalog                       # the signed catalog: labels, installs, withdrawn versions
+setu serve                         # your connections, levels and logs in a browser page
 ```
+
+### Setu's page
+
+`setu serve` shows your connections in a browser instead of a terminal. It
+prints an address. Open it on the same computer:
+
+```
+$ setu serve
+Setu's page for /home/you/.local/state/setu:
+  http://127.0.0.1:8775/#token=…
+(the part after # is its key: open it once, the page keeps it. Ctrl-C stops.)
+```
+
+The page has one card for each connection, with the account, its level,
+when an agent last used it, and any trouble in the past week (robot checks,
+sign-outs, things it handed back to you). **What it did** under a card lists
+the requests Setu made for it, newest first, including any it refused. Below
+the cards are the connectors you've installed but haven't connected yet, with
+each level explained in plain words and the command that connects one.
+
+For now the page only shows things. To connect, change a level or disconnect,
+use the command on the card.
+
+It's safe to leave running:
+
+* **Only this computer can open it**, unless you choose otherwise with
+  `--host`. If a browser reaches it at a different address (a port mapping,
+  your own HTTPS proxy), say so with `--public-url` or `SETU_PAGE_URL`.
+* **Every request needs the key** that comes after `#` in the address. Setu
+  makes the key once and keeps it in its folder (`page.token`, readable by
+  you only), or uses `SETU_PAGE_TOKEN` if you set one. Without the key, another
+  website you happen to visit can't read your connections, even though it can
+  reach `127.0.0.1`.
+* **Only sites you name can show it inside their own page.** By default only
+  the page itself may. `SETU_PAGE_EMBED="http://127.0.0.1:8000"` lets that
+  page (an agent's panel, for example) show it in a frame. Any other site
+  that tries gets an empty frame.
+* **No key is ever on it.** You see names, levels, addresses and counts. You
+  never see a token or cookie, or where a browser sign-in is kept.
 
 Disconnecting revokes the permission **at Google**, so the app also disappears
 from your Google account's
@@ -776,6 +816,14 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   manifest's.
 * **One grant per app per Google account.** Revoking any token of a grant ends
   all of it, so Setu never revokes a grant another connection still uses.
+* **The page** (`page.py`, `static/`): `setu serve` serves three static
+  files and `GET /api/status`, `/api/connections`, `/api/connectors` and
+  `/api/log?ref=REF&limit=N`. It uses only the standard library, port 8775,
+  and needs `Authorization: Bearer` on every `/api` call. Each answer is
+  built from `status.report()` minus the harness-only `mcp` and `browser`
+  blocks. A log is served only for a ref the vault holds. Every answer
+  carries a CSP with `script-src 'self'` and `frame-ancestors 'self'` plus
+  `$SETU_PAGE_EMBED`.
 * **What a harness reads.** `setu status --json` (format `setu.status.v1`):
   connections, installed connectors with their levels and tool classes,
   whether each connector is `ready` to sign in (`not_ready` saying why, and

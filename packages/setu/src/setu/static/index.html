@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Setu</title>
+<link rel="stylesheet" href="page.css">
+<script src="page.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="mark" aria-hidden="true">सेतु</span>
+    <h1>Setu</h1>
+  </div>
+  <div class="facts" id="facts" aria-live="polite"></div>
+</header>
+
+<main>
+  <div id="gate" class="gate" hidden>
+    <h2>This page needs its key</h2>
+    <p>Open the address <code>setu serve</code> printed, the one ending in
+      <code>#token=…</code>. The page keeps the key after that.</p>
+  </div>
+
+  <div id="problems" class="problems" hidden></div>
+
+  <section aria-labelledby="h-connections">
+    <div class="section-head">
+      <h2 id="h-connections">Your connections</h2>
+      <span class="count" id="n-connections"></span>
+    </div>
+    <p class="lede">Each one is a site you signed in to. Agents you allow use it
+      through Setu; none of them ever sees the key.</p>
+    <div id="connections" class="cards"></div>
+  </section>
+
+  <section aria-labelledby="h-available">
+    <div class="section-head">
+      <h2 id="h-available">Available to connect</h2>
+      <span class="count" id="n-available"></span>
+    </div>
+    <p class="lede">Installed here, not signed in to yet. To connect one for now,
+      run the command shown on its card.</p>
+    <div id="available" class="cards"></div>
+  </section>
+</main>
+
+<footer class="foot">
+  <span id="updated"></span>
+  <span>No key is ever shown here, or sent to this page.</span>
+</footer>
+</body>
+</html>
