@@ -28,6 +28,11 @@ the manifest's ``[browser]`` table: hosts, spending guards, pace, guide.
 A profile path is not a secret the way a key is, but it is where the
 cookies are, so it is said only to the harness, as the key's location is.
 
+A PHONE ROAD IS AN APP, NOT A SERVER EITHER. Its connection carries
+``phone`` (which app), and its connector card the manifest's ``[phone]``
+table: the words that act, the words that spend, the pace, a guide. A
+harness that works the person's phone keeps to them.
+
 WHERE TO WATCH. ``watch`` names the two places whose change means the
 report would change: the vault (every connect, disconnect and level) and
 the folder of sites added here (a new site, a kept guide). A harness
@@ -85,6 +90,14 @@ def _browser_card(manifest: Manifest) -> dict[str, Any] | None:
             "max_actions": spec.max_actions, "guide": spec.guide, "headed": spec.headed}
 
 
+def _phone_card(manifest: Manifest) -> dict[str, Any] | None:
+    spec = manifest.phone
+    if spec is None:
+        return None
+    return {"android": spec.android, "ios": spec.ios, "act_words": list(spec.act_words),
+            "spend_words": list(spec.spend_words), "pace": spec.pace, "guide": spec.guide}
+
+
 def _connector(manifest: Manifest, connected: bool,
                setup: dict[str, Any] | None = None,
                index: catalog.Index | None = None) -> dict[str, Any]:
@@ -123,6 +136,8 @@ def _connector(manifest: Manifest, connected: bool,
         "yanked": card["yanked"],
         # the browser road's rules, for the harness that drives the profile
         "browser": _browser_card(manifest),
+        # the site's own app, for a harness working the person's phone
+        "phone": _phone_card(manifest),
         # what it can reach if something was missed -- as it is, not as hoped
         "contained": contained(manifest.road, list(manifest.hosts), manifest.name,
                                token_mode=manifest.token_mode,
@@ -214,11 +229,13 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
             "health": health.week(ref) if entry.get("auth") == "browser" else {},
             "installed": manifest is not None,
             "base_url": entry.get("base_url"),
-            "mcp": (None if entry.get("auth") == "browser" else
+            "mcp": (None if entry.get("auth") in ("browser", "phone") else
                     {"name": ref.replace(":", "-"), "command": command, "args": ["run", ref]}),
             "browser": ({"profile": entry.get("profile", ""),
                          "executable": entry.get("browser", ""), "home": entry.get("home", "")}
                         if entry.get("auth") == "browser" else None),
+            # an app on the person's phone: which one (the card has the rules)
+            "phone": dict(entry.get("phone") or {}) if entry.get("auth") == "phone" else None,
         })
     connected = {row["connector"] for row in rows}
     # a connection already knows its server, so signing in again needs no

@@ -50,6 +50,12 @@ to refresh, and ``token`` refuses it. Disconnecting deletes the profile
 -- the sign-in is gone from this computer; the site may still list the
 device until the person signs it out there.
 
+A PHONE ROAD HOLDS NOTHING AT ALL. The sign-in is the site's own app,
+on the person's phone (``connect_phone``). The entry records which app
+and the level, so a harness working the phone knows what it may do
+there; there is no token, no profile, and nothing to revoke from here.
+Disconnecting deletes the entry; the app stays signed in on the phone.
+
 A SITE SETU WROTE THE RULES FOR is proved by its page (``connect_site``):
 nobody named its sign-in cookies, so after the window the start page is
 looked at once more, and a page that still shows a sign-in saves
@@ -263,6 +269,31 @@ def connect_browser(manifest: Manifest, account: str, *, level: str | None, vaul
     return _save_browser(manifest, account, asked.name, profile, browser, hosts, vault)
 
 
+def connect_phone(manifest: Manifest, account: str, *, level: str | None,
+                  vault: Vault) -> dict[str, Any]:
+    """The site's own app on the person's phone, at a level. Nothing is
+    signed in to here: the person signs in to the app themselves."""
+    spec = manifest.phone
+    if spec is None:
+        raise ConnectionFailed(f"{manifest.name} has no phone app Setu knows of")
+    asked = manifest.level(level)
+    entry = {
+        "connector": manifest.id,
+        "account": account,
+        "auth": "phone",
+        "email": "",
+        "level": asked.name,
+        "asked_level": asked.name,
+        "scopes": [],
+        "created": _now(),
+        "last_used": None,
+        "phone": {"android": spec.android, "ios": spec.ios},
+        "secret": {},
+    }
+    vault.put(ref_for(manifest.id, account), entry)
+    return entry
+
+
 def _save_browser(manifest: Manifest, account: str, level: str, profile: Path, browser: str,
                   hosts: list[str], vault: Vault) -> dict[str, Any]:
     entry = {
@@ -439,6 +470,9 @@ def token(ref: str, *, vault: Vault, http: httpx.Client, force: bool = False) ->
     if entry.get("auth") == "browser":
         raise ConnectionFailed(f"{ref} is a browser profile, not a token: the harness's "
                                "browser tools open it")
+    if entry.get("auth") == "phone":
+        raise ConnectionFailed(f"{ref} is an app on the phone, not a token: the harness's "
+                               "phone tools open it")
     if entry.get("locked"):
         raise ConnectionFailed(f"{ref} is locked: its folder opens with its person's "
                                "passphrase (setu lock unlock)")
@@ -511,6 +545,9 @@ def disconnect(ref: str, *, vault: Vault, http: httpx.Client) -> tuple[bool, boo
     entry = vault.get(ref)
     if entry is None:
         return False, False
+    if entry.get("auth") == "phone":
+        vault.delete(ref)              # the app's sign-in is on the phone
+        return True, False
     if entry.get("auth") == "browser":
         # nothing to revoke from here: the profile IS the sign-in
         removed = site_browser.remove_profile(entry.get("profile") or "")

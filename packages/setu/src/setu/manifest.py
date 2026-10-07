@@ -41,6 +41,18 @@ agent -- handed to the person), how slowly to go, and a short guide to
 the site. Its levels are named for the classes they reach (``read``,
 ``write``), and a click or a typed word is never a read.
 
+A SITE'S APP IS A PHONE ROAD (``[phone]``). Some sites turn a driven
+browser away (X's bot checks) but not their own phone app. A manifest's
+``[phone]`` table names the app -- its Android package and iPhone bundle
+-- and the words on its buttons that act (``post``, ``like``,
+``follow``). The sign-in lives in the app on the person's phone, so Setu
+holds nothing for it; a connection on that road records the app and the
+level, and a harness that works the phone (Sparsh) keeps to them: the
+browser's ``spend_words`` are never pressed at any level, the act words
+not at all at the first level and only with a yes above it, and taps go
+no faster than ``pace``. Its levels are the browser road's: ``read`` and
+``write``.
+
 REQUESTS ARE CHECKED A SECOND TIME, BY SETU. A connector does not hold
 the key: it asks Setu, over a socket, to make each request for it (see
 proxy.py). The ``[requests.<level>]`` tables say which requests each
@@ -72,6 +84,7 @@ skipped -- it never takes the installed connectors down with it.
 
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass, field
 from dataclasses import replace as _replace
@@ -91,7 +104,7 @@ ANY_TOOL = "*"
 SCOPED_AUTH = ("google",)
 KNOWN_KEYS = {"id", "name", "summary", "road", "auth", "command", "api_base",
               "hosts", "whoami", "levels", "verbs", "browser", "generated",
-              "requests", "mcp_path", "token_mode"}
+              "requests", "mcp_path", "token_mode", "phone"}
 TOKEN_MODES = ("proxy", "callback")
 #: The methods a ``[requests]`` rule may name.
 METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
@@ -100,6 +113,8 @@ BROWSER_KEYS = {"start_url", "login_url", "signed_in", "home_from_cookie", "spen
                 "spend_words", "pace", "max_actions", "guide", "headed"}
 #: The tools a harness offers on a browser profile, and the ones that can
 #: change something on the site -- never classed read.
+#: The phone road's own keys, in its ``[phone]`` table.
+PHONE_KEYS = {"android", "ios", "act_words", "spend_words", "pace", "guide"}
 BROWSER_TOOLS = ("open", "follow", "scroll", "search", "click", "fill")
 BROWSER_ACTS = ("click", "fill")
 
@@ -159,6 +174,24 @@ class Browser:
 
 
 @dataclass(frozen=True, slots=True)
+class Phone:
+    """How a harness keeps to a site's own app on the person's phone."""
+
+    #: The Android package (``com.twitter.android``), and the iPhone bundle.
+    android: str = ""
+    ios: str = ""
+    #: Words on a button that act (post, like, follow): refused at the
+    #: first level, asked about above it.
+    act_words: tuple[str, ...] = ()
+    #: Words on a button that spend or can't be undone: never pressed. The
+    #: browser road's, unless the app's differ.
+    spend_words: tuple[str, ...] = ()
+    #: Seconds between taps, at least.
+    pace: float = 1.0
+    guide: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class Manifest:
     id: str
     name: str
@@ -172,6 +205,8 @@ class Manifest:
     levels: tuple[Level, ...]
     verbs: dict[str, str] = field(default_factory=dict)
     browser: Browser | None = None
+    #: The site's own app, for the phone road.
+    phone: Phone | None = None
     #: Read from ``sites/`` on this computer, not from an installed package.
     local: bool = False
     #: Written by ``setu connect --site`` with cautious defaults: no one
@@ -247,6 +282,7 @@ def parse(data: dict[str, Any], source: str = "manifest") -> Manifest:
     if road != "browser" and "browser" in data:
         raise ManifestError(f"{source}: a [browser] table belongs to road = \"browser\"")
     requests = _requests(data, levels, source)
+    phone = _phone(data, levels, browser, source) if "phone" in data else None
     mode = data.get("token_mode", "proxy")
     if mode not in TOKEN_MODES:
         raise ManifestError(f"{source}: token_mode is {mode!r} (known: "
@@ -257,7 +293,7 @@ def parse(data: dict[str, Any], source: str = "manifest") -> Manifest:
         road=data["road"], auth=data["auth"], command=tuple(command),
         api_base=data.get("api_base", ""), hosts=tuple(data.get("hosts") or ()),
         whoami=WhoAmI(url=who["url"], field=who["field"]) if who else None,
-        levels=tuple(levels), verbs=verbs, browser=browser,
+        levels=tuple(levels), verbs=verbs, browser=browser, phone=phone,
         generated=bool(data.get("generated", False)),
         requests=requests, mcp_path=str(data.get("mcp_path", "")), token_mode=mode,
     )
@@ -324,6 +360,36 @@ def _browser(data: dict[str, Any], levels: list[Level], verbs: dict[str, str],
         spend_words=tuple(word.lower() for word in spec.get("spend_words") or ()),
         pace=float(spec.get("pace", 1.0)), max_actions=int(spec.get("max_actions", 20)),
         guide=str(spec.get("guide", "")).strip(), headed=bool(spec.get("headed", False)))
+
+
+def _phone(data: dict[str, Any], levels: list[Level], browser: Browser | None,
+           source: str) -> Phone:
+    """The ``[phone]`` table, checked: an app named, and levels a harness
+    on a phone can keep (read, write)."""
+    spec = data.get("phone")
+    if not isinstance(spec, dict):
+        raise ManifestError(f"{source}: [phone] is a table")
+    unknown = set(spec) - PHONE_KEYS
+    if unknown:
+        raise ManifestError(f"{source}: unknown [phone] key(s) {sorted(unknown)}")
+    android, ios = str(spec.get("android") or ""), str(spec.get("ios") or "")
+    if not (android or ios):
+        raise ManifestError(f"{source}: [phone] names the app: android, ios or both")
+    for name in (android, ios):
+        if name and not re.fullmatch(r"[A-Za-z][\w]*(\.[A-Za-z0-9_]+)+", name):
+            raise ManifestError(f"{source}: [phone] {name!r} is not an app's package name")
+    for level in levels:
+        if level.name not in ("read", "write"):
+            raise ManifestError(f"{source}: phone levels are read and write, "
+                                f"not {level.name!r}")
+    spend = spec.get("spend_words")
+    if spend is None:
+        spend = browser.spend_words if browser else ()
+    return Phone(android=android, ios=ios,
+                 act_words=tuple(str(w).lower() for w in spec.get("act_words") or ()),
+                 spend_words=tuple(str(w).lower() for w in spend),
+                 pace=float(spec.get("pace", browser.pace if browser else 1.0)),
+                 guide=str(spec.get("guide", "")).strip())
 
 
 def load(path: Path) -> Manifest:

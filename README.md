@@ -233,6 +233,40 @@ signs this computer out. The site may still list the device; remove it in
 the site's security settings if you want it gone there too. No Chrome-like
 browser on your PATH? Name one: `setu config browser /path/to/brave`.
 
+### Or: the site's own app, on your phone
+
+X turns a driven browser away more often than not, and Amazon sometimes
+does. Their own phone apps don't. With an Android phone an agent can work
+([Sparsh](https://github.com/kunwarmahen/sparsh)), connect the app
+instead:
+
+```
+setu connect x --phone --as personal            # Read only, by default
+setu connect amazon --phone --level write
+```
+
+You sign in to the app on your phone yourself. Setu holds **nothing** for
+it, no key and no profile: the connection records which app and the
+level. A harness working the phone keeps to that level in that app:
+
+| Level | In the app, the agent |
+|---|---|
+| **Read only** (default) | reads and moves around; a tap on Post, Reply, Like, Follow (X) or Add to cart (Amazon) is **refused** |
+| **Read and post / act** | may also post, like, add to cart, each **asked about** first |
+
+At **no** level does it press buy, pay, subscribe or delete there: those
+are the same words the browser road never presses. On X it also keeps X's
+pace between taps. The manifest's `[phone]` table says all of this: the
+app's Android package and iPhone bundle, the words that act, and a short
+guide. `setu list` shows such a connection as `phone: com.twitter.android`;
+disconnecting forgets it, and the app stays signed in on your phone.
+
+In [Yantra](https://github.com/kunwarmahen/yantra) the agent is told to
+use the app, and Sparsh is handed the rules (its `SPARSH_APP_RULES`). On
+the emulator, a Messages stand-in at Read only had its Send refused, and
+at the level above it was held for a yes. Not yet run with the real X or
+Amazon app.
+
 ### Any other site
 
 Amazon and X come ready-made. For another site, name its address:

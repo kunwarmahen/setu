@@ -55,3 +55,16 @@ scroll = "read"
 search = "read"
 click = "write"
 fill = "write"
+
+# Amazon's own shopping app on the person's phone: the phone road (`setu
+# connect amazon --phone`). The sign-in is the app's.
+[phone]
+android = "com.amazon.mShop.android.shopping"
+ios = "com.amazon.Amazon"
+# buttons that change something: refused at Read only, asked about above it
+act_words = ["add to cart", "add to list", "save for later", "move to cart", "write a review",
+             "ask a question"]
+guide = """
+Open the Amazon app. Your orders: the person icon at the bottom, then Your Orders. Search with the bar at the top.
+Buying, paying, cancelling and returning are the person's to do: stop and say so.
+"""

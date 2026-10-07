@@ -49,3 +49,16 @@ scroll = "read"
 search = "read"
 click = "write"
 fill = "write"
+
+# X's own app on the person's phone: the phone road (`setu connect x
+# --phone`). X turns a driven browser away more often than its app. The
+# sign-in is the app's; the harness that works the phone keeps to these.
+[phone]
+android = "com.twitter.android"
+ios = "com.atebits.Tweetie2"
+# buttons that act on X: refused at Read only, asked about at Read and post
+act_words = ["post", "reply", "repost", "quote", "like", "follow", "bookmark", "send"]
+guide = """
+Open the X app. Home is the timeline; the search tab finds people and posts; the bell is notifications, with Mentions at the top. A profile's posts are under its name; the first one may be Pinned.
+Scroll for more rather than going back and in again. Go at a person's pace: X locks accounts that look automated.
+"""

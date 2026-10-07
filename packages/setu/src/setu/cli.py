@@ -150,6 +150,8 @@ def _connect(args: argparse.Namespace) -> int:
     if args.site:
         return _connect_site(args)
     manifest = find(_connector_named(args))
+    if args.phone:
+        return _connect_phone(manifest, args)
     if manifest.auth == "homeassistant":
         return _connect_homeassistant(manifest, args)
     if manifest.auth == "browser":
@@ -215,6 +217,23 @@ def _read_token(args: argparse.Namespace) -> str | None:
     if not token:
         raise connections.ConnectionFailed("no token was given on stdin")
     return token
+
+
+def _connect_phone(manifest, args: argparse.Namespace) -> int:
+    if manifest.phone is None:
+        print(f"error: {manifest.name} has no phone app Setu knows of (its manifest "
+              "has no [phone] table)", file=sys.stderr)
+        return 2
+    level = manifest.level(args.level)
+    entry = connections.connect_phone(manifest, args.account, level=level.name,
+                                      vault=FileVault())
+    app = " / ".join(a for a in (manifest.phone.android, manifest.phone.ios) if a)
+    print(f"connected {connections.ref_for(manifest.id, args.account)} on your phone, "
+          f"through the {manifest.name} app ({app}): {level.label}")
+    print(f"  Sign in to the {manifest.name} app on your phone yourself; Setu holds "
+          "nothing for it. An agent that works your phone (Sparsh) keeps to this level, "
+          "and never presses buy, pay or delete there.")
+    return 0 if entry else 1
 
 
 def _connect_homeassistant(manifest, args: argparse.Namespace) -> int:
@@ -652,7 +671,12 @@ def _list(_args: argparse.Namespace) -> int:
             except ManifestError:
                 pass
         used = connections.last_used(vault.get(ref) or {}) or "never"
-        print(f"{ref:<22} {entry.get('email') or '':<30} {label:<16} last used {used}")
+        raw = vault.get(ref) or {}
+        where = entry.get("email") or ""
+        if raw.get("auth") == "phone":
+            where = "phone: " + ((raw.get("phone") or {}).get("android")
+                                 or (raw.get("phone") or {}).get("ios") or "its app")
+        print(f"{ref:<22} {where:<30} {label:<16} last used {used}")
         if seen := health.line(ref):
             print(f"{'':<22} {seen}")
     print(f"\nkeys live in {vault.path} (readable by you only); no command prints them")
@@ -666,6 +690,11 @@ def _run(args: argparse.Namespace) -> int:
         print(f"error: no connection {args.ref!r} (setu list)", file=sys.stderr)
         return 2
     manifest = find(entry["connector"])
+    if entry.get("auth") == "phone":
+        print(f"error: {args.ref} is {manifest.name}'s app on your phone; there is no server "
+              "to run. A harness working the phone uses it (setu status --json)",
+              file=sys.stderr)
+        return 2
     if manifest.road == "browser":
         print(f"error: {args.ref} is signed in to in a browser; there is no server to run. "
               "A harness opens its profile with its own browser tools (setu status --json)",
@@ -792,6 +821,10 @@ def _mcp_config(args: argparse.Namespace) -> int:
     if entry.get("auth") == "browser":
         print(f"error: {args.ref} is a browser profile, not an MCP server", file=sys.stderr)
         return 2
+    if entry.get("auth") == "phone":
+        print(f"error: {args.ref} is an app on your phone, not an MCP server: a harness "
+              "working the phone (Sparsh) uses it", file=sys.stderr)
+        return 2
     name = args.ref.replace(":", "-")
     # The FULL path: a harness starts this with its own PATH, which need
     # not include wherever Setu was installed.
@@ -851,6 +884,10 @@ def _disconnect(args: argparse.Namespace) -> int:
         print(f"no connection {args.ref!r}")
         return 1
     health.forget(args.ref)
+    if entry.get("auth") == "phone":
+        print(f"disconnected {args.ref}: agents no longer use the app for it. The app "
+              "itself stays signed in on your phone; sign out there if you want")
+        return 0
     if entry.get("auth") == "browser":
         print(f"disconnected {args.ref}: its browser profile is deleted, so this computer "
               f"is signed out. {entry.get('email') or 'The site'} may still list the "
@@ -1097,6 +1134,10 @@ def build_parser() -> argparse.ArgumentParser:
                          "instead of signing in on its login page")
     connect.add_argument("--browser", help="a site with no API: the browser to sign in "
                          "with (default: setu config browser, else Chrome on PATH)")
+    connect.add_argument("--phone", action="store_true",
+                         help="the site's own app on your phone instead of a browser (X, "
+                              "Amazon): you sign in to the app there; a harness working "
+                              "the phone keeps to the level")
     connect.add_argument("--site", help="a site Setu has no connector for (example.com): "
                          "sign in, and Setu writes cautious rules for it in sites/")
     connect.add_argument("--id", help="with --site: the name to give it (default: from "
