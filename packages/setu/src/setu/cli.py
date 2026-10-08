@@ -858,7 +858,8 @@ def _serve(args: argparse.Namespace) -> int:
           flush=True)
     if folders is not None:
         state = "on" if server.people_on() else "OFF (setu config people-page on)"
-        print(f"people's own pages, for the folders in {folders}: {state}", flush=True)
+        none = "" if folders.is_dir() else " (none there yet)"
+        print(f"people's own pages, for the folders in {folders}{none}: {state}", flush=True)
     try:
         server.serve_forever()
     finally:

@@ -602,6 +602,8 @@ their own connections, connect, change a level, disconnect, and read
 what each one did, all in their own folder. They never see yours or
 anybody else's.
 
+* **A folder that isn't there yet is nobody yet**, not an error: a door makes
+  `state/setu` when it first serves someone, which may be after Setu starts.
 * **The link names a folder by its name** under the place you gave
   `--people`, never by a path. A name that isn't a plain word, or isn't a
   folder there, is nobody.

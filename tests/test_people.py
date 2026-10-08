@@ -191,3 +191,10 @@ def test_page_link_prints_a_link_for_this_folder(place, monkeypatch, capsys):
     assert out["person"] == "asha"
     assert out["url"].startswith("http://100.64.0.7:8775/#link=asha.")
     assert people.claim(place, out["url"].split("#link=")[1])[0] == "asha"
+
+
+def test_a_people_folder_not_made_yet_is_nobody_yet(tmp_path):
+    assert page.people_dir(str(tmp_path / "later")) == (tmp_path / "later").resolve()
+    (tmp_path / "file").write_text("x")
+    with pytest.raises(ValueError):
+        page.people_dir(str(tmp_path / "file"))

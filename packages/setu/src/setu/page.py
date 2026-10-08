@@ -646,8 +646,9 @@ def people_dir(raw: str | None) -> Path | None:
     raw = (raw if raw is not None else os.environ.get(ENV_PEOPLE, "")).strip()
     if not raw:
         return None
+    # not there yet is nobody yet: a door makes it when it first serves someone
     path = Path(raw).expanduser().resolve()
-    if not path.is_dir():
+    if path.exists() and not path.is_dir():
         raise ValueError(f"people's folders: {path} is not a folder")
     return path
 
