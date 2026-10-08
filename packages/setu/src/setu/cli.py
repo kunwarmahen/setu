@@ -635,20 +635,7 @@ def _config(args: argparse.Namespace) -> int:
     if not args.value:
         print(f"{args.key}: {config.load().get(key) or '(not set)'}")
         return 0
-    if key == "homeassistant_url":
-        value = homeassistant.normalise_url(args.value)
-    elif key == "share_installs":
-        value = args.value.strip().lower()
-        if value not in ("on", "off"):
-            raise ValueError("share-installs is on or off")
-    elif key == "browser":
-        value = shutil.which(str(Path(args.value).expanduser())) or ""
-        if not value:
-            raise ValueError(f"{args.value!r} is not a program on this computer")
-    else:
-        path = Path(args.value).expanduser().resolve()
-        google.client_from_file(path)   # a Web client, or no file, is refused now
-        value = str(path)
+    value = config.check(args.key, args.value)
     config.save(key, value)
     print(f"{args.key}: {value}")
     return 0
@@ -863,15 +850,40 @@ def _serve(args: argparse.Namespace) -> int:
     from setu import page
 
     vault = FileVault()
+    folders = page.people_dir(args.people)
     server = page.PageServer(page.Api(vault), page.page_token(vault.home), host=args.host,
-                             port=args.port, public_url=args.public_url)
+                             port=args.port, public_url=args.public_url, people_dir=folders)
     print(f"Setu's page for {vault.home}:\n  {server.page_url}\n"
           "(the part after # is its key: open it once, the page keeps it. Ctrl-C stops.)",
           flush=True)
+    if folders is not None:
+        state = "on" if server.people_on() else "OFF (setu config people-page on)"
+        print(f"people's own pages, for the folders in {folders}: {state}", flush=True)
     try:
         server.serve_forever()
     finally:
         server.httpd.server_close()
+    return 0
+
+
+def _page_link(args: argparse.Namespace) -> int:
+    """``setu page-link``: a one-time link to this folder's page, for the
+    person it belongs to (people.py). A door runs it with SETU_HOME at
+    the person's folder."""
+    from setu import page, people
+
+    home = FileVault().home
+    if args.close_all:
+        n = people.close_all(home)
+        print(f"{home.name}: {n} open page(s) closed, and any unused link forgotten")
+        return 0
+    base = page.link_base(args.url)
+    link, expires = people.make_link(home)
+    url = f"{base}#link={link}"
+    if args.json:
+        print(json.dumps({"url": url, "person": home.name, "expires_at": expires}))
+    else:
+        print(f"{url}\n(works once, on the first device that opens it, for ten minutes)")
     return 0
 
 
@@ -1232,6 +1244,17 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8775)
     serve.add_argument("--public-url", help="the address a browser uses, when it is not "
                        "where Setu listens (a port mapping, a proxy); or $SETU_PAGE_URL")
+    serve.add_argument("--people", help="the folder people's own Setu folders are in (a "
+                       "door's state/setu): each may open their own with a link "
+                       "(setu page-link); or $SETU_PAGE_PEOPLE")
+
+    plink = sub.add_parser("page-link", help="a one-time link to this folder's page, for "
+                           "the person it belongs to")
+    plink.add_argument("--url", help="the page's address as their phone reaches it "
+                       "(default: $SETU_PAGE_URL, else SETU_WINDOW_HOST on port 8775)")
+    plink.add_argument("--json", action="store_true")
+    plink.add_argument("--close-all", action="store_true",
+                       help="close every page open on this folder, and forget any link")
 
     disconnect = sub.add_parser("disconnect", help="revoke and forget a connection")
     disconnect.add_argument("ref")
@@ -1270,7 +1293,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list,
             "run": _run, "log": _log, "lock": _lock, "mcp-config": _mcp_config, "status": _status,
-            "serve": _serve,
+            "serve": _serve, "page-link": _page_link,
             "disconnect": _disconnect, "config": _config, "catalog": _catalog,
             "site": _site, "install": _install, "certify": _certify}
 

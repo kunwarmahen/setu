@@ -180,6 +180,9 @@ say = lambda **e: print(json.dumps(e), flush=True)
 if args[0] == "disconnect":
     print(f"disconnected {args[1]}: revoked at the site, key deleted")
     sys.exit(0)
+if args[0] == "install":
+    print(f"installed {args[1]} 9.9.9, its wheel checked against the signed catalog")
+    sys.exit(0)
 ref = (args[1] if args[1] != "--site" else args[2]) + ":" + args[args.index("--as") + 1]
 say(event="started", ref=ref, level="read", level_label="Read only")
 if "--slow" in open(sys.argv[0] + ".mode").read():
@@ -336,3 +339,103 @@ def test_the_pages_script_parses():
     script = files("setu").joinpath("static", "page.js")
     done = subprocess.run([node, "--check", str(script)], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
+
+
+# ---- the catalog, installs, certifiers and settings ------------------------------------
+#
+# The bias here is A BUTTON THAT AGREES TO SOMETHING THE PERSON NEVER SAW:
+# an install of bytes other than the ones whose hash was on the screen, a
+# setting the terminal would have refused.
+
+from test_catalog import index_doc, signer  # noqa: E402,F401
+
+WHEEL = "ab" * 32
+
+
+@pytest.fixture
+def listed(stand_in, signer):  # noqa: F811 -- the fixture imported above
+    from setu import catalog
+    doc = index_doc()
+    doc["connectors"].append({"id": "weather", "name": "Weather", "label": "partner",
+                              "author": "priya", "package": "setu-weather",
+                              "version": "1.1.0", "installs": 3,
+                              "yanked": {"1.0.0": "sent the address along"},
+                              "wheel": {"url": "https://example.test/w.whl",
+                                        "sha256": WHEEL}})
+    catalog.use(signer(doc))
+    return stand_in
+
+
+def test_the_catalog_says_who_wrote_each_and_what_was_withdrawn(listed):
+    cat = listed.handle("GET", "/api/catalog", {})[1]
+    assert cat["kept"] is True
+    weather = next(c for c in cat["connectors"] if c["id"] == "weather")
+    assert weather["by"] == "by priya, reviewed and published by Setu"
+    assert weather["withdrawn"] == {"1.0.0": "sent the address along"}
+    assert weather["sha256"] == WHEEL and weather["installed"] is False
+    assert cat["recipes"][0]["name"] == "ha-fan-speed"
+
+
+def test_install_runs_only_for_the_hash_that_was_shown(listed):
+    with pytest.raises(page.ApiError) as caught:
+        listed.handle("POST", "/api/install", {}, {"connector": "weather",
+                                                   "sha256": "cd" * 32})
+    assert caught.value.code == 409
+    assert not (listed.script.parent / (listed.script.name + ".argv")).exists()
+    done = listed.handle("POST", "/api/install", {}, {"connector": "weather",
+                                                      "sha256": WHEEL})[1]
+    assert started(listed) == [["install", "weather"]]
+    assert "checked against the signed catalog" in done["said"]
+
+
+def test_install_is_only_for_what_the_catalog_lists(listed):
+    with pytest.raises(page.ApiError) as caught:
+        listed.handle("POST", "/api/install", {}, {"connector": "../x", "sha256": WHEEL})
+    assert caught.value.code == 404
+
+
+def test_no_catalog_kept_is_said_not_an_error(stand_in):
+    cat = stand_in.handle("GET", "/api/catalog", {})[1]
+    assert cat["kept"] is False and cat["connectors"] == []
+    assert cat["unlisted"] == []          # no catalog, so nothing is called sideloaded
+
+
+def test_certifiers_are_counted_and_can_be_stopped(stand_in, tmp_path, home):
+    from setu import catalog, certify
+    pub, kid = certify.keygen(tmp_path / "acme.key", "Acme Labs")
+    certify.trust(certify.load_public(pub))
+    subject = {"kind": "connector", "id": "gmail", "version": "1.0.0", "sha256": "ef" * 32}
+    certs = [certify.make(subject, tmp_path / "acme.key", name="Acme Labs",
+                          statement="read it, ran it", checks=["scan"])]
+    cache = catalog._cache(home)
+    cache.mkdir(parents=True, exist_ok=True)
+    (cache / catalog.CERTS_FILE).write_text(json.dumps(certs))
+    rows = stand_in.handle("GET", "/api/certifiers", {})[1]["certifiers"]
+    assert rows == [{"id": kid, "name": "Acme Labs", "certified": 1, "withdrawn": 0}]
+    stand_in.handle("POST", "/api/certifiers/remove", {}, {"id": kid})
+    assert stand_in.handle("GET", "/api/certifiers", {})[1]["certifiers"] == []
+
+
+def test_a_setting_the_terminal_would_refuse_the_page_refuses(stand_in):
+    with pytest.raises(page.ApiError) as caught:
+        stand_in.handle("POST", "/api/settings", {}, {"name": "share-installs",
+                                                     "value": "maybe"})
+    assert caught.value.code == 400
+    stand_in.handle("POST", "/api/settings", {}, {"name": "share-installs", "value": "OFF"})
+    rows = {r["name"]: r for r in stand_in.handle("GET", "/api/settings", {})[1]["settings"]}
+    assert rows["share-installs"]["value"] == "off"
+    stand_in.handle("POST", "/api/settings", {}, {"name": "share-installs", "value": None})
+    rows = {r["name"]: r for r in stand_in.handle("GET", "/api/settings", {})[1]["settings"]}
+    assert rows["share-installs"]["value"] == ""
+
+
+def test_settings_say_when_the_environment_wins(stand_in):
+    rows = {r["name"]: r for r in stand_in.handle("GET", "/api/settings", {})[1]["settings"]}
+    assert rows["client-file"]["from_env"] == "SETU_GOOGLE_CLIENT_FILE"
+    assert rows["people-page"]["switch"] is True
+
+
+def test_settings_never_carry_a_secret(stand_in):
+    text = json.dumps(stand_in.handle("GET", "/api/settings", {})[1])
+    for secret in (REFRESH, TOKEN, "shh-secret"):
+        assert secret not in text

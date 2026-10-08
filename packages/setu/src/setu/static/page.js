@@ -1,7 +1,9 @@
 // Setu's page: draws what /api says, and nothing else. Every value from the
 // API goes in as text (textContent), never as markup: a connection's name is
 // shown, it is never run. The key arrives after "#" in the address, is kept
-// in this browser, and leaves the address bar at once.
+// in this browser, and leaves the address bar at once. A person's one-time
+// link (#link=…) is traded once for a key of their own, and their page is
+// this one without the owner's parts.
 "use strict";
 
 const KEY = "setu.page.token";
@@ -14,18 +16,43 @@ function kept() {
   try { return localStorage.getItem(KEY) || ""; } catch (_) { return ""; }
 }
 
+const hash = new URLSearchParams(location.hash.slice(1));
+const link = hash.get("link");
+
 function takeToken() {
-  const hash = new URLSearchParams(location.hash.slice(1));
   const fresh = hash.get("token");
+  if (fresh || link) history.replaceState(null, "", location.pathname + location.search);
   if (fresh) {
     keep(fresh);
-    history.replaceState(null, "", location.pathname + location.search);
     return fresh;
   }
   return kept();
 }
 
 let token = takeToken();
+
+// a person's link works once: trade it for their own key before anything else
+async function claimLink() {
+  if (!link) return;
+  let res;
+  try {
+    res = await fetch("/api/people/claim", {
+      method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ link }) });
+  } catch (_) {
+    gateSays("The browser couldn't reach Setu. Try the link again in a minute.");
+    return;
+  }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) { gateSays(body.detail || `${res.status}`); token = ""; return; }
+  token = body.token;
+  keep(token);
+}
+
+function gateSays(text) {
+  document.getElementById("gate-text").textContent = text;
+  document.getElementById("gate").hidden = false;
+}
 
 // h("div.card", {title: "x"}, child, "text") -- a small, text-only builder
 function h(spec, attrs, ...kids) {
@@ -62,6 +89,9 @@ async function api(path, payload) {
   }
   if (res.status === 401) throw new Unauthorized();
   const body = await res.json().catch(() => ({}));
+  if (res.status === 403 && /turned this page off/.test(body.detail || "")) {
+    throw new Unauthorized(body.detail);
+  }
   if (!res.ok) throw new Error(body.detail || `${res.status}`);
   return body;
 }
@@ -80,7 +110,17 @@ function ago(iso) {
 
 // -- the header ----------------------------------------------------------------
 
+let person = null;
+
 function drawStatus(st) {
+  person = st.person || null;
+  document.body.classList.toggle("person", Boolean(person));
+  document.getElementById("close-session").hidden = !person;
+  if (person) {
+    document.querySelector(".brand h1").textContent = `Setu · ${person}`;
+    document.getElementById("foot-note").textContent =
+      "Your own accounts: nobody else's are here, and no key is ever shown.";
+  }
   const facts = document.getElementById("facts");
   const lock = st.lock || {};
   const badge = lock.locked
@@ -88,14 +128,18 @@ function drawStatus(st) {
         lock.open ? "locked · key held" : "locked")
     : h("span.badge", {}, "not locked");
   if (lock.locked && !lock.open) {
-    badge.title = "Its sign-ins are sealed. Open it in a terminal with: setu lock unlock";
+    badge.title = person
+      ? "Your sign-ins are sealed. Open them from your chat with /unlock"
+      : "Its sign-ins are sealed. Open it in a terminal with: setu lock unlock";
   }
   const catalog = st.catalog
     ? h("span", {}, `catalog from ${st.catalog.source}` +
         (st.catalog.issued ? `, issued ${st.catalog.issued.slice(0, 10)}` : ""))
     : h("span", {}, "no catalog kept");
-  facts.replaceChildren(badge, h("span.folder", { title: "Setu's folder" }, st.folder),
-                        catalog, h("span", {}, `setu ${st.version}`));
+  facts.replaceChildren(...(person
+    ? [badge, h("span", {}, `setu ${st.version}`)]
+    : [badge, h("span.folder", { title: "Setu's folder" }, st.folder), catalog,
+       h("span", {}, `setu ${st.version}`)]));
 
   const box = document.getElementById("problems");
   if (st.problems && st.problems.length) {
@@ -235,8 +279,10 @@ function drawAvailable(connectors) {
   document.getElementById("n-available").textContent = free.length ? `${free.length}` : "";
   if (!free.length) {
     box.replaceChildren(h("p.empty", {}, connectors.length
-      ? "Every installed connector is connected. Another account: setu connect ID --as NAME."
-      : "No connectors installed. Try: uv pip install setu-gmail"));
+      ? (person ? "Every connector here is connected."
+        : "Every installed connector is connected. Another account: setu connect ID --as NAME.")
+      : (person ? "Nothing is installed to connect yet. Ask your owner."
+        : "No connectors installed. Try: uv pip install setu-gmail")));
     return;
   }
   box.replaceChildren(...free.map(availableCard));
@@ -253,7 +299,9 @@ function availableCard(c) {
       lv.description ? ` — ${lv.description}` : ""))),
     c.yanked ? h("div.warn", {}, `Withdrawn: ${c.yanked}`) : null,
     c.contained ? h("div.contained", {}, c.contained) : null,
-    c.ready ? null : h("div.warn", {}, `First it ${c.not_ready}.`),
+    c.ready ? null : h("div.warn", {}, person
+      ? "Not ready to connect yet: your owner sets it up first."
+      : `First it ${c.not_ready}.`),
     c.ready ? connectForm(c) : null);
 }
 
@@ -408,6 +456,150 @@ function askBox(question) {
   return h("div", {}, h("p", {}, question), h("div.actions", {}, yes, no));
 }
 
+// -- the catalog, certifiers, settings (the owner's) ----------------------------------
+
+function drawCatalog(cat) {
+  if (!changed("catalog", cat)) return;
+  const box = document.getElementById("catalog");
+  document.getElementById("n-catalog").textContent =
+    cat.connectors.length ? `${cat.connectors.length}` : "";
+  const rows = [];
+  if (!cat.kept) {
+    rows.push(h("p.empty", {}, "No catalog kept here. In a terminal: setu catalog trust " +
+                "KEY.pub, then setu catalog use ADDRESS."));
+  } else {
+    rows.push(h("p.meta", {}, `From ${cat.source}, signed by key ${cat.key}` +
+      (cat.issued ? `, issued ${cat.issued.slice(0, 10)}` : "") +
+      (cat.kept_at ? ` · fetched ${ago(cat.kept_at)}` : "")));
+  }
+  for (const c of cat.connectors) rows.push(catalogCard(c));
+  for (const u of cat.unlisted) {
+    rows.push(h("article.card", {}, h("div.card-head", {}, h("h3", {}, u.id),
+      h("span.chip", {}, u.how)), h("div.meta", {}, "Not in the catalog.")));
+  }
+  for (const r of cat.recipes) {
+    rows.push(h("article.card", {},
+      h("div.card-head", {}, h("h3", {}, `Recipe: ${r.name}`), h("span.chip", {}, "recipe")),
+      h("div.meta", {}, `Needs ${r.needs.join(", ") || "nothing"}` +
+        (r.author ? ` · by ${r.author}` : "")),
+      r.certified ? h("div.meta", {}, r.certified) : null,
+      h("div.meta", {}, `To use it: setu catalog recipe ${r.name}`)));
+  }
+  box.replaceChildren(...rows);
+}
+
+function catalogCard(c) {
+  const withdrawn = Object.entries(c.withdrawn);
+  const card = h("article.card", {},
+    h("div.card-head", {}, h("h3", {}, c.name),
+      h("span.chip", {}, c.installed ? `installed ${c.installed_version || ""}`.trim()
+                                    : "not installed")),
+    c.summary ? h("div.who", {}, c.summary) : null,
+    h("div.meta", {}, c.by + (c.installs !== null && c.installs !== undefined
+      ? ` · ${c.installs} installs` : "") + (c.latest ? ` · latest ${c.latest}` : "")),
+    c.author_signed ? h("div.meta", {}, c.author_signed) : null,
+    c.certified ? h("div.meta", {}, c.certified) : null,
+    withdrawn.length ? h("ul.withdrawn", {}, withdrawn.map(([v, why]) =>
+      h("li", {}, `Withdrawn ${v}: ${why}`))) : null);
+  if (c.sha256) card.append(h("div.hash", { title: "the wheel's sha256" }, `sha256 ${c.sha256}`));
+  const fresh = !c.installed || (c.latest && c.latest !== c.installed_version);
+  if (c.sha256 && fresh && !c.latest_withdrawn) {
+    const go = h("button.btn.go", { type: "button" },
+                 c.installed ? `Update to ${c.latest}` : "Install");
+    go.addEventListener("click", async () => {
+      if (!confirm(`Install ${c.name} ${c.latest}? Setu downloads it and checks it is ` +
+                   `exactly the file with sha256 ${c.sha256}. Anything else is refused.`)) return;
+      go.disabled = true;
+      go.textContent = "Installing…";
+      try {
+        const done = await api("/api/install", { connector: c.id, sha256: c.sha256 });
+        say(done.said || `Installed ${c.id}.`);
+        refresh();
+      } catch (err) {
+        say(`Couldn't install ${c.id}: ${err.message}`, true);
+        go.disabled = false;
+        go.textContent = "Install";
+      }
+    });
+    card.append(h("div.actions", {}, go));
+  }
+  return card;
+}
+
+function drawCertifiers(rows) {
+  if (!changed("certifiers", rows)) return;
+  const box = document.getElementById("certifiers");
+  if (!rows.length) {
+    box.replaceChildren(h("p.empty", {}, "You trust no certifier yet."));
+    return;
+  }
+  box.replaceChildren(...rows.map((c) => {
+    const stop = h("button.btn.danger", { type: "button" }, "Stop trusting");
+    stop.addEventListener("click", async () => {
+      if (!confirm(`Stop trusting ${c.name || c.id}? Their certifications stop counting ` +
+                   "as someone you trust.")) return;
+      try { await api("/api/certifiers/remove", { id: c.id }); refresh(); }
+      catch (err) { say(`Couldn't: ${err.message}`, true); }
+    });
+    return h("article.card", {},
+      h("div.card-head", {}, h("h3", {}, c.name || "(no name)"), h("span.ref", {}, c.id)),
+      h("div.meta", {}, `${c.certified} version${c.certified === 1 ? "" : "s"} certified` +
+        (c.withdrawn ? ` · ${c.withdrawn} withdrawn` : "")),
+      h("div.actions", {}, stop));
+  }));
+}
+
+function drawSettings(data) {
+  if (!changed("settings", data)) return;
+  const rows = data.settings.map((st) => {
+    let field;
+    if (st.switch) {
+      field = h("select", { "aria-label": st.name },
+        ["on", "off"].map((v) => {
+          const opt = h("option", { value: v }, v);
+          if ((st.value || "on") === v) opt.selected = true;
+          return opt;
+        }));
+    } else {
+      field = h("input.field.wide", { type: "text", value: st.value || "",
+                                      placeholder: "(not set)", "aria-label": st.name });
+    }
+    const save = h("button.btn", { type: "button" }, "Save");
+    save.addEventListener("click", async () => {
+      try {
+        const done = await api("/api/settings", { name: st.name, value: field.value.trim() });
+        say(`${st.name}: ${done.value || "forgotten"}`);
+        delete drawn.settings;
+        refresh();
+      } catch (err) { say(`${st.name}: ${err.message}`, true); }
+    });
+    return h("div.setting", {},
+      h("span.name", {}, st.name), h("span.about", {}, st.about),
+      st.from_env ? h("span.about", {}, `${st.from_env} is set where Setu runs, and wins.`)
+                  : null,
+      h("div.actions", {}, field, save));
+  });
+  const w = data.window;
+  rows.push(h("div.setting", {}, h("span.name", {}, "streamed window"),
+    h("span.about", {}, w.SETU_WINDOW_URL || w.SETU_WINDOW_HOST
+      ? `Opens at ${w.SETU_WINDOW_URL || w.SETU_WINDOW_HOST}` +
+        (w.SETU_WINDOW_PORT ? `:${w.SETU_WINDOW_PORT}` : "")
+      : "Only on this computer. Another device needs SETU_WINDOW_HOST or SETU_WINDOW_URL " +
+        "where Setu starts.")));
+  document.getElementById("settings").replaceChildren(...rows);
+}
+
+function wireClose() {
+  document.getElementById("close-session").addEventListener("click", async () => {
+    if (!confirm("Close this page on this device? You'll need a new link from your chat " +
+                 "(/accounts page) to open it again.")) return;
+    await api("/api/session/close", {}).catch(() => {});
+    try { localStorage.removeItem(KEY); } catch (_) { /* private window */ }
+    token = "";
+    gateSays("Closed. Ask for a new link in your chat to open it again: /accounts page.");
+  });
+}
+
 // -- the loop --------------------------------------------------------------------
 
 async function refresh() {
@@ -422,17 +614,30 @@ async function refresh() {
     const cards = Object.fromEntries(ctors.connectors.map((c) => [c.id, c]));
     drawConnections(conns.connections, names, cards);
     drawAvailable(ctors.connectors);
+    if (!person) {
+      const [cat, certs, settings] = await Promise.all([
+        api("/api/catalog"), api("/api/certifiers"), api("/api/settings")]);
+      drawCatalog(cat);
+      drawCertifiers(certs.certifiers);
+      drawSettings(settings);
+    }
     document.getElementById("updated").textContent =
       `Updated ${new Date().toLocaleTimeString()}`;
   } catch (err) {
-    if (err instanceof Unauthorized) { gate.hidden = false; return; }
+    if (err instanceof Unauthorized) {
+      if (err.message) gateSays(err.message);
+      gate.hidden = false;
+      return;
+    }
     document.getElementById("updated").textContent = `Couldn't reach Setu: ${err.message}`;
   }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   if (window.top !== window.self) document.body.classList.add("embedded");
   wireAddSite();
+  wireClose();
+  await claimLink();
   refresh();
   // a sign-in started before this page was opened (or reloaded) is shown too
   if (token) api("/api/signin").then((st) => { if (st.running) watchSignIn(); })

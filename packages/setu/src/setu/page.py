@@ -17,6 +17,16 @@ API on the same server:
     POST /api/signin/paste  {address}    the address a sign-in ended on, pasted back
     POST /api/signin/cancel
     POST /api/disconnect   {ref}         revoke, then forget
+    GET  /api/catalog      the signed catalog: who wrote each, installs, withdrawn
+                           versions, the wheel's hash, certifications
+    POST /api/install      {connector, sha256}   install, if the hash is still
+                                                 the one the page showed
+    GET  /api/certifiers   certifiers you trust, and how many versions each certified
+    POST /api/certifiers/remove {id}     stop trusting one
+    GET  /api/settings     the settings ``setu config`` shows -- never a key
+    POST /api/settings     {name, value}  (value null: forget it)
+    POST /api/people/claim {link}        a person's one-time link, for a session
+    POST /api/session/close              a person closes the page on this device
 
 ONE SIGN-IN ROAD, THE ONE A HARNESS USES. Connecting is ``setu connect
 --json`` run as a child process, its events read line by line and its
@@ -66,6 +76,26 @@ NOT CALLED "log". Ad and privacy blockers drop any address with
 ``/log?`` in it as tracking, and the page would say only "Failed to
 fetch". The request log is ``/api/requests``.
 
+THE HASH YOU SAW IS THE HASH INSTALLED. The page shows the sha256 the
+signed catalog names for a connector's wheel, and Install sends it back.
+If the catalog changed in between, the install is refused and the page
+shows the new one: a person agrees to bytes, not to a name. The install
+itself is ``setu install`` as a child, which checks the download against
+the same hash.
+
+SETTINGS ARE ``setu config``'s, CHECKED BY THE SAME FUNCTION
+(``config.check``). Making keys, signing, and trusting a new certifier or
+catalog key (a file you were handed) stay in the terminal.
+
+PEOPLE: THEIR OWN FOLDER, AND LESS OF THE PAGE. With ``--people DIR`` the
+server also answers a person's session (people.py) for the folder of
+that name under DIR. Their page is the same page with the owner's parts
+gone: no catalog, installs, certifiers, settings or adding a site --
+those change what is installed on the owner's computer. They connect,
+change a level, disconnect and read their log, each in their own folder
+(the sign-in runs with ``SETU_HOME`` there). The owner's switch
+(``setu config people-page off``) refuses every person's session at once.
+
 LOCALHOST BY DEFAULT, deliberately; reaching the network is a decision
 (``--host``), as it is for Samay and Dvara.
 
@@ -89,13 +119,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from setu import health, proxy, status
+from setu import catalog, certify, config, health, people, proxy, status
+from setu.manifest import installed
 from setu.vault import FileVault, default_home
 
 DEFAULT_PORT = 8775
 ENV_TOKEN = "SETU_PAGE_TOKEN"
 ENV_EMBED = "SETU_PAGE_EMBED"
 ENV_PUBLIC = "SETU_PAGE_URL"
+ENV_PEOPLE = "SETU_PAGE_PEOPLE"
 TOKEN_FILE = "page.token"
 
 #: The most log lines one request returns.
@@ -104,6 +136,23 @@ MAX_BODY = 64 * 1024
 #: What a person may call an account, and what a site's address may be.
 ACCOUNT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$")
 SITE_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+#: How long an install may take before the page says it failed.
+INSTALL_SECONDS = 600
+#: What a person's page answers; the rest of the API is the owner's.
+PERSON_GET = {("status",), ("connections",), ("connectors",), ("requests",), ("signin",)}
+PERSON_POST = {("connect",), ("disconnect",), ("signin", "answer"), ("signin", "paste"),
+               ("signin", "cancel")}
+#: What each setting is, in words, for the page.
+SETTINGS = {
+    "client-file": "Google's Desktop app client file (its path; the file stays where it is)",
+    "homeassistant-url": "Your Home Assistant's address",
+    "browser": "The browser sign-in windows open in",
+    "share-installs": "Tell the catalog, anonymously, which of its connectors are installed",
+    "people-page": "People may get a link to their own folder's page",
+}
+#: Where a setting can also come from, which wins over the remembered one.
+SETTING_ENV = {"client-file": config.ENV_CLIENT_FILE, "homeassistant-url": config.ENV_HA_URL,
+               "browser": config.ENV_BROWSER}
 
 #: The page's own files, and what each is served as.
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
@@ -178,14 +227,15 @@ class SignIn:
     ending with ``done`` once it has exited.
     """
 
-    def __init__(self, argv: list[str], ref: str) -> None:
+    def __init__(self, argv: list[str], ref: str,
+                 env: dict[str, str] | None = None) -> None:
         self.ref = ref
         self.events: list[dict[str, Any]] = []
         self.cancelled = False
         self._lock = threading.Lock()
         self.process = subprocess.Popen(
             argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True)
+            text=True, env=env)
         self._thread = threading.Thread(target=self._read, daemon=True, name="setu-signin")
         self._thread.start()
 
@@ -246,16 +296,41 @@ class Api:
     straight, and the handler below stays a thin skin."""
 
     def __init__(self, vault: FileVault | None = None,
-                 setu: list[str] | None = None) -> None:
+                 setu: list[str] | None = None, *, person: str | None = None,
+                 env: dict[str, str] | None = None) -> None:
         self.vault = vault or FileVault()
         self.setu = setu or setu_argv()
+        #: A person's page (people.py), or None for the owner's.
+        self.person = person
+        #: The environment Setu's children run in (a person's: their folder).
+        self.env = env
         self.signin: SignIn | None = None
         self._signin_lock = threading.Lock()
+
+    @classmethod
+    def for_person(cls, person: str, home: Path, setu: list[str] | None = None) -> Api:
+        """A person's page, on their folder. Their sign-ins borrow the
+        owner's Google client when their folder names none of its own --
+        it is the owner's app either way."""
+        env = {**os.environ, "SETU_HOME": str(home)}
+        env.pop("SETU_VAULT_KEY", None)
+        own = {}
+        try:
+            own = json.loads((home / config.CONFIG_FILE).read_text("utf-8"))
+        except (OSError, ValueError):
+            pass
+        client = config.google_client_file()
+        if client and not (isinstance(own, dict) and own.get("google_client_file")):
+            env[config.ENV_CLIENT_FILE] = client
+        return cls(FileVault(home), setu, person=person, env=env)
 
     def handle(self, method: str, path: str, query: dict[str, list[str]],
                body: dict | None = None, *, local: bool = True
                ) -> tuple[int, dict[str, Any]]:
         parts = [p for p in path.split("/") if p][1:]      # after "api"
+        if self.person is not None and tuple(parts) not in (
+                PERSON_POST if method == "POST" else PERSON_GET):
+            raise ApiError(403, "that part of the page is your owner's")
         if method == "POST":
             return self._write(parts, body or {}, local)
         if method != "GET":
@@ -274,6 +349,12 @@ class Api:
             ref = (query.get("ref") or [""])[0]
             limit = _int((query.get("limit") or ["100"])[0], "limit")
             return 200, self.log(ref, max(1, min(limit, MAX_LOG_LINES)))
+        if parts == ["catalog"]:
+            return 200, self.catalog()
+        if parts == ["certifiers"]:
+            return 200, {"certifiers": self.certifiers()}
+        if parts == ["settings"]:
+            return 200, self.settings()
         raise ApiError(404, f"no such endpoint: GET /api/{'/'.join(parts)}")
 
     # ---- writes ---------------------------------------------------------------
@@ -300,6 +381,17 @@ class Api:
             if self.signin is not None:
                 self.signin.cancel()
             return 200, {"ok": True}
+        if parts == ["install"]:
+            return 200, self.install(str(body.get("connector") or ""),
+                                     str(body.get("sha256") or ""))
+        if parts == ["certifiers", "remove"]:
+            kid = str(body.get("id") or "")
+            if kid not in certify.trusted(self.vault.home):
+                raise ApiError(404, f"no trusted certifier {kid!r}")
+            certify.distrust(kid, self.vault.home)
+            return 200, {"removed": kid}
+        if parts == ["settings"]:
+            return 200, self.set(str(body.get("name") or ""), body.get("value"))
         raise ApiError(404, f"no such endpoint: POST /api/{'/'.join(parts)}")
 
     def _current(self) -> SignIn:
@@ -312,7 +404,7 @@ class Api:
             if self.signin is not None and self.signin.running:
                 raise ApiError(409, f"a sign-in to {self.signin.ref} is already waiting -- "
                                     "finish or cancel it first")
-            self.signin = SignIn(argv, ref)
+            self.signin = SignIn(argv, ref, self.env)
         return {"ref": ref, "started": True}
 
     def connect(self, body: dict, local: bool) -> dict[str, Any]:
@@ -360,7 +452,7 @@ class Api:
         if not ref or ref not in self.vault.list():
             raise ApiError(404, f"no connection {ref!r}")
         done = subprocess.run([*self.setu, "disconnect", ref], capture_output=True,
-                              text=True, timeout=120)
+                              text=True, timeout=120, env=self.env)
         said = (done.stdout + done.stderr).strip()
         if done.returncode != 0:
             raise ApiError(502, said or "setu disconnect failed")
@@ -369,8 +461,14 @@ class Api:
     def status(self) -> dict[str, Any]:
         data = status.report(self.vault)
         index = data["catalog"]
+        if self.person is not None:
+            # a person's page: their folder by its name, nothing of the owner's
+            return {"format": "setu.page.status.v1", "version": data["version"],
+                    "person": self.person, "folder": self.person, "lock": data["lock"],
+                    "catalog": None, "connections": len(data["connections"]),
+                    "problems": [p for p in data["problems"] if not p.startswith("catalog")]}
         return {"format": "setu.page.status.v1", "version": data["version"],
-                "folder": str(self.vault.home), "lock": data["lock"],
+                "person": None, "folder": str(self.vault.home), "lock": data["lock"],
                 "setup": {k: bool(v) for k, v in data["setup"].items()},
                 "catalog": ({"source": index["source"], "issued": index["issued"]}
                             if index else None),
@@ -383,13 +481,135 @@ class Api:
             # for a harness only: how to start it, and where its cookies are
             card = {k: v for k, v in row.items() if k not in ("mcp", "browser")}
             card["road"] = "browser" if row["browser"] else "api"
-            card["health_line"] = health.line(row["ref"])
+            card["health_line"] = health.line(row["ref"], self.vault.home)
             rows.append(card)
         return rows
 
     def connectors(self) -> list[dict[str, Any]]:
         return [{k: v for k, v in card.items() if k != "browser"}
                 for card in status.report(self.vault)["connectors"]]
+
+    # ---- the catalog, certifiers, settings (the owner's) ------------------------------
+
+    def catalog(self) -> dict[str, Any]:
+        """``setu catalog``, as data: each listed connector with who wrote
+        it, its installs, every withdrawn version, the hash its wheel must
+        have, and what certifiers said; then what is installed but not
+        listed, and the recipes."""
+        home = self.vault.home
+        index = catalog.kept(home)
+        if index is None:
+            # no catalog, no labels: nothing is "sideloaded" against nothing
+            return {"kept": False, "connectors": [], "recipes": [], "unlisted": [],
+                    "trusted_keys": list(catalog.trusted(home))}
+        try:
+            known = installed()
+        except Exception:                  # a broken manifest is status's to report
+            known = {}
+        rows = []
+        for cid, entry in index.connectors.items():
+            card = index.card(cid)
+            wheel = entry.get("wheel") or {}
+            withdrawn = entry.get("yanked") or {}
+            rows.append({
+                "id": cid, "name": entry.get("name") or cid,
+                "summary": entry.get("summary") or "",
+                "by": ("by Setu" if entry["label"] == "by-setu" else
+                       f"by {entry.get('author') or '?'}, reviewed and published by Setu"),
+                "label": entry["label"], "author_signed": card.get("author_signed", ""),
+                "installs": entry.get("installs"), "latest": entry.get("version") or "",
+                "installed": cid in known,
+                "installed_version": card.get("installed_version") or "",
+                "withdrawn": {str(v): str(r) for v, r in withdrawn.items()},
+                "latest_withdrawn": str(withdrawn.get(entry.get("version") or "", "")),
+                "sha256": str(wheel.get("sha256") or "").lower(),
+                "certified": certify.certified(index, "connector", cid, home).get("line", ""),
+            })
+        return {
+            "kept": True, "source": index.source, "key": index.key,
+            "issued": index.data.get("issued") or "", "kept_at": catalog.kept_at(home),
+            "connectors": rows,
+            "unlisted": [{"id": cid, "how": "added on this computer" if known[cid].local
+                          else "sideloaded"}
+                         for cid in sorted(set(known) - set(index.connectors))],
+            "recipes": [{"name": r.get("name") or "", "needs": list(r.get("needs") or []),
+                         "author": r.get("author") or "",
+                         "certified": certify.certified(index, "recipe", r.get("name", ""),
+                                                        home).get("line", "")}
+                        for r in index.recipes],
+            "trusted_keys": list(catalog.trusted(home)),
+        }
+
+    def install(self, connector: str, sha256: str) -> dict[str, Any]:
+        """``setu install`` -- if the hash the page showed is still the one
+        the signed catalog names."""
+        index = catalog.kept(self.vault.home)
+        entry = index.connectors.get(connector) if index is not None else None
+        if entry is None:
+            raise ApiError(404, f"the catalog does not list {connector!r}")
+        wanted = str((entry.get("wheel") or {}).get("sha256") or "").lower()
+        if not wanted or not hmac.compare_digest(wanted, sha256.lower()):
+            raise ApiError(409, f"the catalog's hash for {connector} is now "
+                                f"{wanted[:16]}…, not the one shown -- look again")
+        try:
+            done = subprocess.run([*self.setu, "install", connector], capture_output=True,
+                                  text=True, timeout=INSTALL_SECONDS, env=self.env)
+        except subprocess.TimeoutExpired:
+            raise ApiError(504, f"installing {connector} took too long") from None
+        said = (done.stdout + done.stderr).strip()
+        if done.returncode != 0:
+            raise ApiError(502, said.removeprefix("error: ") or "setu install failed")
+        return {"installed": connector, "said": said}
+
+    def certifiers(self) -> list[dict[str, Any]]:
+        """The certifiers you trust, and how many versions each certified
+        (their latest word on each; a withdrawal is counted apart)."""
+        home = self.vault.home
+        latest: dict[tuple[str, str], dict[str, Any]] = {}
+        for cert in catalog.certifications(home):
+            try:
+                kid = certify.verify(cert)
+            except certify.CertError:
+                continue
+            s = cert["subject"]
+            key = (kid, f"{s.get('kind')}:{s.get('id')}:{s.get('sha256')}")
+            if key not in latest or cert["at"] > latest[key]["at"]:
+                latest[key] = cert
+        rows = []
+        for kid, who in certify.trusted(home).items():
+            mine = [c for (k, _), c in latest.items() if k == kid]
+            rows.append({"id": kid, "name": who.get("name") or "",
+                         "certified": sum(c["verdict"] == "certified" for c in mine),
+                         "withdrawn": sum(c["verdict"] == "revoked" for c in mine)})
+        return rows
+
+    def settings(self) -> dict[str, Any]:
+        kept = config.load()
+        rows = []
+        for name, key in config.KEYS.items():
+            env = SETTING_ENV.get(name)
+            rows.append({"name": name, "about": SETTINGS.get(name, ""),
+                         "value": kept.get(key) or "",
+                         "switch": name in config.SWITCHES,
+                         "from_env": env if env and os.environ.get(env) else ""})
+        window = {k: os.environ.get(k, "") for k in
+                  ("SETU_WINDOW_HOST", "SETU_WINDOW_PORT", "SETU_WINDOW_URL")}
+        return {"settings": rows, "window": window}
+
+    def set(self, name: str, value: Any) -> dict[str, Any]:
+        if name not in config.KEYS:
+            raise ApiError(404, f"no setting {name!r}")
+        if value is None or value == "":
+            config.save(config.KEYS[name], None)
+            return {"name": name, "value": ""}
+        try:
+            kept = config.check(name, str(value))
+        except (ValueError, OSError) as exc:
+            raise ApiError(400, str(exc)) from None
+        except Exception as exc:          # a client file Google's reader refused
+            raise ApiError(400, str(exc)) from None
+        config.save(config.KEYS[name], kept)
+        return {"name": name, "value": kept}
 
     def log(self, ref: str, limit: int) -> dict[str, Any]:
         # a ref the vault does not hold is refused before it names a file
@@ -420,6 +640,35 @@ def _int(value: str, name: str) -> int:
         raise ApiError(400, f"{name} must be a whole number") from None
 
 
+def people_dir(raw: str | None) -> Path | None:
+    """``--people`` or ``$SETU_PAGE_PEOPLE``: the folder people's own Setu
+    folders are in (a door's ``state/setu``). None: no person's page."""
+    raw = (raw if raw is not None else os.environ.get(ENV_PEOPLE, "")).strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser().resolve()
+    if not path.is_dir():
+        raise ValueError(f"people's folders: {path} is not a folder")
+    return path
+
+
+def link_base(raw: str | None = None) -> str:
+    """The address a person's link opens: ``--url``, ``$SETU_PAGE_URL``, or
+    the streamed window's host (``SETU_WINDOW_HOST``) on the page's port --
+    so one Tailscale or home-network choice covers both. A link to
+    127.0.0.1 would open nothing on a phone, so with none of them set
+    there is no link."""
+    found = public_address(raw)
+    if found:
+        return found
+    host = os.environ.get("SETU_WINDOW_HOST", "").strip()
+    if host and host not in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):
+        port = os.environ.get("SETU_PAGE_PORT", "").strip() or str(DEFAULT_PORT)
+        return f"http://{host}:{port}/"
+    raise ValueError("a person's link needs the address their phone reaches Setu's page "
+                     f"at: set {ENV_PUBLIC} (or SETU_WINDOW_HOST, the streamed window's)")
+
+
 def public_address(raw: str | None) -> str | None:
     """``$SETU_PAGE_URL`` or ``--public-url``, checked: an address a browser
     can open, ending in one slash. None when not given."""
@@ -438,9 +687,13 @@ class PageServer:
 
     def __init__(self, api: Api, token: str, *, host: str = "127.0.0.1",
                  port: int = DEFAULT_PORT, public_url: str | None = None,
-                 embed: list[str] | None = None) -> None:
+                 embed: list[str] | None = None, people_dir: Path | None = None) -> None:
         self.api = api
         self.token = token
+        #: Where people's own folders are (``--people``); None: no person's page.
+        self.people = people_dir
+        self._people: dict[str, Api] = {}
+        self._people_lock = threading.Lock()
         self.public_url = public_address(public_url)
         self.embed = embedders() if embed is None else embed
         self.httpd = ThreadingHTTPServer((host, port), _handler(self))
@@ -463,6 +716,42 @@ class PageServer:
     @property
     def page_url(self) -> str:
         return f"{self.url}#token={self.token}"
+
+    def people_on(self) -> bool:
+        """People's pages: given a folder for them, and not switched off in
+        the owner's folder. Asked on every request, so the switch is
+        immediate."""
+        return self.people is not None and config.people_page(self.api.vault.home)
+
+    def api_for(self, offered: str) -> Api | None:
+        """The page this token opens: the owner's, a person's, or none."""
+        if hmac.compare_digest(offered.encode(), self.token.encode()):
+            return self.api
+        if not offered.startswith(people.PREFIX) or self.people is None:
+            return None
+        person = people.session(self.people, offered)
+        if person is None:
+            return None
+        if not self.people_on():
+            raise ApiError(403, "your owner has turned this page off. /accounts and "
+                                "/connect still work in your chat")
+        with self._people_lock:
+            if person not in self._people:
+                self._people[person] = Api.for_person(person, self.people / person,
+                                                      self.api.setu)
+            return self._people[person]
+
+    def claim(self, link: str, device: str) -> dict[str, Any]:
+        if self.people is None:
+            raise ApiError(404, "this Setu has no people's pages")
+        if not self.people_on():
+            raise ApiError(403, "your owner has turned this page off. /accounts and "
+                                "/connect still work in your chat")
+        try:
+            person, secret = people.claim(self.people, link, device)
+        except people.PeopleError as exc:
+            raise ApiError(403, str(exc)) from None
+        return {"person": person, "token": secret}
 
     def serve_forever(self) -> None:
         self.httpd.serve_forever()
@@ -502,9 +791,9 @@ def _handler(server: PageServer):
         def _json(self, code: int, data: dict[str, Any]) -> None:
             self._send(code, json.dumps(data).encode(), "application/json")
 
-        def _authorized(self) -> bool:
+        def _offered(self) -> str:
             offered = self.headers.get("Authorization", "")
-            return hmac.compare_digest(offered.encode(), f"Bearer {server.token}".encode())
+            return offered[7:].strip() if offered.startswith("Bearer ") else ""
 
         def _dispatch(self, method: str) -> None:
             url = urlparse(self.path)
@@ -514,7 +803,13 @@ def _handler(server: PageServer):
                                   kind)
             if not url.path.startswith("/api/"):
                 return self._json(404, {"detail": "not found"})
-            if not self._authorized():
+            # a person's link is its own key: the only call without a token
+            claiming = method == "POST" and url.path == "/api/people/claim"
+            try:
+                api = None if claiming else server.api_for(self._offered())
+            except ApiError as exc:
+                return self._json(exc.code, {"detail": exc.detail})
+            if api is None and not claiming:
                 return self._json(401, {"detail": "missing or wrong token"})
             body: dict = {}
             if method == "POST":
@@ -535,8 +830,17 @@ def _handler(server: PageServer):
             # where the person is: this computer, or another device
             local = self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
             try:
-                code, data = server.api.handle(method, url.path, parse_qs(url.query), body,
-                                               local=local)
+                if claiming:
+                    code, data = 200, server.claim(str(body.get("link") or ""),
+                                                   self.headers.get("User-Agent") or "")
+                elif url.path == "/api/session/close" and method == "POST":
+                    if api is server.api:
+                        raise ApiError(400, "the owner's page has no session to close")
+                    people.close(server.people, self._offered())
+                    code, data = 200, {"closed": True}
+                else:
+                    code, data = api.handle(method, url.path, parse_qs(url.query), body,
+                                            local=local)
             except ApiError as exc:
                 return self._json(exc.code, {"detail": exc.detail})
             except Exception as exc:     # a bug is a 500 that says what, not a hang

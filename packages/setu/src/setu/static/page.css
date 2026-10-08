@@ -179,3 +179,17 @@ body.embedded section { margin-top: 18px; }
 .signin.bad { border-color: var(--clay); background: var(--clay-soft); }
 .signin h3 { font-size: 15px; }
 .signin p { margin: 0; }
+
+/* the owner's parts, gone on a person's page */
+body.person .owner-only { display: none; }
+.hash { font-family: ui-monospace, monospace; font-size: 12px; color: var(--ink-3);
+        overflow-wrap: anywhere; }
+.withdrawn { color: var(--clay); font-size: 13px; }
+.setting { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px;
+           padding: 10px 0; border-bottom: 1px solid var(--line); }
+.setting:last-child { border-bottom: 0; }
+.setting .name { font-weight: 600; font-size: 14px; }
+.setting .about { color: var(--ink-3); font-size: 13px; }
+.foot #close-session { margin-left: auto; }
+/* a hidden box stays hidden, whatever display its class gives it */
+[hidden] { display: none !important; }

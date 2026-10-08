@@ -20,8 +20,9 @@
 <main>
   <div id="gate" class="gate" hidden>
     <h2>This page needs its key</h2>
-    <p>Open the address <code>setu serve</code> printed, the one ending in
-      <code>#token=…</code>. The page keeps the key after that.</p>
+    <p id="gate-text">Open the address <code>setu serve</code> printed, the one ending in
+      <code>#token=…</code>. The page keeps the key after that. Someone else's
+      folder? Ask for your link in your chat: <code>/accounts page</code>.</p>
   </div>
 
   <div id="problems" class="problems" hidden></div>
@@ -49,7 +50,7 @@
     <div id="available" class="cards"></div>
   </section>
 
-  <section aria-labelledby="h-site">
+  <section aria-labelledby="h-site" class="owner-only">
     <div class="section-head">
       <h2 id="h-site">Add a site</h2>
     </div>
@@ -70,11 +71,41 @@
       </div>
     </div>
   </section>
+
+  <section aria-labelledby="h-catalog" class="owner-only">
+    <div class="section-head">
+      <h2 id="h-catalog">Catalog</h2>
+      <span class="count" id="n-catalog"></span>
+    </div>
+    <p class="lede" id="catalog-lede">Connectors Setu's signed catalog lists: who wrote
+      each, how many people installed it, and any version taken back. Install
+      checks the download against the hash shown.</p>
+    <div id="catalog" class="cards"></div>
+  </section>
+
+  <section aria-labelledby="h-certifiers" class="owner-only">
+    <div class="section-head">
+      <h2 id="h-certifiers">Certifiers you trust</h2>
+    </div>
+    <p class="lede">People who checked a version for themselves and signed what they
+      found. Trusting a new one stays in the terminal (setu certify trust FILE.pub):
+      it starts from a file you were handed.</p>
+    <div id="certifiers" class="cards"></div>
+  </section>
+
+  <section aria-labelledby="h-settings" class="owner-only">
+    <div class="section-head">
+      <h2 id="h-settings">Settings</h2>
+    </div>
+    <p class="lede">What <code>setu config</code> remembers. None of it is a key.</p>
+    <div id="settings" class="card"></div>
+  </section>
 </main>
 
 <footer class="foot">
   <span id="updated"></span>
-  <span>No key is ever shown here, or sent to this page. Locking the folder stays in the terminal: setu lock.</span>
+  <span id="foot-note">No key is ever shown here, or sent to this page. Locking the folder stays in the terminal: setu lock.</span>
+  <button id="close-session" class="btn" type="button" hidden>Close this page on this device</button>
 </footer>
 </body>
 </html>

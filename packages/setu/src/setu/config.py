@@ -40,7 +40,10 @@ ENV_BROWSER = "SETU_BROWSER"
 
 #: The settings ``setu config`` knows, by the name a person types.
 KEYS = {"client-file": "google_client_file", "homeassistant-url": "homeassistant_url",
-        "browser": "browser", "share-installs": "share_installs"}
+        "browser": "browser", "share-installs": "share_installs",
+        "people-page": "people_page"}
+#: The ones that are on or off.
+SWITCHES = ("share-installs", "people-page")
 
 
 def path() -> Path:
@@ -94,7 +97,47 @@ def browser(explicit: str | None = None) -> str | None:
             or load().get("browser") or None)
 
 
+def check(name: str, value: str) -> str:
+    """The value ``setu config NAME VALUE`` (or Setu's page) would keep,
+    checked the way each setting needs: a client file that is a Desktop
+    client, a Home Assistant address, a browser that is a program here,
+    on or off. One check for the terminal and the page, so neither can
+    keep what the other would refuse."""
+    from setu import google, homeassistant
+
+    if name not in KEYS:
+        raise ValueError(f"unknown setting {name!r} (known: {', '.join(KEYS)})")
+    if name == "homeassistant-url":
+        return homeassistant.normalise_url(value)
+    if name in SWITCHES:
+        value = value.strip().lower()
+        if value not in ("on", "off"):
+            raise ValueError(f"{name} is on or off")
+        return value
+    if name == "browser":
+        import shutil
+
+        found = shutil.which(str(Path(value).expanduser())) or ""
+        if not found:
+            raise ValueError(f"{value!r} is not a program on this computer")
+        return found
+    path_ = Path(value).expanduser().resolve()
+    google.client_from_file(path_)   # a Web client, or no file, is refused now
+    return str(path_)
+
+
 def share_installs() -> bool:
     """Whether Setu tells the catalog server, anonymously, which listed
     connectors are installed (catalog.ping_installs). On unless turned off."""
     return str(load().get("share_installs") or "on").lower() != "off"
+
+
+def people_page(home: Path | None = None) -> bool:
+    """Whether people may be given a link to their own folder's page
+    (page.py). On unless the owner turned it off, in the owner's folder."""
+    try:
+        data = json.loads(((home or default_home()) / CONFIG_FILE).read_text("utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    return str((data if isinstance(data, dict) else {}).get("people_page")
+               or "on").lower() != "off"

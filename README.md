@@ -497,6 +497,8 @@ setu site guide example --set "…"  # that site's short guide (shown without --
 setu config browser PATH           # which browser that window is (default: Chrome on PATH)
 setu catalog                       # the signed catalog: labels, installs, withdrawn versions
 setu serve                         # your connections, levels and logs in a browser page
+setu page-link                     # a one-time link to this folder's page, for its person
+setu config people-page off        # no person gets a link to their own folder's page
 ```
 
 ### Setu's page
@@ -533,6 +535,26 @@ You can also make changes there:
   Setu writes careful rules for it. If it can't tell from the page whether
   you signed in, it asks you.
 
+The rest of the page is the terminal's other jobs:
+
+* **Catalog** lists what the signed catalog offers: who wrote each
+  connector, how many people installed it, every version taken back and
+  why (in red), what independent certifiers said, and the sha256 of the
+  file it installs from. **Install** shows that hash before it starts.
+  If the catalog changed since the page drew it, the install is refused
+  and the page shows the new hash. Setu checks the download against it
+  the same way `setu install` does.
+* **Certifiers you trust**, with how many versions each certified, and
+  **Stop trusting**. Trusting a new one stays in the terminal (`setu
+  certify trust FILE.pub`), because it starts from a file you were
+  handed.
+* **Settings**: what `setu config` remembers: the Google client file's
+  path, your Home Assistant's address, the browser, whether installs are
+  shared with the catalog, and whether people get pages of their own. They
+  are checked exactly as the terminal checks them. When the same setting is
+  also set where Setu runs (`SETU_BROWSER`, for example), the page says
+  so, because that one wins. It also says where the streamed window opens.
+
 Opened from another device (with `--host`), the page uses the roads made
 for that: Google's sign-in ends on an address you paste back into the
 page, and a browser sign-in is streamed to you. Adding a site needs you at
@@ -557,6 +579,42 @@ It's safe to leave running:
   that tries gets an empty frame.
 * **No key is ever on it.** You see names, levels, addresses and counts. You
   never see a token or cookie, or where a browser sign-in is kept.
+
+### A page for each person (with dvara)
+
+When a door like [dvara](https://github.com/kunwarmahen/dvara) serves
+several people, each has a Setu folder of their own. The same page can
+show each person theirs, from their phone. Tell `setu serve` where those
+folders are:
+
+```
+setu serve --host 100.64.0.7 --people ~/dvara/state/setu
+```
+
+A person types `/accounts page` in their chat. Dvara runs `setu page-link`
+in their folder and sends them the link. It works **once, on the first
+device that opens it, for ten minutes**. Then that device stays signed in
+to their page until they press **Close this page on this device**.
+
+Their page is yours minus the parts that change your computer: no
+catalog, installs, certifiers, settings or adding a site. They see
+their own connections, connect, change a level, disconnect, and read
+what each one did, all in their own folder. They never see yours or
+anybody else's.
+
+* **The link names a folder by its name** under the place you gave
+  `--people`, never by a path. A name that isn't a plain word, or isn't a
+  folder there, is nobody.
+* **Only hashes are kept.** The link's code and each device's key live in
+  the person's folder as sha256 only, readable by you alone.
+* **The link's address** is `SETU_PAGE_URL` if set, else the streamed
+  window's `SETU_WINDOW_HOST` on port 8775, so the same Tailscale or
+  home-network choice covers both. With neither set, there is no link: a
+  link to `127.0.0.1` would open nothing on a phone.
+* **Turn it off** with `setu config people-page off` in your own folder.
+  Every person's open page stops at once, and no new link works. Turn it
+  back on and their devices work again. `setu page-link --close-all`, run
+  in a person's folder, signs out all their devices.
 
 Disconnecting revokes the permission **at Google**, so the app also disappears
 from your Google account's
@@ -882,7 +940,21 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   built from `status.report()` minus the harness-only `mcp` and `browser`
   blocks. A log is served only for a ref the vault holds. Every answer
   carries a CSP with `script-src 'self'` and `frame-ancestors 'self'` plus
-  `$SETU_PAGE_EMBED`.
+  `$SETU_PAGE_EMBED`. The owner's page also has `GET /api/catalog`,
+  `/api/certifiers` and `/api/settings`. Its other changes are `POST
+  /api/install {connector, sha256}`, which refuses a hash other than the
+  catalog's and runs `setu install` as a child, `/api/certifiers/remove`, and
+  `/api/settings {name, value}`, which `config.check` validates as the
+  CLI does.
+* **People's pages** (`people.py`): with `--people DIR`, `POST
+  /api/people/claim {link}` (the one call without a token) trades a
+  `person.code` link that `setu page-link` wrote into `DIR/<person>` for a
+  `p.<person>.<secret>` key, once. That key opens an `Api` on the
+  person's folder (children run with `SETU_HOME` there and without
+  `SETU_VAULT_KEY`). It answers only status, connections, connectors,
+  requests and the sign-in calls, and gives 403 for the rest. `POST
+  /api/session/close` forgets that one key. `config.people_page()` is
+  read in the owner's folder on every request.
 * **What a harness reads.** `setu status --json` (format `setu.status.v1`):
   connections, installed connectors with their levels and tool classes,
   whether each connector is `ready` to sign in (`not_ready` saying why, and

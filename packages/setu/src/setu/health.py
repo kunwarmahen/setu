@@ -43,13 +43,13 @@ KINDS = {
 WEEK = 7 * 24 * 3600
 
 
-def path() -> Path:
-    return default_home() / HEALTH_FILE
+def path(home: Path | None = None) -> Path:
+    return (home or default_home()) / HEALTH_FILE
 
 
-def _read() -> dict[str, list[list[Any]]]:
+def _read(home: Path | None = None) -> dict[str, list[list[Any]]]:
     try:
-        data = json.loads(path().read_text(encoding="utf-8"))
+        data = json.loads(path(home).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -74,13 +74,13 @@ def record(ref: str, kind: str, now: float | None = None) -> None:
     os.replace(staged, target)
 
 
-def week(ref: str, now: float | None = None) -> dict[str, Any]:
+def week(ref: str, now: float | None = None, home: Path | None = None) -> dict[str, Any]:
     """{kind: count} over the last week for ``ref``, and ``last``: when
     the latest one happened. Empty when nothing did."""
     now = time.time() if now is None else now
     counts: dict[str, int] = {}
     latest = 0.0
-    for event in _read().get(ref) or []:
+    for event in _read(home).get(ref) or []:
         try:
             at, kind = float(event[0]), str(event[1])
         except (TypeError, ValueError, IndexError):
@@ -94,9 +94,10 @@ def week(ref: str, now: float | None = None) -> dict[str, Any]:
             "last": datetime.fromtimestamp(latest, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 
-def line(ref: str) -> str:
-    """``robot check 2×, signed out 1× this week`` -- or empty."""
-    seen = week(ref)
+def line(ref: str, home: Path | None = None) -> str:
+    """``robot check 2×, signed out 1× this week`` -- or empty. ``home``
+    is the Setu folder the connection lives in (default: this one)."""
+    seen = week(ref, home=home)
     if not seen:
         return ""
     parts = [f"{KINDS[k]} {n}×" for k, n in sorted(seen["counts"].items(),
