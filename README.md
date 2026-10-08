@@ -623,6 +623,13 @@ anybody else's.
   Every person's open page stops at once, and no new link works. Turn it
   back on and their devices work again. `setu page-link --close-all`, run
   in a person's folder, signs out all their devices.
+* **See who has a page open.** Your own page has a **People's pages**
+  section: each person, each device their page is open on in two words
+  (*Android · Chrome*, *iPhone · Safari*) and since when, and a link
+  sent but not yet opened, until when. **Close** there signs one person
+  out of every device, the same as `--close-all` in their folder; the
+  others stay open. It shows no key or code, so nothing on it opens
+  anybody's page.
 
 Disconnecting revokes the permission **at Google**, so the app also disappears
 from your Google account's
@@ -962,7 +969,11 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   `SETU_VAULT_KEY`). It answers only status, connections, connectors,
   requests and the sign-in calls, and gives 403 for the rest. `POST
   /api/session/close` forgets that one key. `config.people_page()` is
-  read in the owner's folder on every request.
+  read in the owner's folder on every request. The owner's token alone
+  gets `GET /api/people` (`people.overview`: each folder's open pages as
+  `{since, device}` and an unused link's `expires_at`, never a hash) and
+  `POST /api/people/close {person}` (`people.close_all` on that folder); a
+  person's key gets 403.
 * **What a harness reads.** `setu status --json` (format `setu.status.v1`):
   connections, installed connectors with their levels and tool classes,
   whether each connector is `ready` to sign in (`not_ready` saying why, and

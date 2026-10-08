@@ -301,6 +301,11 @@ SETU_HOME=/tmp/setu-people/asha setu page-link --url http://127.0.0.1:8775/
    people-page --unset`, and her page works again.
 7. On Asha's page, **Close this page on this device**. Reloading asks for
    a new link.
+8. Make Asha another link and open it. On **your own** page, **People's
+   pages** shows *asha · 1 open* with this browser in two words
+   (*Linux · Firefox*) and *opened just now*. A link made and not opened
+   shows *A link not yet opened, until …* and **Cancel the link**. Press
+   **Close** on Asha: reloading her page asks for a new link.
 
 | What you see | What it means |
 |---|---|

@@ -31,6 +31,14 @@ forgetting them.
 The secret a browser holds is ``p.<person>.<secret>``: the server can
 find whose folder to look in without trying every one, and the owner's
 token can never be mistaken for it.
+
+THE OWNER SEES WHO HAS A PAGE OPEN, NEVER A KEY. ``overview`` lists each
+person's folder with its open pages (when each began, and the device in
+two words: "Android · Chrome") and a link not yet used, until when. No
+hash leaves the folder, so nothing listed opens anything. The owner
+closes a person's pages from there (``close_all``, as ``setu page-link
+--close-all`` does in that folder): one person, not the switch that
+turns everybody's off.
 """
 
 from __future__ import annotations
@@ -42,6 +50,7 @@ import os
 import re
 import secrets
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -119,7 +128,7 @@ def claim(people: Path, link: str, device: str = "",
     secret = secrets.token_urlsafe(32)
     sessions = _read(home / SESSIONS_FILE, [])
     sessions = sessions if isinstance(sessions, list) else []
-    sessions.append({"sha256": _hash(secret), "since": now, "device": device[:120]})
+    sessions.append({"sha256": _hash(secret), "since": now, "device": device[:400]})
     _write(home / SESSIONS_FILE, sessions)
     return person, f"{PREFIX}{person}.{secret}"
 
@@ -164,3 +173,51 @@ def close_all(home: Path) -> int:
 def count(home: Path) -> int:
     sessions = _read(home / SESSIONS_FILE, [])
     return len(sessions) if isinstance(sessions, list) else 0
+
+
+#: (what a browser's User-Agent says, what to call it), first match wins.
+SYSTEMS = (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"),
+           ("CrOS", "ChromeOS"), ("Mac OS X", "Mac"), ("Windows", "Windows"),
+           ("Linux", "Linux"))
+BROWSERS = (("Edg/", "Edge"), ("Firefox/", "Firefox"), ("FxiOS", "Firefox"),
+            ("CriOS", "Chrome"), ("Chrome/", "Chrome"), ("Safari/", "Safari"))
+
+
+def device_name(agent: str) -> str:
+    """``Mozilla/5.0 (Linux; Android 14; ...) Chrome/155...`` -> ``Android ·
+    Chrome``: enough for the owner to tell a phone from a laptop."""
+    agent = agent or ""
+    said = [next((name for key, name in table if key in agent), None)
+            for table in (SYSTEMS, BROWSERS)]
+    if any(said):
+        return " · ".join(name for name in said if name)
+    return agent[:40] or "a device that didn't say"
+
+
+def _when(seconds: Any) -> str | None:
+    try:
+        return datetime.fromtimestamp(float(seconds), UTC).isoformat()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def overview(people: Path, now: float | None = None) -> list[dict[str, Any]]:
+    """Each person's folder under ``people``: their open pages and a link
+    not yet used. For the owner's page -- never a hash."""
+    now = time.time() if now is None else now
+    rows = []
+    try:
+        homes = sorted(p for p in people.iterdir() if p.is_dir() and PERSON_RE.match(p.name))
+    except OSError:
+        return []
+    for home in homes:
+        sessions = _read(home / SESSIONS_FILE, [])
+        pages = [{"since": _when(row.get("since")),
+                  "device": device_name(str(row.get("device") or ""))}
+                 for row in (sessions if isinstance(sessions, list) else [])
+                 if isinstance(row, dict)]
+        kept = _read(home / LINK_FILE, {})
+        expires = float(kept.get("expires_at") or 0) if isinstance(kept, dict) else 0
+        rows.append({"person": home.name, "pages": pages,
+                     "link": {"expires_at": _when(expires)} if expires > now else None})
+    return rows

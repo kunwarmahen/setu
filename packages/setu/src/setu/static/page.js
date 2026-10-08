@@ -589,6 +589,50 @@ function drawSettings(data) {
   document.getElementById("settings").replaceChildren(...rows);
 }
 
+// -- people's pages (the owner's) ------------------------------------------------
+
+function drawPeople(data) {
+  if (!changed("people", data)) return;
+  const section = document.getElementById("people-section");
+  section.hidden = !data.served;
+  if (!data.served) return;
+  const box = document.getElementById("people");
+  const off = data.on ? null : h("p.empty", {}, "People's pages are switched off " +
+    "(setu config people-page on): nobody's page opens, even one listed here.");
+  if (!data.people.length) {
+    box.replaceChildren(...[off, h("p.empty", {}, "Nobody has a folder here yet.")]
+      .filter(Boolean));
+    return;
+  }
+  box.replaceChildren(...[off].filter(Boolean), ...data.people.map((p) => {
+    const lines = p.pages.map((s) => h("div.meta", {}, `${s.device} · opened ${ago(s.since)}`));
+    if (p.link) {
+      lines.push(h("div.meta", {}, `A link not yet opened, until ` +
+        new Date(p.link.expires_at).toLocaleTimeString()));
+    }
+    if (!lines.length) lines.push(h("div.meta", {}, "No page open."));
+    let close = null;
+    if (p.pages.length || p.link) {
+      close = h("button.btn.danger", { type: "button" }, !p.pages.length
+        ? "Cancel the link" : p.pages.length > 1 ? "Close their pages" : "Close");
+      close.addEventListener("click", async () => {
+        if (!confirm(`${p.pages.length ? `Close ${p.person}'s page` +
+                       (p.pages.length > 1 ? "s" : "") : `Cancel ${p.person}'s link`}? ` +
+                     "They'll need a new link from their chat to open it again.")) return;
+        try {
+          const done = await api("/api/people/close", { person: p.person });
+          say(`${p.person}: ${done.closed} page${done.closed === 1 ? "" : "s"} closed`);
+          refresh();
+        } catch (err) { say(`Couldn't: ${err.message}`, true); }
+      });
+    }
+    return h("article.card", {},
+      h("div.card-head", {}, h("h3", {}, p.person),
+        h("span.ref", {}, `${p.pages.length} open`)),
+      lines, close ? h("div.actions", {}, close) : null);
+  }));
+}
+
 function wireClose() {
   document.getElementById("close-session").addEventListener("click", async () => {
     if (!confirm("Close this page on this device? You'll need a new link from your chat " +
@@ -615,8 +659,10 @@ async function refresh() {
     drawConnections(conns.connections, names, cards);
     drawAvailable(ctors.connectors);
     if (!person) {
-      const [cat, certs, settings] = await Promise.all([
-        api("/api/catalog"), api("/api/certifiers"), api("/api/settings")]);
+      const [cat, certs, settings, folks] = await Promise.all([
+        api("/api/catalog"), api("/api/certifiers"), api("/api/settings"),
+        api("/api/people")]);
+      drawPeople(folks);
       drawCatalog(cat);
       drawCertifiers(certs.certifiers);
       drawSettings(settings);

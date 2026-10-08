@@ -26,6 +26,8 @@ API on the same server:
     GET  /api/settings     the settings ``setu config`` shows -- never a key
     POST /api/settings     {name, value}  (value null: forget it)
     POST /api/people/claim {link}        a person's one-time link, for a session
+    GET  /api/people       the owner's: each person's open pages and unused link
+    POST /api/people/close {person}      the owner's: close that person's pages
     POST /api/session/close              a person closes the page on this device
 
 ONE SIGN-IN ROAD, THE ONE A HARNESS USES. Connecting is ``setu connect
@@ -103,6 +105,9 @@ those change what is installed on the owner's computer. They connect,
 change a level, disconnect and read their log, each in their own folder
 (the sign-in runs with ``SETU_HOME`` there). The owner's switch
 (``setu config people-page off``) refuses every person's session at once.
+The owner's page lists who has a page open, on what, since when, and
+closes one person's (people.overview) -- a person's session asking gets
+"that part of the page is your owner's".
 
 LOCALHOST BY DEFAULT, deliberately; reaching the network is a decision
 (``--host``), as it is for Samay and Dvara.
@@ -768,6 +773,23 @@ class PageServer:
             raise ApiError(403, str(exc)) from None
         return {"person": person, "token": secret}
 
+    def people_pages(self) -> dict[str, Any]:
+        """For the owner's page: whether people's pages are served and on,
+        and each person's open pages."""
+        if self.people is None:
+            return {"served": False, "on": False, "people": []}
+        return {"served": True, "on": self.people_on(),
+                "people": people.overview(self.people)}
+
+    def close_person(self, person: str) -> dict[str, Any]:
+        if self.people is None:
+            raise ApiError(404, "this Setu has no people's pages")
+        try:
+            home = people.folder(self.people, person)
+        except people.PeopleError as exc:
+            raise ApiError(404, str(exc)) from None
+        return {"person": person, "closed": people.close_all(home)}
+
     def serve_forever(self) -> None:
         self._start_extra()
         self.httpd.serve_forever()
@@ -860,6 +882,15 @@ def _handler(server: PageServer):
                 if claiming:
                     code, data = 200, server.claim(str(body.get("link") or ""),
                                                    self.headers.get("User-Agent") or "")
+                elif url.path in ("/api/people", "/api/people/close"):
+                    if api is not server.api:
+                        raise ApiError(403, "that part of the page is your owner's")
+                    if method == "GET" and url.path == "/api/people":
+                        code, data = 200, server.people_pages()
+                    elif method == "POST" and url.path == "/api/people/close":
+                        code, data = 200, server.close_person(str(body.get("person") or ""))
+                    else:
+                        raise ApiError(405, f"no such endpoint: {method} {url.path}")
                 elif url.path == "/api/session/close" and method == "POST":
                     if api is server.api:
                         raise ApiError(400, "the owner's page has no session to close")

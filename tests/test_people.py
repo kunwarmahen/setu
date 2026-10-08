@@ -198,3 +198,83 @@ def test_a_people_folder_not_made_yet_is_nobody_yet(tmp_path):
     (tmp_path / "file").write_text("x")
     with pytest.raises(ValueError):
         page.people_dir(str(tmp_path / "file"))
+
+
+PHONE = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
+         "(KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36")
+
+
+def test_the_owner_sees_who_has_a_page_open_and_no_key(served, place):
+    (place / "ravi").mkdir()
+    link, _ = people.make_link(place / "asha")
+    res = httpx.post(served.url + "api/people/claim", json={"link": link},
+                     headers={"User-Agent": PHONE}, timeout=5)
+    secret = res.json()["token"].rsplit(".", 1)[1]
+    people.make_link(place / "ravi")
+    listed = call(served, "/api/people", OWNER)
+    assert listed.status_code == 200
+    data = listed.json()
+    assert data["served"] and data["on"]
+    asha, ravi = data["people"]
+    assert asha["person"] == "asha" and asha["link"] is None
+    assert [p["device"] for p in asha["pages"]] == ["Android · Chrome"]
+    assert asha["pages"][0]["since"]
+    assert ravi["pages"] == [] and ravi["link"]["expires_at"]
+    kept = (place / "asha" / people.SESSIONS_FILE).read_text()
+    assert secret not in listed.text and json.loads(kept)[0]["sha256"] not in listed.text
+
+
+def test_a_person_can_neither_list_nor_close_anybodys_pages(served, place):
+    link, _ = people.make_link(place / "asha")
+    token = claim(served, link).json()["token"]
+    for res in (call(served, "/api/people", token),
+                call(served, "/api/people/close", token, {"person": "asha"})):
+        assert res.status_code == 403 and "owner's" in res.json()["detail"]
+    assert call(served, "/api/status", token).status_code == 200
+
+
+def test_the_owner_closes_one_persons_pages_and_nobody_elses(served, place):
+    (place / "ravi").mkdir()
+    asha = claim(served, people.make_link(place / "asha")[0]).json()["token"]
+    ravi = claim(served, people.make_link(place / "ravi")[0]).json()["token"]
+    done = call(served, "/api/people/close", OWNER, {"person": "asha"})
+    assert done.json() == {"person": "asha", "closed": 1}
+    assert call(served, "/api/status", asha).status_code == 401
+    assert call(served, "/api/status", ravi).status_code == 200
+    for nobody in ("../asha", "zed"):
+        assert call(served, "/api/people/close", OWNER, {"person": nobody}).status_code == 404
+
+
+def test_with_no_people_folder_the_list_says_so(home):
+    server = page.PageServer(page.Api(FileVault()), OWNER, port=0)
+    server.start()
+    try:
+        assert call(server, "/api/people", OWNER).json() == {
+            "served": False, "on": False, "people": []}
+    finally:
+        server.stop()
+
+
+IPHONE = ("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 "
+          "(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1")
+
+
+def test_a_long_user_agent_keeps_the_browser_s_name(served, place):
+    """Safari names itself past the 120th character: kept to 120, an
+    iPhone listed as plain "iPhone"."""
+    link, _ = people.make_link(place / "asha")
+    httpx.post(served.url + "api/people/claim", json={"link": link},
+               headers={"User-Agent": IPHONE}, timeout=5)
+    listed = call(served, "/api/people", OWNER).json()["people"]
+    assert listed[0]["pages"][0]["device"] == "iPhone · Safari"
+
+
+@pytest.mark.parametrize("agent, said", [
+    (PHONE, "Android · Chrome"),
+    (IPHONE, "iPhone · Safari"),
+    ("Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0",
+     "Linux · Firefox"),
+    ("", "a device that didn't say"),
+])
+def test_a_device_is_named_in_two_words(agent, said):
+    assert people.device_name(agent) == said
