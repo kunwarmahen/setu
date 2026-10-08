@@ -266,3 +266,44 @@ setu connect --site news.ycombinator.com --as personal
 | `could not tell whether you signed in` | No one was there to answer (`--json` without the page, or no terminal). Run it in a terminal, or add `--signed-in`. |
 | `Setu already has Amazon` | That site has a ready-made connector: use `setu connect amazon`. |
 | `connected Read only` after `--level write` | The site looks like a bank or a payment service. Edit its file to allow more. |
+
+## Setu's page, and a page for someone else
+
+Start the page and open the address it prints, the one ending in `#token=…`:
+
+```
+setu serve --people /tmp/setu-people
+```
+
+1. Your connections are at the top, each with **What it did**. Below them:
+   **Available to connect**, **Add a site**, **Catalog**, **Certifiers you
+   trust** and **Settings**.
+2. In **Settings**, set `share-installs` to `maybe` and press Save. Expect
+   *share-installs is on or off*, the same refusal `setu config` gives.
+   Set it to `off`, then empty it to forget it.
+3. With a catalog kept, a connector you haven't installed has **Install**
+   and its `sha256`. Installing asks first and names that hash.
+
+Now pretend to be someone with their own folder:
+
+```
+mkdir -p /tmp/setu-people/asha
+SETU_HOME=/tmp/setu-people/asha setu page-link --url http://127.0.0.1:8775/
+```
+
+4. Open the printed link in a **private window** (so it doesn't replace
+   your own key). The header says **Setu · asha**, and there is no Catalog,
+   Settings or Add a site.
+5. Open the same link again in another private window. Expect *that link
+   has been used*.
+6. In a terminal: `setu config people-page off`. Reload Asha's page: *your
+   owner has turned this page off*. Turn it back on with `setu config
+   people-page --unset`, and her page works again.
+7. On Asha's page, **Close this page on this device**. Reloading asks for
+   a new link.
+
+| What you see | What it means |
+|---|---|
+| `a person's link needs the address their phone reaches Setu's page at` | Give `--url`, or set `SETU_PAGE_URL` (or `SETU_WINDOW_HOST`) where the link is made. |
+| `that link is more than ten minutes old` | Make a new one. |
+| `this Setu has no people's pages` | `setu serve` was started without `--people`. |
