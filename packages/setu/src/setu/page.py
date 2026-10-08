@@ -60,6 +60,14 @@ the page's address with the token after a ``#`` -- the part of an
 address a browser never sends to a server, so it is in no log -- and the
 page keeps it for next time.
 
+ONE MORE ADDRESS, FOR PEOPLE'S PHONES. ``--also-host`` listens on a
+second address on the same port, with the same page and the same
+rules: this computer keeps 127.0.0.1 (its links still work), and a
+person's link (``setu page-link``) opens on a phone that reaches that
+address -- a Tailscale or home-network one, not every address at once.
+A caller from there is not "local": adding a site still needs someone
+at this computer, and the owner's page still needs its token.
+
 EMBEDDING IS BY NAME. A page that holds sign-ins must not be wrapped by
 a site that lays its own buttons over it (click-jacking), so the page
 says who may frame it: ``Content-Security-Policy: frame-ancestors``,
@@ -688,7 +696,8 @@ class PageServer:
 
     def __init__(self, api: Api, token: str, *, host: str = "127.0.0.1",
                  port: int = DEFAULT_PORT, public_url: str | None = None,
-                 embed: list[str] | None = None, people_dir: Path | None = None) -> None:
+                 embed: list[str] | None = None, people_dir: Path | None = None,
+                 also: list[str] | None = None) -> None:
         self.api = api
         self.token = token
         #: Where people's own folders are (``--people``); None: no person's page.
@@ -699,6 +708,11 @@ class PageServer:
         self.embed = embedders() if embed is None else embed
         self.httpd = ThreadingHTTPServer((host, port), _handler(self))
         self.httpd.daemon_threads = True
+        #: The same page on more addresses (``--also-host``), same port.
+        self.extra = [ThreadingHTTPServer((h, self.httpd.server_address[1]), _handler(self))
+                      for h in also or []]
+        for extra in self.extra:
+            extra.daemon_threads = True
         self._thread: threading.Thread | None = None
 
     @property
@@ -755,18 +769,30 @@ class PageServer:
         return {"person": person, "token": secret}
 
     def serve_forever(self) -> None:
+        self._start_extra()
         self.httpd.serve_forever()
 
     def start(self) -> None:
+        self._start_extra()
         self._thread = threading.Thread(target=self.httpd.serve_forever,
                                         name="setu-page", daemon=True)
         self._thread.start()
 
+    def _start_extra(self) -> None:
+        for extra in self.extra:
+            threading.Thread(target=extra.serve_forever, name="setu-page-also",
+                             daemon=True).start()
+
     def stop(self) -> None:
-        self.httpd.shutdown()
-        self.httpd.server_close()
+        for server in [self.httpd, *self.extra]:
+            server.shutdown()
+            server.server_close()
         if self._thread is not None:
             self._thread.join()
+
+    def close(self) -> None:
+        for server in [self.httpd, *self.extra]:
+            server.server_close()
 
 
 def _handler(server: PageServer):

@@ -851,8 +851,12 @@ def _serve(args: argparse.Namespace) -> int:
 
     vault = FileVault()
     folders = page.people_dir(args.people)
-    server = page.PageServer(page.Api(vault), page.page_token(vault.home), host=args.host,
-                             port=args.port, public_url=args.public_url, people_dir=folders)
+    try:
+        server = page.PageServer(page.Api(vault), page.page_token(vault.home),
+                                 host=args.host, port=args.port, public_url=args.public_url,
+                                 people_dir=folders, also=args.also_host or [])
+    except OSError as exc:
+        raise SystemExit(f"setu serve: cannot listen there ({exc})") from None
     print(f"Setu's page for {vault.home}:\n  {server.page_url}\n"
           "(the part after # is its key: open it once, the page keeps it. Ctrl-C stops.)",
           flush=True)
@@ -860,10 +864,12 @@ def _serve(args: argparse.Namespace) -> int:
         state = "on" if server.people_on() else "OFF (setu config people-page on)"
         none = "" if folders.is_dir() else " (none there yet)"
         print(f"people's own pages, for the folders in {folders}{none}: {state}", flush=True)
+    for host in args.also_host or []:
+        print(f"also on {host}, port {server.httpd.server_address[1]}", flush=True)
     try:
         server.serve_forever()
     finally:
-        server.httpd.server_close()
+        server.close()
     return 0
 
 
@@ -1243,6 +1249,9 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1",
                        help="where to listen (default: this computer only)")
     serve.add_argument("--port", type=int, default=8775)
+    serve.add_argument("--also-host", action="append", metavar="ADDR",
+                       help="listen on this address too, same port: where people's "
+                            "phones reach the page (a Tailscale or home-network address)")
     serve.add_argument("--public-url", help="the address a browser uses, when it is not "
                        "where Setu listens (a port mapping, a proxy); or $SETU_PAGE_URL")
     serve.add_argument("--people", help="the folder people's own Setu folders are in (a "

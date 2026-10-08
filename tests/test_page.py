@@ -439,3 +439,18 @@ def test_settings_never_carry_a_secret(stand_in):
     text = json.dumps(stand_in.handle("GET", "/api/settings", {})[1])
     for secret in (REFRESH, TOKEN, "shh-secret"):
         assert secret not in text
+
+
+def test_one_more_address_serves_the_same_page_and_the_same_rules(home):
+    seed(FileVault())
+    server = page.PageServer(page.Api(FileVault()), GOOD, port=0, also=["127.0.0.2"])
+    server.start()
+    try:
+        port = server.httpd.server_address[1]
+        there = f"http://127.0.0.2:{port}/api/status"
+        assert httpx.get(there, timeout=5).status_code == 401
+        ok = httpx.get(there, headers={"Authorization": f"Bearer {GOOD}"}, timeout=5)
+        assert ok.status_code == 200
+        assert server.url == f"http://127.0.0.1:{port}/"  # this computer's link stays
+    finally:
+        server.stop()

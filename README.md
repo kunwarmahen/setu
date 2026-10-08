@@ -564,7 +564,7 @@ the passphrase is never typed into a page.
 It's safe to leave running:
 
 * **Only this computer can open it**, unless you choose otherwise with
-  `--host`. If a browser reaches it at a different address (a port mapping,
+  `--host`, or add one more address with `--also-host` (below). If a browser reaches it at a different address (a port mapping,
   your own HTTPS proxy), say so with `--public-url` or `SETU_PAGE_URL`.
 * **A change must come from the page itself.** Besides the key, a request
   to connect or disconnect that another website sends is refused.
@@ -588,8 +588,14 @@ show each person theirs, from their phone. Tell `setu serve` where those
 folders are:
 
 ```
-setu serve --host 100.64.0.7 --people ~/dvara/state/setu
+setu serve --people ~/dvara/state/setu --also-host 100.64.0.7
 ```
+
+`--also-host` listens on one more address (your Tailscale or home-network
+one) on the same port, so their phones reach it, while this computer
+keeps `127.0.0.1`. Someone reaching it from there still can't add a site,
+and your own page still needs its key. The door builds their link from
+`SETU_PAGE_URL` (here `http://100.64.0.7:8775/`).
 
 A person types `/accounts page` in their chat. Dvara runs `setu page-link`
 in their folder and sends them the link. It works **once, on the first
