@@ -180,13 +180,17 @@ its client hints and `navigator.platform` all say Android, and
 with no window (X's do) gets a real one, on a screen of its own that nobody
 sees (Xvfb, started for the sign-in and stopped after it), never on your
 desktop. Without Xvfb installed, that sign-in is refused and says what to
-install. Where the page listens is yours to set:
+install. On Xvfb the window's Chrome is given WebGL through Mesa's
+software renderer: with none, X turned away every password typed into
+it, and let the same one through on a real screen. Where the page
+listens is yours to set:
 
 | Setting | |
 |---|---|
 | `SETU_WINDOW_HOST` | the address it listens on (default `127.0.0.1`) |
 | `SETU_WINDOW_PORT` | its port (default: any free one) |
 | `SETU_WINDOW_URL` | the address in the link, when it differs (a tunnel, a reverse proxy) |
+| `SETU_WINDOW_DISPLAY` | a screen that is already there (`:1`, your desktop's) instead of Xvfb: the browser gets your graphics card, and anyone at that desktop sees the window |
 
 Which is safe for what: your **home network address** works for people at
 home, but it's plain HTTP, so what they type crosses your Wi-Fi with only the

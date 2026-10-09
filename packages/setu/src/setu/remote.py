@@ -46,6 +46,16 @@ the owner's desktop, where a stranger's sign-in has no business. With no
 Xvfb installed the sign-in is refused and says what to install, rather
 than quietly running headless and being turned away.
 
+WEBGL, OR X SAYS NO. On Xvfb, Chrome blocks the only GL there is (Mesa's
+software one), so a page finds no WebGL, and X answered every password
+typed into that window with "we have temporarily limited your login".
+The same sign-in, the same streamed road, went through with the window
+on a desktop's own screen (``SETU_WINDOW_DISPLAY=:1``), and a page there
+saw the machine's GPU. So on Xvfb Chrome is told to use Mesa's GL anyway
+(``--ignore-gpu-blocklist``): WebGL as a Linux PC with no graphics
+driver has it. ``SETU_WINDOW_DISPLAY`` stays for a computer whose owner
+would rather the window used their screen -- where they can see it.
+
 WHO CAN OPEN IT. The link carries a random token, works for ten minutes,
 and binds to the FIRST device that opens it (a cookie): a second one is
 refused. The server stops when they're signed in, when they say they're
@@ -95,6 +105,9 @@ from urllib.parse import urlsplit
 from setu.browser import COOKIE_KEY_ARG, BrowserSignInFailed, child_env
 
 ENV_HOST, ENV_PORT, ENV_URL = "SETU_WINDOW_HOST", "SETU_WINDOW_PORT", "SETU_WINDOW_URL"
+#: A screen that is already there (``:0``, the desktop's) for the window,
+#: instead of an Xvfb nothing shows.
+ENV_DISPLAY = "SETU_WINDOW_DISPLAY"
 #: How long the link works.
 OPEN_FOR = 600.0
 #: How often the running browser is asked whether a sign-in cookie is set.
@@ -120,6 +133,11 @@ KEY_GAP = (0.03, 0.09)
 NOT_AUTOMATED = "--disable-blink-features=AutomationControlled"
 #: The invisible screen a headed window paints into.
 XVFB_SCREEN = "1280x1024x24"
+#: On Xvfb Chrome finds only Mesa's software GL, which it blocks, and a
+#: page then has no WebGL at all -- a browser almost no person has, and X
+#: refused every password typed into one. Allowed, WebGL is Mesa's
+#: llvmpipe: what a Linux PC with no graphics driver shows.
+SOFTWARE_GL = "--ignore-gpu-blocklist"
 #: How long Xvfb has to say which display it took.
 XVFB_START = 5.0
 KEYS = {"Enter": (13, "\r"), "Backspace": (8, ""), "Tab": (9, "\t")}
@@ -304,9 +322,17 @@ class Screen:
 
     Xvfb picks a free display number itself and writes it to a pipe
     (``-displayfd``), so two sign-ins starting at once cannot take the
-    same one."""
+    same one. With ``SETU_WINDOW_DISPLAY`` set, the window goes on that
+    screen instead and nothing is started: on a desktop's own display the
+    browser has the machine's GPU, where on Xvfb a page's WebGL says it
+    is drawn in software -- and anyone at that desktop sees the window."""
 
     def __init__(self) -> None:
+        self.proc: subprocess.Popen | None = None
+        shown = os.environ.get(ENV_DISPLAY, "").strip()
+        if shown:
+            self.display = shown
+            return
         if shutil.which("Xvfb") is None:
             raise BrowserSignInFailed(
                 "this site turns away a browser with no window, and there is no screen to "
@@ -336,7 +362,7 @@ class Screen:
         self.display = f":{number.strip().decode()}"
 
     def close(self) -> None:
-        if self.proc.poll() is None:
+        if self.proc is not None and self.proc.poll() is None:
             self.proc.terminate()
             try:
                 self.proc.wait(timeout=5)
@@ -709,7 +735,8 @@ def window_for(on_link: Callable[[str, float], Any], on_opened: Callable[[], Any
         screen = Screen() if headed else None
         try:
             chrome = Browser(shutil.which(browser) or browser, profile, headless=not headed,
-                             display=screen.display if screen else None)
+                             display=screen.display if screen else None,
+                             extra=[SOFTWARE_GL] if screen and screen.proc else None)
             try:
                 seen = serve(Window(chrome, url, patterns, hosts), site, host=host,
                              port=port, public=public, open_for=open_for, on_link=on_link,

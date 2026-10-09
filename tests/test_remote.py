@@ -41,7 +41,8 @@ started = os.environ.get("FAKE_STARTED")
 if started:
     open(started, "w").write(json.dumps({
         "headless": "--headless=new" in sys.argv, "display": os.environ.get("DISPLAY"),
-        "says_automated": "--disable-blink-features=AutomationControlled" not in sys.argv}))
+        "says_automated": "--disable-blink-features=AutomationControlled" not in sys.argv,
+        "webgl": "--ignore-gpu-blocklist" in sys.argv}))
 inp, out = os.fdopen(3, "rb", buffering=0), os.fdopen(4, "wb", buffering=0)
 typed, cookies, buf = [], [], b""
 # a cookie an earlier session left: there, while the page still asks
@@ -323,9 +324,20 @@ def _headed_window(home, chrome, tmp_path, monkeypatch, *, headed: bool) -> dict
 
 def test_a_site_that_wants_a_window_gets_one_on_a_screen_nobody_sees(
         home, chrome, tmp_path, monkeypatch):
+    """On Xvfb with WebGL from Mesa: without it, X refused every password."""
     _fake_xvfb(tmp_path, monkeypatch, display="7")
     assert _headed_window(home, chrome, tmp_path, monkeypatch, headed=True) == {
-        "headless": False, "display": ":7", "says_automated": False}
+        "headless": False, "display": ":7", "says_automated": False, "webgl": True}
+
+
+def test_a_screen_that_is_there_is_used_as_it_is(home, chrome, tmp_path, monkeypatch):
+    """The desktop's own display: no Xvfb started, and the machine's GPU
+    left to Chrome -- the window X let a password through."""
+    monkeypatch.setenv("SETU_WINDOW_DISPLAY", ":1")
+    monkeypatch.setattr(remote.shutil, "which",
+                        lambda name: None if name == "Xvfb" else chrome)
+    assert _headed_window(home, chrome, tmp_path, monkeypatch, headed=True) == {
+        "headless": False, "display": ":1", "says_automated": False, "webgl": False}
 
 
 def test_any_other_site_stays_headless(home, chrome, tmp_path, monkeypatch):
