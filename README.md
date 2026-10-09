@@ -943,8 +943,9 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   manifest's.
 * **One grant per app per Google account.** Revoking any token of a grant ends
   all of it, so Setu never revokes a grant another connection still uses.
-* **The page** (`page.py`, `static/`): `setu serve` serves three static
-  files and `GET /api/status`, `/api/connections`, `/api/connectors` and
+* **The page** (`page.py`, `static/`): `setu serve` serves four static
+  files (page, script, style, icon) and `GET /api/status`,
+  `/api/connections`, `/api/connectors` and
   `/api/requests?ref=REF&limit=N`. Changes are `POST /api/connect`,
   `/api/add-site`, `/api/disconnect` and `/api/signin/{answer,paste,cancel}`,
   with `GET /api/signin` for a sign-in's events. A sign-in is `setu connect

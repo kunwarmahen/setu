@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Setu: a bridge, an arch over the water -->
+  <rect width="64" height="64" rx="14" fill="#1f6f6b"/>
+  <g fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round">
+    <path d="M7 24 H57"/>
+    <path d="M10 44 C14 28 22 24 32 24 C42 24 50 28 54 44"/>
+    <path d="M9 52 Q14 48 19 52 T29 52 T39 52 T49 52 T56 51"/>
+  </g>
+</svg>

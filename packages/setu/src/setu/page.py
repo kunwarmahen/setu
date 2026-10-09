@@ -171,7 +171,8 @@ SETTING_ENV = {"client-file": config.ENV_CLIENT_FILE, "homeassistant-url": confi
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/index.html": ("index.html", "text/html; charset=utf-8"),
           "/page.js": ("page.js", "text/javascript; charset=utf-8"),
-          "/page.css": ("page.css", "text/css; charset=utf-8")}
+          "/page.css": ("page.css", "text/css; charset=utf-8"),
+          "/favicon.svg": ("favicon.svg", "image/svg+xml")}
 
 
 def page_token(home: Path | None = None) -> str:

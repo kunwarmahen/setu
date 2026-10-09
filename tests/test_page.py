@@ -50,7 +50,7 @@ def test_every_api_call_without_the_token_is_refused(served):
 
 
 def test_the_page_itself_needs_no_token_and_holds_no_data(served):
-    for path in ("/", "/page.js", "/page.css"):
+    for path in ("/", "/page.js", "/page.css", "/favicon.svg"):
         res = get(served, path, token=None)
         assert res.status_code == 200
         assert "personal@example.com" not in res.text
