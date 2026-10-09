@@ -131,8 +131,9 @@ KEY_GAP = (0.03, 0.09)
 #: ``navigator.webdriver`` is true. A person signing in through the window
 #: is no robot, and a site that reads the flag (X does) turns them away.
 NOT_AUTOMATED = "--disable-blink-features=AutomationControlled"
-#: The invisible screen a headed window paints into.
-XVFB_SCREEN = "1280x1024x24"
+#: The invisible screen a headed window paints into: a page reads its size,
+#: and the most common desktop's is the one that says least.
+XVFB_SCREEN = "1920x1080x24"
 #: On Xvfb Chrome finds only Mesa's software GL, which it blocks, and a
 #: page then has no WebGL at all -- a browser almost no person has, and X
 #: refused every password typed into one. Allowed, WebGL is Mesa's
