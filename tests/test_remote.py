@@ -242,6 +242,34 @@ def test_in_a_locked_folder_the_new_sign_in_is_packed_away(home, chrome, monkeyp
     assert not (profiles / "shop-personal").exists()
 
 
+def test_a_streamed_sign_in_starts_on_an_empty_profile(home, chrome):
+    """X refused every streamed sign-in on a profile that had failed
+    before, and let the same person through on an empty one."""
+    import subprocess
+    sites = FileVault().home / "sites"
+    sites.mkdir(parents=True)
+    (sites / "shop.toml").write_text(
+        'id = "shop"\nname = "Shop"\nroad = "browser"\nauth = "browser"\n'
+        'hosts = ["shop.test"]\n[levels.read]\n[browser]\nstart_url = "https://shop.test/"\n'
+        'login_url = "https://shop.test/"\nsigned_in = ["session"]\n')
+    old = FileVault().home / "profiles" / "shop-personal"
+    old.mkdir(parents=True)
+    (old / "mark").write_text("a cookie the site distrusts")
+    proc = subprocess.Popen([sys.executable, "-m", "setu.cli", "connect", "shop", "--json",
+                             "--remote", "--browser", chrome], stdout=subprocess.PIPE,
+                            text=True, env=dict(os.environ))
+    for line in proc.stdout:
+        event = json.loads(line)
+        if event["event"] == "link":
+            person({})(event["url"])
+        if event["event"] in ("connected", "error"):
+            break
+    proc.wait(timeout=30)
+    assert event["event"] == "connected", event
+    assert old.is_dir() and not (old / "mark").exists()
+    assert sorted(p.name for p in old.parent.iterdir()) == ["shop-personal"]
+
+
 def test_typed_text_lands_in_a_box_even_when_nobody_tapped_one():
     """On a phone, a person types under the picture and presses Send
     without tapping the page's box: typing into nothing did nothing."""

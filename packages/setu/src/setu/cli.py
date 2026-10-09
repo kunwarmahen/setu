@@ -581,8 +581,11 @@ def _connect_remote_json(manifest, args: argparse.Namespace) -> int:
         return 2
     _emit("started", ref=ref, level=level.name, level_label=level.label, scopes=[])
     vault = FileVault()
+    # an empty profile, swapped in only when signed in: a site's mark on
+    # the old one is not carried over (X refused every streamed sign-in on
+    # a profile that had failed before)
     entry = connections.connect_browser(manifest, args.account, level=level.name, vault=vault,
-                                        browser=found, window=window)
+                                        browser=found, window=window, fresh=True)
     # a locked folder with nobody holding its key: the new sign-in is
     # packed away at once, like every other one in it
     if seal.read_lock(vault.home) is not None and seal.held_key(vault.home) is None:

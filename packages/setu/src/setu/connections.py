@@ -241,32 +241,64 @@ def connect_browser(manifest: Manifest, account: str, *, level: str | None, vaul
                     browser: str, on_window: Callable[[Path], Any] | None = None,
                     window: Callable[..., Any] = site_browser.window,
                     ask: Callable[[str], bool] | None = None,
-                    dump: Callable[..., str] = site_browser.dump_dom) -> dict[str, Any]:
+                    dump: Callable[..., str] = site_browser.dump_dom,
+                    fresh: bool = False) -> dict[str, Any]:
     """Sign in to a browser-road site: a window of ``browser`` on the
     connection's own profile, kept only when a sign-in cookie is there --
-    or, for a site Setu wrote the rules for, when its page says so."""
+    or, for a site Setu wrote the rules for, when its page says so.
+
+    ``fresh``: sign in on an empty profile beside the old one, and put it
+    in the old one's place only once the sign-in is good. A site marks a
+    browser it distrusts by a cookie in the profile, and the mark outlives
+    the sign-in: X refused every streamed sign-in on a profile that had
+    failed before, and let the same window, the same person, through on
+    an empty one. A sign-in that fails leaves the old profile as it was."""
     spec = manifest.browser
     if manifest.auth != "browser" or spec is None:
         raise ConnectionFailed(f"{manifest.id} is not signed in to in a browser")
     asked = manifest.level(level)
     profile = site_browser.profile_dir(ref_for(manifest.id, account))
-    if on_window is not None:
-        on_window(profile)
+    work = profile.with_name(profile.name + FRESH) if fresh and profile.exists() else profile
+    if work != profile:
+        shutil.rmtree(work, ignore_errors=True)        # an earlier try's, never finished
     try:
-        window(browser, profile, spec.login_url)
-    except site_browser.BrowserSignInFailed as exc:
-        raise ConnectionFailed(str(exc)) from None
-    if manifest.generated:
-        _prove_by_page(manifest, browser, profile, ask, dump)
-        hosts = list(manifest.hosts[:1])
-    else:
-        hosts = site_browser.signed_in(profile, spec.signed_in, manifest.hosts)
-    if not hosts:
-        raise ConnectionFailed(
-            f"the window closed, but {manifest.name} has not signed you in there "
-            f"(none of {', '.join(spec.signed_in)} is set). Nothing was saved; run it "
-            "again and close the window only after signing in")
+        if on_window is not None:
+            on_window(work)
+        try:
+            window(browser, work, spec.login_url)
+        except site_browser.BrowserSignInFailed as exc:
+            raise ConnectionFailed(str(exc)) from None
+        if manifest.generated:
+            _prove_by_page(manifest, browser, work, ask, dump)
+            hosts = list(manifest.hosts[:1])
+        else:
+            hosts = site_browser.signed_in(work, spec.signed_in, manifest.hosts)
+        if not hosts:
+            raise ConnectionFailed(
+                f"the window closed, but {manifest.name} has not signed you in there "
+                f"(none of {', '.join(spec.signed_in)} is set). Nothing was saved; run it "
+                "again and close the window only after signing in")
+    except BaseException:
+        if work != profile:
+            shutil.rmtree(work, ignore_errors=True)
+        raise
+    if work != profile:
+        _replace(profile, work)
     return _save_browser(manifest, account, asked.name, profile, browser, hosts, vault)
+
+
+#: Beside a connection's profile while a fresh sign-in is made in it.
+FRESH = ".fresh"
+
+
+def _replace(profile: Path, new: Path) -> None:
+    """``new`` in ``profile``'s place, the old one gone. Renames, so the
+    connection is never left with half of either."""
+    old = profile.with_name(profile.name + ".old")
+    shutil.rmtree(old, ignore_errors=True)
+    profile.rename(old)
+    new.rename(profile)
+    shutil.rmtree(old, ignore_errors=True)
 
 
 def connect_phone(manifest: Manifest, account: str, *, level: str | None,

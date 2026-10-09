@@ -12,6 +12,10 @@ Also designed against:
 * **A browser road mistaken for a server.** It has no program; ``setu
   run`` and ``mcp-config`` say so, and the status report carries no
   ``mcp`` for it, so a harness starts nothing.
+* **A site's mark carried into a new sign-in.** X refused every streamed
+  sign-in on a profile that had failed before, and accepted an empty
+  one: a fresh sign-in starts empty, takes the old one's place only when
+  it is good, and a failed one leaves the old one as it was.
 * **A disconnect that deletes the wrong directory.** Only a profile under
   Setu's own ``profiles/`` is ever removed, whatever the vault says.
 * **A dropped file that runs a program, or shadows a real connector.** A
@@ -147,6 +151,40 @@ class TestSigningIn:
         assert f"--user-data-dir={tmp_path / 'p'}" in seen["argv"]
         assert seen["kw"]["start_new_session"] is True
         assert (tmp_path / "p").stat().st_mode & 0o777 == 0o700
+
+
+class TestAFreshSignIn:
+    def _marked(self, home):
+        old = home / "profiles" / "x-personal"
+        old.mkdir(parents=True)
+        (old / "mark").write_text("guest_id the site distrusts")
+        return old
+
+    def test_it_starts_empty_and_takes_the_old_ones_place(self, home):
+        old = self._marked(home)
+        window, seen = a_person([(".x.com", "auth_token")])
+        entry = connections.connect_browser(find("x"), "personal", level=None,
+                                            vault=FileVault(), browser="chrome",
+                                            window=window, fresh=True)
+        assert seen["profile"] != old and not (seen["profile"] / "mark").exists()
+        assert entry["profile"] == str(old) and not (old / "mark").exists()
+        assert sorted(p.name for p in old.parent.iterdir()) == ["x-personal"]
+
+    def test_a_failed_one_leaves_the_old_profile_as_it_was(self, home):
+        old = self._marked(home)
+        window, _ = a_person([(".x.com", "guest_id")])          # no sign-in cookie
+        with pytest.raises(connections.ConnectionFailed):
+            connections.connect_browser(find("x"), "personal", level=None,
+                                        vault=FileVault(), browser="chrome",
+                                        window=window, fresh=True)
+        assert (old / "mark").read_text() == "guest_id the site distrusts"
+        assert sorted(p.name for p in old.parent.iterdir()) == ["x-personal"]
+
+    def test_with_no_profile_yet_it_is_an_ordinary_sign_in(self, home):
+        window, seen = a_person([(".x.com", "auth_token")])
+        connections.connect_browser(find("x"), "personal", level=None, vault=FileVault(),
+                                    browser="chrome", window=window, fresh=True)
+        assert seen["profile"] == home / "profiles" / "x-personal"
 
 
 def connected(home, connector="x", rows=((".x.com", "auth_token"),)):

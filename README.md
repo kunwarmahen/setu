@@ -182,8 +182,13 @@ sees (Xvfb, started for the sign-in and stopped after it), never on your
 desktop. Without Xvfb installed, that sign-in is refused and says what to
 install. On Xvfb the window's Chrome is given WebGL through Mesa's
 software renderer: with none, X turned away every password typed into
-it, and let the same one through on a real screen. Where the page
-listens is yours to set:
+it, and let the same one through on a real screen. A sign-in through the
+window also starts on an **empty profile**, which takes the old one's
+place only once you're signed in: a site marks a browser it distrusts
+with a cookie that outlives the sign-in. X refused every streamed
+sign-in on a profile that had failed before and accepted an empty one,
+same window, same person. A sign-in that fails leaves the old profile
+untouched. Where the page listens is yours to set:
 
 | Setting | |
 |---|---|
