@@ -409,15 +409,24 @@ It is free and works with an ordinary @gmail.com account.
 2. **APIs & Services → Library** → search **Gmail API** → **Enable**.
 3. **APIs & Services → OAuth consent screen** → choose **External** → fill in
    an app name and your email → save. Under **Test users**, add your own Gmail
-   address. (Leave the app in **Testing**.)
+   address. Testing is fine to try it out; for everyday use, **Publish
+   app** so sign-ins don't expire every week (below).
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID** →
    application type **Desktop app** → Create → **Download JSON**.
 5. Keep that file somewhere private (it is a credential), for example
    `~/.config/setu/client_secret.json`. Never put it in a git repository.
 
 > **Testing mode signs you out weekly.** Google expires sign-ins for apps in
-> Testing after 7 days. When that happens Setu tells you, and you run the
-> connect command again. It goes away once an app is verified by Google.
+> Testing after 7 days. When Google refuses one, Setu marks the connection:
+> `setu list`, `setu status --json` (`"expired"`) and Setu's page say
+> `SIGN-IN EXPIRED since …` with the command that fixes it, and an agent
+> stops offering its tools and tells you instead. `setu connect gmail --as
+> <account>` again clears it, and agents already running pick it up on
+> their next turn. To stop the weekly sign-out, publish the app: **OAuth
+> consent screen** (or **Audience**) → **Publish app**, so it reads **In
+> production**. For your own use it needs no verification: Google shows an
+> "unverified app" warning when you sign in (**Advanced → Go to …**), and
+> its sign-ins no longer expire after a week. Then connect once more.
 
 ### 3. Connect Gmail
 
@@ -524,7 +533,7 @@ Setu's page for /home/you/.local/state/setu:
 
 The page has one card for each connection, with the account, its level,
 when an agent last used it, and any trouble in the past week (robot checks,
-sign-outs, things it handed back to you). **What it did** under a card lists
+sign-outs, things it handed back to you), and a sign-in the site refused. **What it did** under a card lists
 the requests Setu made for it, newest first, including any it refused. Below
 the cards are the connectors you've installed but haven't connected yet, with
 each level explained in plain words and the command that connects one.

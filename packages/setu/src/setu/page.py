@@ -132,7 +132,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from setu import catalog, certify, config, health, people, proxy, status
+from setu import catalog, certify, config, connections, health, people, proxy, status
 from setu.manifest import installed
 from setu.vault import FileVault, default_home
 
@@ -495,7 +495,9 @@ class Api:
             # for a harness only: how to start it, and where its cookies are
             card = {k: v for k, v in row.items() if k not in ("mcp", "browser")}
             card["road"] = "browser" if row["browser"] else "api"
-            card["health_line"] = health.line(row["ref"], self.vault.home)
+            card["health_line"] = " · ".join(filter(None, (
+                connections.expired_line(self.vault.get(row["ref"]) or {}),
+                health.line(row["ref"], self.vault.home))))
             rows.append(card)
         return rows
 

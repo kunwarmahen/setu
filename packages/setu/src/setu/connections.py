@@ -493,6 +493,32 @@ def _who(manifest: Manifest, access_token: str, http: httpx.Client) -> str:
         return ""   # the connection works; only its label is missing
 
 
+#: The mark on a connection whose sign-in the site refused: when, and its
+#: words. Shown by `setu list`, the status report and the page until a
+#: refresh works again or the connection is signed in to again (which
+#: writes a new entry without it).
+EXPIRED = "expired"
+
+
+def expired_line(entry: dict[str, Any]) -> str:
+    """``SIGN-IN EXPIRED since 2026-10-11 ...: setu connect gmail --as mine``,
+    or empty."""
+    mark = entry.get(EXPIRED)
+    if not isinstance(mark, dict):
+        return ""
+    since = str(mark.get("since") or "")[:16].replace("T", " ")
+    return (f"SIGN-IN EXPIRED{' since ' + since if since else ''} -- refused: "
+            f"{str(mark.get('why') or '?').rstrip('.')}; sign in again: setu connect "
+            f"{entry.get('connector', '?')} --as {entry.get('account', '?')}")
+
+
+def _refused(ref: str, entry: dict[str, Any], vault: Vault, why: str) -> None:
+    """Mark the connection, so the refusal is seen where people look --
+    not only in the stderr of a connector nobody watches."""
+    entry[EXPIRED] = {"since": _now(), "why": why}
+    vault.put(ref, entry)
+
+
 def token(ref: str, *, vault: Vault, http: httpx.Client, force: bool = False) -> Token:
     """A live access token for ``ref``, refreshed when it is due."""
     entry = vault.get(ref)
@@ -518,6 +544,8 @@ def token(ref: str, *, vault: Vault, http: httpx.Client, force: bool = False) ->
         try:
             payload = google.refresh(client, secret["refresh_token"], http=http)
         except google.GoogleAuthError as exc:
+            if exc.refused:
+                _refused(ref, entry, vault, str(exc).removeprefix("refresh refused: "))
             raise ConnectionFailed(
                 f"{ref} could not refresh ({exc}). Google may have expired it -- "
                 "apps in Testing mode lose their sign-in after 7 days -- run "
@@ -526,6 +554,7 @@ def token(ref: str, *, vault: Vault, http: httpx.Client, force: bool = False) ->
         secret["expires_at"] = time.time() + float(payload.get("expires_in", 3600))
         if payload.get("refresh_token"):
             secret["refresh_token"] = payload["refresh_token"]   # rotation
+        entry.pop(EXPIRED, None)
     entry["secret"] = secret
     entry["last_used"] = _now()
     vault.put(ref, entry)
@@ -555,12 +584,15 @@ def _ha_token(ref: str, entry: dict[str, Any], *, vault: Vault, http: httpx.Clie
                 payload = homeassistant.refresh(base, secret["client_id"],
                                                 secret["refresh_token"], http=http)
             except homeassistant.HomeAssistantError as exc:
+                if exc.refused:
+                    _refused(ref, entry, vault, str(exc).removeprefix("refresh refused: "))
                 raise ConnectionFailed(
                     f"{ref} could not refresh ({exc}). Its sign-in may have been removed "
                     f"in your Home Assistant profile; run `setu connect "
                     f"{entry['connector']} --as {entry['account']}` again") from None
             secret["access_token"] = payload["access_token"]
             secret["expires_at"] = time.time() + float(payload.get("expires_in", 1800))
+            entry.pop(EXPIRED, None)
         expires = float(secret["expires_at"])
     entry["secret"] = secret
     entry["last_used"] = _now()

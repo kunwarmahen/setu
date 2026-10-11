@@ -186,7 +186,10 @@ class FakeGoogle:
 
     def __init__(self, *, scope: str = "https://www.googleapis.com/auth/gmail.readonly",
                  refresh_token: str | None = REFRESH, access_token: str = TOKEN,
-                 email: str = "me@example.com") -> None:
+                 email: str = "me@example.com", refuse_refresh: bool = False,
+                 unreachable: bool = False) -> None:
+        self.refuse_refresh = refuse_refresh
+        self.unreachable = unreachable
         self.scope = scope
         self.refresh_token = refresh_token
         self.access_token = access_token
@@ -199,6 +202,12 @@ class FakeGoogle:
         form = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
         if request.url.path == "/token":
             self.forms.append(form)
+            if self.unreachable:
+                raise httpx.ConnectError("no network", request=request)
+            if self.refuse_refresh and form.get("grant_type") == "refresh_token":
+                return httpx.Response(400, json={
+                    "error": "invalid_grant",
+                    "error_description": "Token has been expired or revoked."})
             answer = {"access_token": self.access_token, "expires_in": 3599,
                       "scope": self.scope, "token_type": "Bearer"}
             if form.get("grant_type") == "authorization_code" and self.refresh_token:

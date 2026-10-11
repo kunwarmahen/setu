@@ -70,6 +70,12 @@ SIGN_IN_TIMEOUT = 300.0
 class GoogleAuthError(Exception):
     """Anything between "open the browser" and a usable token."""
 
+    def __init__(self, message: str, *, refused: bool = False) -> None:
+        super().__init__(message)
+        #: The server answered, and said no (an expired or revoked
+        #: grant) -- not "could not be reached", which may pass.
+        self.refused = refused
+
 
 @dataclass(frozen=True, slots=True)
 class Client:
@@ -243,7 +249,8 @@ def _post(http: httpx.Client, url: str, form: dict[str, str], what: str) -> dict
         payload = {}
     if response.status_code != 200:
         reason = payload.get("error_description") or payload.get("error") or response.text[:200]
-        raise GoogleAuthError(f"{what} refused: HTTP {response.status_code} {reason}")
+        raise GoogleAuthError(f"{what} refused: HTTP {response.status_code} {reason}",
+                               refused=400 <= response.status_code < 500)
     if not payload.get("access_token"):
         raise GoogleAuthError(f"{what}: no access_token in the answer")
     return payload

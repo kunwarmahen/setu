@@ -295,3 +295,68 @@ class TestSigningInFromAnotherDevice:
         pasted.put("hello, is this working?")
         assert pasted.take("s") is None
         assert "copy the whole address" in refused[0]
+
+
+class TestAnExpiredSignIn:
+    """Google expires a Testing-mode app's sign-in after seven days. The
+    bias: A REFUSAL IS SEEN WHERE PEOPLE LOOK -- `setu list`, the status
+    report, the page -- not only in the stderr of a connector nobody
+    watches; and a network blip is not mistaken for one."""
+
+    def due(self, vault: FileVault) -> None:
+        entry = vault.get("gmail:personal")
+        entry["secret"]["expires_at"] = 0
+        vault.put("gmail:personal", entry)
+
+    def test_a_refused_refresh_marks_the_connection_with_when_and_why(self, home):
+        vault = FileVault()
+        connect(FakeGoogle(), vault)
+        self.due(vault)
+        with FakeGoogle(refuse_refresh=True).client() as http:
+            with pytest.raises(connections.ConnectionFailed, match="setu connect gmail"):
+                connections.token("gmail:personal", vault=vault, http=http)
+        mark = vault.get("gmail:personal")[connections.EXPIRED]
+        assert "Token has been expired or revoked" in mark["why"] and mark["since"]
+        line = connections.expired_line(vault.get("gmail:personal"))
+        assert line.startswith("SIGN-IN EXPIRED since ")
+        assert line.endswith("setu connect gmail --as personal")
+
+    def test_google_unreachable_is_not_an_expired_sign_in(self, home):
+        vault = FileVault()
+        connect(FakeGoogle(), vault)
+        self.due(vault)
+        with FakeGoogle(unreachable=True).client() as http:
+            with pytest.raises(connections.ConnectionFailed):
+                connections.token("gmail:personal", vault=vault, http=http)
+        assert connections.EXPIRED not in vault.get("gmail:personal")
+
+    def test_a_refresh_that_works_again_or_a_new_sign_in_clears_it(self, home):
+        vault = FileVault()
+        connect(FakeGoogle(), vault)
+        self.due(vault)
+        with FakeGoogle(refuse_refresh=True).client() as http:
+            with pytest.raises(connections.ConnectionFailed):
+                connections.token("gmail:personal", vault=vault, http=http)
+        with FakeGoogle().client() as http:
+            connections.token("gmail:personal", vault=vault, http=http, force=True)
+        assert connections.EXPIRED not in vault.get("gmail:personal")
+        self.due(vault)
+        with FakeGoogle(refuse_refresh=True).client() as http:
+            with pytest.raises(connections.ConnectionFailed):
+                connections.token("gmail:personal", vault=vault, http=http)
+        connect(FakeGoogle(), vault)                       # signed in again
+        assert connections.EXPIRED not in vault.get("gmail:personal")
+
+    def test_setu_list_and_the_status_report_say_it(self, home, capsys):
+        from setu import cli, status
+        vault = FileVault()
+        connect(FakeGoogle(), vault)
+        self.due(vault)
+        with FakeGoogle(refuse_refresh=True).client() as http:
+            with pytest.raises(connections.ConnectionFailed):
+                connections.token("gmail:personal", vault=vault, http=http)
+        cli.main(["list"])
+        assert "SIGN-IN EXPIRED" in capsys.readouterr().out
+        row = next(r for r in status.report()["connections"] if r["ref"] == "gmail:personal")
+        assert row["expired"]["why"].startswith("HTTP 400")
+

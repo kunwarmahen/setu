@@ -227,6 +227,8 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
             "last_used": connections.last_used(entry),
             # a week of what went wrong on a browser connection (health.py)
             "health": health.week(ref) if entry.get("auth") == "browser" else {},
+            # the site refused its sign-in: when and why, until signed in again
+            "expired": entry.get(connections.EXPIRED) or None,
             "installed": manifest is not None,
             "base_url": entry.get("base_url"),
             "mcp": (None if entry.get("auth") in ("browser", "phone") else

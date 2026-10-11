@@ -667,6 +667,8 @@ def _list(_args: argparse.Namespace) -> int:
             where = "phone: " + ((raw.get("phone") or {}).get("android")
                                  or (raw.get("phone") or {}).get("ios") or "its app")
         print(f"{ref:<22} {where:<30} {label:<16} last used {used}")
+        if gone := connections.expired_line(raw):
+            print(f"{'':<22} {gone}")
         if seen := health.line(ref):
             print(f"{'':<22} {seen}")
     print(f"\nkeys live in {vault.path} (readable by you only); no command prints them")

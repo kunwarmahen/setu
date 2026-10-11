@@ -49,6 +49,12 @@ from setu.google import SIGN_IN_TIMEOUT, Pasted, RedirectListener
 class HomeAssistantError(Exception):
     """Anything between "which server?" and a usable token."""
 
+    def __init__(self, message: str, *, refused: bool = False) -> None:
+        super().__init__(message)
+        #: The server answered, and said no (an expired or revoked
+        #: grant) -- not "could not be reached", which may pass.
+        self.refused = refused
+
 
 def normalise_url(url: str) -> str:
     """``homeassistant.local:8123/`` -> ``http://homeassistant.local:8123``.
@@ -86,7 +92,8 @@ def _post(http: httpx.Client, url: str, form: dict[str, str], what: str) -> dict
     if response.status_code != 200:
         reason = (payload.get("error_description") or payload.get("error")
                   or response.text[:200])
-        raise HomeAssistantError(f"{what} refused: HTTP {response.status_code} {reason}")
+        raise HomeAssistantError(f"{what} refused: HTTP {response.status_code} {reason}",
+                               refused=400 <= response.status_code < 500)
     if not payload.get("access_token"):
         raise HomeAssistantError(f"{what}: no access_token in the answer")
     return payload
