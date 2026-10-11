@@ -226,6 +226,12 @@ connector goes at a person's pace (3 seconds between pages, at most 10 actions
 a session) and runs in a real browser window on a screen nobody sees. Use it to
 read and for the occasional post you approve, not to automate an account.
 
+`setu list` also says when a site refused a connection's sign-in
+(`SIGN-IN EXPIRED since … ; sign in again: setu connect gmail --as
+mine`). Setu writes that mark the moment a refresh is refused, whoever was
+using the connection, and clears it when a refresh works again or you
+sign in again; `setu status --json` carries it as `"expired"`.
+
 `setu list` also shows a week of what went wrong on each browser
 connection, as your agent's site tools reported it (for example "robot
 check 2×, signed out 1× this week"). It keeps the kind and the time,

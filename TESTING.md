@@ -137,7 +137,7 @@ not one you asked for. Refuse it.
 
 | You see | It means | Do |
 |---|---|---|
-| *No working Gmail sign-in* / *could not refresh* | Google signed you out — apps in Testing mode expire after 7 days | `uv run setu connect gmail --level draft --client-file ‹file›` |
+| *No working Gmail sign-in* / *could not refresh*, or `SIGN-IN EXPIRED` in `setu list` | Google signed you out — apps in Testing mode expire after 7 days; Setu marks the connection when Google refuses it | `uv run setu connect gmail --level draft --client-file ‹file›`; a running Yantra has it back on its next turn. Publish the Google app to stop it (README, *Testing mode signs you out weekly*) |
 | No Gmail tools listed, and no `setu:` line at startup | Yantra did not find Setu | set `YANTRA_SETU=/path/to/setu/.venv/bin/setu` in Yantra's `.env` (or start with `--setu PATH`, which stops with a reason if it cannot be used) |
 | *does not have permission for that* | the connection is Read only | reconnect with `--level draft` if you want drafts |
 | *cannot start 'setu-gmail'* | Setu's environment is missing the connector | `uv sync` in the `setu` folder |
