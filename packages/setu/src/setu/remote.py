@@ -102,6 +102,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from setu import profile_lock
 from setu.browser import COOKIE_KEY_ARG, BrowserSignInFailed, child_env
 
 ENV_HOST, ENV_PORT, ENV_URL = "SETU_WINDOW_HOST", "SETU_WINDOW_PORT", "SETU_WINDOW_URL"
@@ -735,15 +736,16 @@ def window_for(on_link: Callable[[str, float], Any], on_opened: Callable[[], Any
         os.chmod(profile, 0o700)
         screen = Screen() if headed else None
         try:
-            chrome = Browser(shutil.which(browser) or browser, profile, headless=not headed,
-                             display=screen.display if screen else None,
-                             extra=[SOFTWARE_GL] if screen and screen.proc else None)
-            try:
-                seen = serve(Window(chrome, url, patterns, hosts), site, host=host,
-                             port=port, public=public, open_for=open_for, on_link=on_link,
-                             on_opened=on_opened)
-            finally:
-                chrome.close()
+            with profile_lock.held(profile):   # Yantra's lock too; leftovers cleared
+                chrome = Browser(shutil.which(browser) or browser, profile, headless=not headed,
+                                 display=screen.display if screen else None,
+                                 extra=[SOFTWARE_GL] if screen and screen.proc else None)
+                try:
+                    seen = serve(Window(chrome, url, patterns, hosts), site, host=host,
+                                 port=port, public=public, open_for=open_for, on_link=on_link,
+                                 on_opened=on_opened)
+                finally:
+                    chrome.close()
         finally:
             if screen is not None:
                 screen.close()

@@ -168,10 +168,12 @@ def dump_dom(browser: str, profile: Path, url: str,
     argv = [browser, "--headless=new", f"--user-data-dir={profile}", "--no-first-run",
             "--no-default-browser-check", COOKIE_KEY_ARG, f"--timeout={DUMP_MS}",
             "--dump-dom", url]
+    from setu import profile_lock
     try:
-        done = run(argv, capture_output=True, text=True, timeout=DUMP_SECONDS,
-                   env=child_env())
-    except (subprocess.TimeoutExpired, OSError):
+        with profile_lock.held(profile, "Setu sign-in check"):
+            done = run(argv, capture_output=True, text=True, timeout=DUMP_SECONDS,
+                       env=child_env())
+    except (subprocess.TimeoutExpired, OSError, profile_lock.ProfileBusy):
         return ""
     return done.stdout or ""
 
@@ -216,14 +218,16 @@ def window(browser: str, profile: Path, url: str,
     os.chmod(profile, 0o700)
     argv = [browser, f"--user-data-dir={profile}", "--no-first-run",
             "--no-default-browser-check", COOKIE_KEY_ARG, url]
-    # its own session: the terminal's Ctrl-C reaches Setu, which asks the
-    # browser to close properly instead of cutting it off mid-write
-    proc = popen(argv, start_new_session=True, env=child_env())
-    try:
-        proc.wait()
-    except KeyboardInterrupt:
-        _close(proc)
-        raise
+    from setu import profile_lock
+    with profile_lock.held(profile):   # Yantra's lock too; Chrome's leftovers cleared
+        # its own session: the terminal's Ctrl-C reaches Setu, which asks the
+        # browser to close properly instead of cutting it off mid-write
+        proc = popen(argv, start_new_session=True, env=child_env())
+        try:
+            proc.wait()
+        except KeyboardInterrupt:
+            _close(proc)
+            raise
     if not _has_state(profile):
         raise BrowserSignInFailed(
             f"{browser} closed without writing anything to {profile}. Usually it was "

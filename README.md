@@ -944,7 +944,13 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   `search`, `click`, `fill`), and `click` and `fill` are never `read`. The
   connection is a profile (`browser.py`): a plain window of the person's
   browser, `--password-store=basic` on both halves, the browser that wrote it
-  recorded. `setu status` gives the connection no `mcp` and a `browser` block
+  recorded. Every Setu window on a profile (plain, streamed, or the headless
+  `--dump-dom` check) holds the same `yantra.lock` Yantra takes
+  (`profile_lock.py`), so a sign-in and an agent run never share a profile;
+  the busy one is told who has it. Holding it, a Chrome `SingletonLock` left
+  under another computer name (a killed Chrome on the host, seen from a
+  container) is removed with a line saying so: Chrome alone would refuse that
+  profile for good. `setu status` gives the connection no `mcp` and a `browser` block
   (`profile`, `executable`, `home`), and the connector card its `browser`
   rules.
 * **`connect --site`** (`sites.py`, `connections.connect_site`): drafts a
