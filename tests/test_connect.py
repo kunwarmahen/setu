@@ -377,6 +377,17 @@ class TestACheckBeforeItIsUsed:
         assert rows[0]["fix"] == "setu connect gmail --as personal"
         assert connections.EXPIRED in vault.get("gmail:personal")
 
+    def test_refused_again_keeps_the_time_it_was_first_refused(self, home, monkeypatch):
+        vault = FileVault()
+        connect(FakeGoogle(), vault)
+        monkeypatch.setattr(connections, "_now", lambda: "2026-10-11T08:00:00+00:00")
+        with FakeGoogle(refuse_refresh=True).client() as http:
+            connections.check(vault=vault, http=http)
+        monkeypatch.setattr(connections, "_now", lambda: "2026-10-12T08:00:00+00:00")
+        with FakeGoogle(refuse_refresh=True).client() as http:
+            row = connections.check(vault=vault, http=http)[0]
+        assert row["since"] == "2026-10-11T08:00:00+00:00"
+
     def test_a_working_sign_in_is_ok_and_one_that_went_unanswered_is_not_expired(self, home):
         vault = FileVault()
         connect(FakeGoogle(), vault)

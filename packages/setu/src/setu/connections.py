@@ -514,8 +514,11 @@ def expired_line(entry: dict[str, Any]) -> str:
 
 def _refused(ref: str, entry: dict[str, Any], vault: Vault, why: str) -> None:
     """Mark the connection, so the refusal is seen where people look --
-    not only in the stderr of a connector nobody watches."""
-    entry[EXPIRED] = {"since": _now(), "why": why}
+    not only in the stderr of a connector nobody watches. Since the FIRST
+    refusal: a check every day must not make yesterday's look new."""
+    before = entry.get(EXPIRED)
+    since = before.get("since") if isinstance(before, dict) else None
+    entry[EXPIRED] = {"since": since or _now(), "why": why}
     vault.put(ref, entry)
 
 
