@@ -342,6 +342,15 @@ shows the current guide. Only files in `sites/` are ever written, and only
 their `guide` line. A guide you wrote yourself across several lines is
 left alone.
 
+To change the rest (which pages spend money, the pace, the signed-in
+cookie), edit the file, or let a page do it: `setu site file example`
+prints it, and `setu site file example --set` replaces it from stdin.
+The new text is read back the way every site is read first, so a file
+Setu can't load is refused and the old one stays (the one before is kept
+as `example.toml.bak`). Sarathi's home page uses this, under **Settings →
+Accounts**. `setu status --json` marks each site added here with
+`"local": true`.
+
 ### Another site, by hand
 
 You can also write the file yourself. It holds no code, only the site's
@@ -539,6 +548,7 @@ setu config homeassistant-url URL  # remember where your Home Assistant is
 setu connect amazon --as personal  # a site with no API: sign in in a window, then close it
 setu connect --site example.com    # any other site: Setu writes cautious rules for it
 setu site guide example --set "…"  # that site's short guide (shown without --set)
+setu site file example [--set]     # its whole file; --set replaces it from stdin, checked first
 setu config browser PATH           # which browser that window is (default: Chrome on PATH)
 setu catalog                       # the signed catalog: labels, installs, withdrawn versions
 setu serve                         # your connections, levels and logs in a browser page

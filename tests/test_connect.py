@@ -420,3 +420,23 @@ class TestACheckBeforeItIsUsed:
         assert cli.main(["check", "--json"]) == 1
         row = json.loads(capsys.readouterr().out)["checked"][0]
         assert row["state"] == "expired" and row["fix"].endswith("--as personal")
+
+
+class TestASitesFileFromAPage:
+    """`setu site file ID --set`. The bias: A FILE SETU CANNOT LOAD LEFT
+    IN PLACE -- the new text is read back first, and kept only if it loads."""
+
+    def test_a_good_file_replaces_it_and_a_bad_one_changes_nothing(self, home, monkeypatch,
+                                                                   capsys):
+        import io
+
+        from setu import cli, sites
+        sites.write(sites.draft("https://news.example.com/"))
+        site_id = next(iter(m for m in sites.installed() if "example" in m))
+        good = sites.path_for(site_id).read_text().replace("pace = 2.0", "pace = 3.0")
+        monkeypatch.setattr("sys.stdin", io.StringIO(good))
+        assert cli.main(["site", "file", site_id, "--set"]) == 0
+        assert "pace = 3.0" in sites.path_for(site_id).read_text()
+        monkeypatch.setattr("sys.stdin", io.StringIO("id = 'x'\nbogus = 1\n"))
+        assert cli.main(["site", "file", site_id, "--set"]) == 2
+        assert "pace = 3.0" in sites.path_for(site_id).read_text()

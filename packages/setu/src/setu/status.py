@@ -134,6 +134,9 @@ def _connector(manifest: Manifest, connected: bool,
         "author_signed": card.get("author_signed", ""),
         "installs": card["installs"],
         "yanked": card["yanked"],
+        # added on this computer (setu connect --site): its file is the
+        # person's to change (`setu site file`)
+        "local": manifest.local,
         # the browser road's rules, for the harness that drives the profile
         "browser": _browser_card(manifest),
         # the site's own app, for a harness working the person's phone

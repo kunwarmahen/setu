@@ -174,6 +174,32 @@ def write(data: dict[str, Any]) -> Manifest:
     return manifest
 
 
+def set_text(site_id: str, text: str) -> Manifest:
+    """Replace the whole file of a site added on this computer, from a
+    page's text editor: read back the way every other one is read first,
+    so a file Setu cannot load is never left, and the old one is kept as
+    ``.bak``."""
+    known = installed().get(site_id)
+    if known is None or not known.local:
+        raise SiteError(f"{site_id!r} is not a site added on this computer; only "
+                        "those are Setu's to rewrite")
+    target = path_for(site_id)
+    staged = target.with_suffix(".toml.new")
+    staged.write_text(text, encoding="utf-8")
+    try:
+        manifest = load(staged)
+    except ManifestError:
+        staged.unlink()
+        raise
+    if manifest.id != site_id:
+        staged.unlink()
+        raise SiteError(f"the file says id = {manifest.id!r}; it must stay {site_id!r}")
+    target.with_suffix(".toml.bak").write_text(target.read_text(encoding="utf-8"),
+                                                encoding="utf-8")
+    staged.replace(target)
+    return load(target)
+
+
 #: Long enough for a page of places; short enough to stay a guide.
 GUIDE_MAX = 2000
 _GUIDE_LINE = re.compile(r'^guide\s*=\s*"(?:[^"\\]|\\.)*"\s*$')

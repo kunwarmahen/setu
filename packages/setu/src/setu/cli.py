@@ -304,7 +304,25 @@ def _connect_browser_json(manifest, args: argparse.Namespace) -> int:
 
 
 def _site(args: argparse.Namespace) -> int:
+    if args.site_command == "file":
+        return _site_file(args)
     return _site_event(args) if args.site_command == "event" else _site_guide(args)
+
+
+def _site_file(args: argparse.Namespace) -> int:
+    """``setu site file ID``: its whole file; ``--set`` replaces it from
+    stdin, checked first (sites.set_text)."""
+    from setu import sites
+    if not args.set:
+        print(sites.path_for(args.id).read_text(encoding="utf-8"), end="")
+        return 0
+    try:
+        manifest = sites.set_text(args.id, sys.stdin.read())
+    except (sites.SiteError, ManifestError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"{manifest.id}: saved")
+    return 0
 
 
 def _site_event(args: argparse.Namespace) -> int:
@@ -1195,6 +1213,10 @@ def build_parser() -> argparse.ArgumentParser:
     guide = site_sub.add_parser("guide", help="show its guide, or replace it with --set")
     guide.add_argument("id", help="the site's id, e.g. example")
     guide.add_argument("--set", help="the new guide (replaces the old one)")
+    sfile = site_sub.add_parser("file", help="its whole file (a page's text editor); "
+                                "--set: replace it from stdin, checked first")
+    sfile.add_argument("id")
+    sfile.add_argument("--set", action="store_true")
     event = site_sub.add_parser("event", help="a site's tools: note what went wrong "
                                 "(robot_check, signed_out, refused, limit, handoff)")
     event.add_argument("ref", help="the connection, e.g. amazon:personal")
