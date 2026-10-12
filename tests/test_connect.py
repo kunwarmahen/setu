@@ -360,3 +360,52 @@ class TestAnExpiredSignIn:
         row = next(r for r in status.report()["connections"] if r["ref"] == "gmail:personal")
         assert row["expired"]["why"].startswith("HTTP 400")
 
+
+
+class TestACheckBeforeItIsUsed:
+    """An idle account's sign-in runs out unseen until someone needs it.
+    The bias: `setu check` FINDS IT THE DAY IT HAPPENS -- it refreshes
+    every sign-in that can run out, marks the refused ones, and never
+    calls a site that did not answer an expired sign-in."""
+
+    def test_an_expired_sign_in_is_found_marked_and_named_with_its_fix(self, home):
+        vault = FileVault()
+        connect(FakeGoogle(), vault)
+        with FakeGoogle(refuse_refresh=True).client() as http:
+            rows = connections.check(vault=vault, http=http)
+        assert rows[0]["state"] == "expired" and rows[0]["since"]
+        assert rows[0]["fix"] == "setu connect gmail --as personal"
+        assert connections.EXPIRED in vault.get("gmail:personal")
+
+    def test_a_working_sign_in_is_ok_and_one_that_went_unanswered_is_not_expired(self, home):
+        vault = FileVault()
+        connect(FakeGoogle(), vault)
+        with FakeGoogle().client() as http:
+            assert connections.check(vault=vault, http=http)[0]["state"] == "ok"
+        with FakeGoogle(unreachable=True).client() as http:
+            assert connections.check(vault=vault, http=http)[0]["state"] == "unreachable"
+        assert connections.EXPIRED not in vault.get("gmail:personal")
+
+    def test_a_token_that_cannot_be_refreshed_is_skipped_not_tried(self, home):
+        vault = FileVault()
+        connect(FakeGoogle(), vault)
+        entry = vault.get("gmail:personal")
+        entry["secret"]["kind"] = "long_lived"
+        vault.put("gmail:personal", entry)
+        with FakeGoogle(refuse_refresh=True).client() as http:
+            row = connections.check(vault=vault, http=http)[0]
+        assert (row["state"], row["why"]) == ("skipped", "long-lived token")
+        assert connections.EXPIRED not in vault.get("gmail:personal")
+
+    def test_the_command_exits_one_and_says_how_to_fix_it(self, home, capsys, monkeypatch):
+        import httpx
+        from setu import cli
+        vault = FileVault()
+        connect(FakeGoogle(), vault)
+        fake = FakeGoogle(refuse_refresh=True)
+        real = httpx.Client
+        monkeypatch.setattr(cli.httpx, "Client",
+                            lambda **_: real(transport=httpx.MockTransport(fake.route)))
+        assert cli.main(["check", "--json"]) == 1
+        row = json.loads(capsys.readouterr().out)["checked"][0]
+        assert row["state"] == "expired" and row["fix"].endswith("--as personal")

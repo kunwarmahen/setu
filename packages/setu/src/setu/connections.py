@@ -602,6 +602,47 @@ def _ha_token(ref: str, entry: dict[str, Any], *, vault: Vault, http: httpx.Clie
                  level=entry.get("level", ""))
 
 
+def check(*, vault: Vault, http: httpx.Client) -> list[dict[str, Any]]:
+    """Try every sign-in that can run out, once, and say how each stands.
+
+    A sign-in is refused only when it is next used: an account nobody
+    asked for in a week showed nothing wrong until the morning someone
+    needed it. This refreshes each Google and Home Assistant sign-in now
+    (a refresh the site refuses marks it, as ``token`` always does), so a
+    harness can run it daily and tell the person the day it happened.
+
+    One row per connection: ``ok``, ``expired`` (with ``since``, ``why``
+    and ``fix``), ``unreachable`` (the site did not answer: not a
+    refusal, nothing marked), or ``skipped`` (a browser profile, an app
+    on the phone, a locked folder, a token that cannot be refreshed --
+    nothing here can try those without using them)."""
+    rows: list[dict[str, Any]] = []
+    for ref in vault.list():
+        entry = vault.get(ref) or {}
+        row: dict[str, Any] = {"ref": ref, "connector": entry.get("connector", ""),
+                               "account": entry.get("account", ""),
+                               "email": entry.get("email", "")}
+        auth = entry.get("auth", "google")
+        if (auth in ("browser", "phone") or entry.get("locked")
+                or (entry.get("secret") or {}).get("kind") == "long_lived"):
+            rows.append({**row, "state": "skipped",
+                         "why": "locked" if entry.get("locked") else auth
+                         if auth in ("browser", "phone") else "long-lived token"})
+            continue
+        try:
+            token(ref, vault=vault, http=http, force=True)
+            rows.append({**row, "state": "ok"})
+        except ConnectionFailed as exc:
+            mark = (vault.get(ref) or {}).get(EXPIRED)
+            if isinstance(mark, dict):
+                rows.append({**row, "state": "expired", "since": mark.get("since", ""),
+                             "why": mark.get("why", ""),
+                             "fix": f"setu connect {row['connector']} --as {row['account']}"})
+            else:
+                rows.append({**row, "state": "unreachable", "why": str(exc)})
+    return rows
+
+
 def disconnect(ref: str, *, vault: Vault, http: httpx.Client) -> tuple[bool, bool | None]:
     """(was connected, revoked at Google). The second is None when the
     grant was deliberately KEPT because another connection -- the same

@@ -675,6 +675,26 @@ def _list(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _check(args: argparse.Namespace) -> int:
+    """``setu check``: try every sign-in that can run out, now
+    (connections.check). Exit 1 when one has; a harness reads --json."""
+    with httpx.Client(timeout=30.0) as http:
+        rows = connections.check(vault=FileVault(), http=http)
+    if args.json:
+        print(json.dumps({"checked": rows}, indent=2))
+    else:
+        if not rows:
+            print("no connections yet")
+        for row in rows:
+            state = row["state"]
+            if state == "expired":
+                state = f"SIGN-IN EXPIRED -- {row['why']}; sign in again: {row['fix']}"
+            elif state in ("unreachable", "skipped"):
+                state = f"{state} ({row['why']})"
+            print(f"{row['ref']:<22} {state}")
+    return 1 if any(r["state"] == "expired" for r in rows) else 0
+
+
 def _run(args: argparse.Namespace) -> int:
     vault = FileVault()
     entry = vault.get(args.ref)
@@ -1224,6 +1244,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("list", help="your connections")
 
+    chk = sub.add_parser("check", help="try every sign-in that can run out, now "
+                                       "(exit 1 when one has)")
+    chk.add_argument("--json", action="store_true")
+
     run = sub.add_parser("run", help="start a connector for a connection")
     run.add_argument("ref", help="e.g. gmail:personal")
     run.add_argument("--callback", action="store_true",
@@ -1306,7 +1330,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list,
+COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list, "check": _check,
             "run": _run, "log": _log, "lock": _lock, "mcp-config": _mcp_config, "status": _status,
             "serve": _serve, "page-link": _page_link,
             "disconnect": _disconnect, "config": _config, "catalog": _catalog,

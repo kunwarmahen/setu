@@ -232,6 +232,26 @@ mine`). Setu writes that mark the moment a refresh is refused, whoever was
 using the connection, and clears it when a refresh works again or you
 sign in again; `setu status --json` carries it as `"expired"`.
 
+A sign-in is refused only when it is next used, so an account nobody
+asked about for a week looks fine until the morning you need it.
+`setu check` tries every sign-in that can run out, now, and marks the
+refused ones:
+
+```
+$ setu check
+amazon:personal        skipped (browser)
+gmail:mine             ok
+gmail:personal         ok
+homeassistant:home     ok
+```
+
+It exits 1 when one has run out, and `--json` gives each row
+(`ok`, `expired` with `since`, `why` and `fix`, `unreachable` when the
+site did not answer, which marks nothing, or `skipped`: browser
+profiles, apps on the phone, locked folders and Home Assistant's
+long-lived tokens can't be tried without using them). Dvara runs it once
+a day for every folder it reads and tells the person whose account it is.
+
 `setu list` also shows a week of what went wrong on each browser
 connection, as your agent's site tools reported it (for example "robot
 check 2×, signed out 1× this week"). It keeps the kind and the time,
@@ -507,6 +527,7 @@ something is off.
 
 ```
 setu list                          # your connections (never shows a key)
+setu check                         # try every sign-in that can run out, now (exit 1: one has)
 setu connectors                    # what is installed, and exactly what each level asks for
 setu connect gmail --level send    # change the level (signs in again on the same grant)
 setu log gmail:personal            # the requests Setu made for it, and what it refused
