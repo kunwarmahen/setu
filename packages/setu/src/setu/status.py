@@ -87,7 +87,8 @@ def _browser_card(manifest: Manifest) -> dict[str, Any] | None:
         return None
     return {"start_url": spec.start_url, "spend_pages": list(spec.spend_pages),
             "spend_words": list(spec.spend_words), "pace": spec.pace,
-            "max_actions": spec.max_actions, "guide": spec.guide, "headed": spec.headed}
+            "max_actions": spec.max_actions, "guide": spec.guide, "headed": spec.headed,
+            "script_links": spec.script_links}
 
 
 def _phone_card(manifest: Manifest) -> dict[str, Any] | None:

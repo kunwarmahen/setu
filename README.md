@@ -373,6 +373,8 @@ spend_words = ["buy", "pay", "checkout", "subscribe", "delete"]
 pace = 2.0
 max_actions = 10
 headed = true
+# script_links = true           # only for a site whose pages open by script,
+                                # with no address to load (Yahoo Mail's inbox)
 
 [levels.read]
 label = "Read only"
@@ -394,6 +396,14 @@ fill = "write"
 the sign-in cookie's name, sign in to the site in any browser, open the
 developer tools, and look under Application → Cookies for one that
 disappears when you sign out.
+
+Some sites open a page with a script, not an address: in Yahoo Mail's
+inbox every message is a row you press, with no link behind it. On a
+site like that, *Read only* can list the inbox but can't open a message,
+because reading never presses anything. Add `script_links = true` under
+`[browser]` and the agent's `follow` may press such a row. It still
+won't press a button, or a link whose words spend, delete or send
+([Yantra's note 128](https://github.com/kunwarmahen/yantra/blob/main/notes/128-a-link-that-runs-a-script.md)).
 
 Only sites reached through the browser can be added this way. A connector
 that runs a program has to be installed as a package. If an installed
@@ -970,7 +980,10 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   `home_from_cookie` (take home from the store the cookie came from),
   `spend_pages` (path globs) and `spend_words` (button words) that the agent
   never presses, `pace`, `max_actions`, `headed` (the site refuses headless
-  browsers) and a short `guide` (`{home}` is filled in). Levels are `read` and
+  browsers), `script_links` (its pages open by script with no address, so
+  the harness's `follow` may press a link there -- a link, never a button,
+  never one whose words spend, delete or send) and a short `guide` (`{home}`
+  is filled in). Levels are `read` and
   `write` only; verbs are the browser tools (`open`, `follow`, `scroll`,
   `search`, `click`, `fill`), and `click` and `fill` are never `read`. The
   connection is a profile (`browser.py`): a plain window of the person's

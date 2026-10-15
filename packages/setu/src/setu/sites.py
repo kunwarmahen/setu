@@ -138,7 +138,9 @@ def _value(value: Any) -> str:
 def to_toml(data: dict[str, Any]) -> str:
     lines = [f"# {data['name']}: written by `setu connect --site` with cautious defaults.",
              "# Edit freely: add pages that spend to spend_pages, a short guide to the",
-             "# site, or the cookie that means signed in to signed_in.", ""]
+             "# site, or the cookie that means signed in to signed_in. A site that",
+             "# opens its pages by script, with no address to load (a webmail inbox),",
+             "# reads only with script_links = true under [browser].", ""]
     for key in ("id", "name", "summary", "road", "auth", "generated", "hosts"):
         lines.append(f"{key} = {_value(data[key])}")
     lines += ["", "[browser]"]

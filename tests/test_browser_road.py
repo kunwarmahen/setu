@@ -285,6 +285,16 @@ class TestSitesAddedByHand:
         assert card["label"] == "local" and card["browser"]["start_url"]
         assert next(c for c in report["connectors"] if c["id"] == "amazon")["label"] is None
 
+    def test_a_site_whose_links_are_scripts_says_so_to_the_harness(self, home):
+        # Yahoo Mail opens a message by script: the harness may press such
+        # a link at read only when the site's own file says so
+        add_site(home, "shop.toml", SHOP_TOML.replace(
+            "[browser]", "[browser]\nscript_links = true"))
+        assert find("shop").browser.script_links
+        card = next(c for c in status.report()["connectors"] if c["id"] == "shop")
+        assert card["browser"]["script_links"] is True
+        assert not find("amazon").browser.script_links
+
     def test_a_file_that_runs_a_program_is_refused(self, home):
         add_site(home, "tool.toml", 'id = "tool"\nname = "T"\nroad = "mcp"\nauth = "token"\n'
                  'command = ["rm", "-rf", "~"]\n[levels.read]\nlabel = "R"\n')

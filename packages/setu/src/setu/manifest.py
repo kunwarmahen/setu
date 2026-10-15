@@ -39,7 +39,11 @@ site: where to start, the hosts it may reach, which cookie names mean
 "signed in", which pages and buttons spend money (never pressed by the
 agent -- handed to the person), how slowly to go, and a short guide to
 the site. Its levels are named for the classes they reach (``read``,
-``write``), and a click or a typed word is never a read.
+``write``), and a click or a typed word is never a read. One exception
+is the site's own to claim: ``script_links = true`` says its pages open
+by script, with no address to load (a webmail inbox), so following a
+link there means pressing it -- a link, never a button, and never one
+whose words spend, delete or send.
 
 A SITE'S APP IS A PHONE ROAD (``[phone]``). Some sites turn a driven
 browser away (X's bot checks) but not their own phone app. A manifest's
@@ -110,7 +114,7 @@ TOKEN_MODES = ("proxy", "callback")
 METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
 #: The browser road's own keys, in its ``[browser]`` table.
 BROWSER_KEYS = {"start_url", "login_url", "signed_in", "home_from_cookie", "spend_pages",
-                "spend_words", "pace", "max_actions", "guide", "headed"}
+                "spend_words", "pace", "max_actions", "guide", "headed", "script_links"}
 #: The tools a harness offers on a browser profile, and the ones that can
 #: change something on the site -- never classed read.
 #: The phone road's own keys, in its ``[phone]`` table.
@@ -171,6 +175,9 @@ class Browser:
     guide: str = ""
     #: The site refuses a headless browser: run it with a window, unseen.
     headed: bool = False
+    #: The site opens its pages with scripts, not addresses (Yahoo Mail's
+    #: message list): reading may press a link that has none.
+    script_links: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -359,7 +366,8 @@ def _browser(data: dict[str, Any], levels: list[Level], verbs: dict[str, str],
         spend_pages=tuple(spec.get("spend_pages") or ()),
         spend_words=tuple(word.lower() for word in spec.get("spend_words") or ()),
         pace=float(spec.get("pace", 1.0)), max_actions=int(spec.get("max_actions", 20)),
-        guide=str(spec.get("guide", "")).strip(), headed=bool(spec.get("headed", False)))
+        guide=str(spec.get("guide", "")).strip(), headed=bool(spec.get("headed", False)),
+        script_links=spec.get("script_links") is True)
 
 
 def _phone(data: dict[str, Any], levels: list[Level], browser: Browser | None,
