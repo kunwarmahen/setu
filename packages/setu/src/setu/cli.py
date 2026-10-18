@@ -16,11 +16,11 @@
     setu serve [--port 8775]             all of it in a browser, at the address it prints
     setu config client-file PATH         remember the client file, for every harness
     setu connect homeassistant --as home   your Home Assistant's own login page
-    setu connect homeassistant --token-stdin   or a long-lived token, pasted
+    setu connect homeassistant --ask-token     or a long-lived token, pasted
     setu config homeassistant-url URL    remember where your Home Assistant is
     setu connect amazon --as personal    a site with no API: sign in in a window of its own
     setu connect --site example.com      any other site: Setu writes its rules once you sign in
-    setu connect --server URL --id docs [--token-stdin [--header X-API-Key]]
+    setu connect --server URL --id docs [--ask-token [--header X-API-Key]]
                                          an MCP server of your own, at an address
     setu connect --server-command 'uvx weather-mcp' --id weather [--env API_KEY]
                                          or a program of yours that speaks MCP (runs as you)
@@ -1342,10 +1342,12 @@ def build_parser() -> argparse.ArgumentParser:
                          help="events as JSON lines, for a harness's page (no browser)")
     connect.add_argument("--url", help="your Home Assistant's address "
                          "(default: setu config homeassistant-url)")
-    connect.add_argument("--token-stdin", action="store_true",
-                         help="Home Assistant: read a long-lived token from stdin "
-                         "instead of signing in on its login page; --server: the "
-                         "server's token")
+    connect.add_argument("--ask-token", "--token-stdin", dest="token_stdin",
+                         action="store_true",
+                         help="ask for a token, hidden as you paste it (never on the command "
+                         "line); a script may pipe it in instead. Home Assistant: a "
+                         "long-lived token instead of signing in on its login page; "
+                         "--server: the server's token")
     connect.add_argument("--browser", help="a site with no API: the browser to sign in "
                          "with (default: setu config browser, else Chrome on PATH)")
     connect.add_argument("--phone", action="store_true",
@@ -1359,11 +1361,11 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument("--server", metavar="URL",
                          help="an MCP server of your own, at this address (Streamable HTTP): "
                               "Setu tries it, writes its tools down in servers/, and keeps "
-                              "its token (--token-stdin), if it needs one")
+                              "its token (--ask-token), if it needs one")
     connect.add_argument("--server-command", metavar="CMD",
                          help="an MCP server of your own that is a program (stdio), e.g. "
                               "'uvx weather-mcp': it runs as you, unsandboxed")
-    connect.add_argument("--header", help="with --server --token-stdin: the header the token "
+    connect.add_argument("--header", help="with --server --ask-token: the header the token "
                          "goes in, sent bare (default: Authorization: Bearer)")
     connect.add_argument("--env", action="append", metavar="NAME",
                          help="with --server-command: an environment value it needs (a key); "

@@ -421,6 +421,17 @@ class TestLifecycle:
         assert [e["event"] for e in events] == ["started", "connected"]
         assert events[-1]["ref"] == "docs:personal" and events[-1]["tools"] == 3
 
+    @pytest.mark.parametrize("flag", ["--ask-token", "--token-stdin"])
+    def test_ask_token_and_its_old_name_are_one_flag(self, home, server, monkeypatch, flag):
+        # --ask-token is what people type; --token-stdin stays for scripts and the page
+        monkeypatch.setattr(sys, "stdin", io.StringIO(TOKEN + "\n"))
+        assert main(["connect", "--server", server.url, "--id", "docs", flag]) == 0
+        assert FileVault().get("docs:personal")["secret"]["token"] == TOKEN
+
+    def test_a_server_that_wants_a_token_says_to_ask_for_one(self, home, server, capsys):
+        assert main(["connect", "--server", server.url, "--id", "docs"]) == 2
+        assert "add one with --ask-token" in capsys.readouterr().err
+
     def test_a_check_skips_it_rather_than_calling_it(self, home, server):
         add(server.url)
         with httpx.Client() as http:

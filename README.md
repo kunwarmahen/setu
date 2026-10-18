@@ -122,7 +122,7 @@ asks about them every time.
 profile (Security → Long-lived access tokens) and paste it:
 
 ```
-setu connect homeassistant --as home --token-stdin     # it asks; the token is not shown
+setu connect homeassistant --as home --ask-token     # it asks; the token is not shown
 ```
 
 It is tried against your server before it is kept. It cannot be revoked from
@@ -425,16 +425,22 @@ token, if it has one, lives in Setu's vault and nowhere else.
 **A server at an address** (it speaks MCP over HTTP):
 
 ```
-setu connect --server https://docs.example.com/mcp --id docs --token-stdin
+setu connect --server https://docs.example.com/mcp --id docs --ask-token
 #   the server's token (not shown):
 #   connected docs:personal (docs.example.com/mcp) -- All its tools, 6 tools
 ```
 
-Leave out `--token-stdin` for a server that needs no token. If the token
+`--ask-token` makes Setu ask for the token: paste it at the prompt and
+press Enter. It is hidden as you paste, and never goes on the command line,
+where your shell's history and every program on the computer could read
+it. You do this once, on the computer Setu keeps its vault on. Agents in
+Sarathi's containers never need the token: they reach the server through
+Setu, which adds it. (A script can pipe the token in instead of typing
+it; `--token-stdin` is the same flag under its old name.)
+
+Leave out `--ask-token` for a server that needs no token. If the token
 goes in a header of its own rather than `Authorization: Bearer`, name it:
-`--header X-API-Key`. The token is read from the keyboard (or stdin), never
-from the command line, where every program on the computer could read
-it. Setu won't take an address with `?key=...` in it either. Put the key
+`--header X-API-Key`. Setu won't take an address with `?key=...` in it either. Put the key
 in the token instead.
 
 **A server that signs you in on its own page.** Many remote MCP servers
@@ -531,10 +537,10 @@ one, then the right one, and asked about from Yantra on a local model:
 
 ```
 $ setu connect --server http://127.0.0.1:8811/mcp --id kitchen
-error: http://127.0.0.1:8811/mcp asks for a token (HTTP 401); add one with --token-stdin (and --header NAME if it is not a Bearer token); nothing was saved
-$ echo wrong | setu connect --server http://127.0.0.1:8811/mcp --id kitchen --token-stdin
+error: http://127.0.0.1:8811/mcp asks for a token (HTTP 401); add one with --ask-token (and --header NAME if it is not a Bearer token); nothing was saved
+$ echo wrong | setu connect --server http://127.0.0.1:8811/mcp --id kitchen --ask-token
 error: http://127.0.0.1:8811/mcp refused the token you gave (HTTP 401); nothing was saved
-$ setu connect --server http://127.0.0.1:8811/mcp --id kitchen --token-stdin
+$ setu connect --server http://127.0.0.1:8811/mcp --id kitchen --ask-token
 connected kitchen:personal (127.0.0.1/mcp) -- All its tools, 2 tools
   1 of them only read (they may run unasked); the rest are asked about. ...
 
@@ -706,7 +712,7 @@ setu connect amazon --as personal  # a site with no API: sign in in a window, th
 setu connect --site example.com    # any other site: Setu writes cautious rules for it
 setu site guide example --set "…"  # that site's short guide (shown without --set)
 setu site file example [--set]     # its whole file; --set replaces it from stdin, checked first
-setu connect --server URL --id docs [--token-stdin]   # an MCP server of your own: a token, none, or its own sign-in page
+setu connect --server URL --id docs [--ask-token]   # an MCP server of your own: a token, none, or its own sign-in page
 setu connect --server-command 'uvx weather-mcp' --id weather --env WEATHER_KEY   # or a program
 setu config browser PATH           # which browser that window is (default: Chrome on PATH)
 setu catalog                       # the signed catalog: labels, installs, withdrawn versions

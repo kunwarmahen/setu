@@ -643,7 +643,7 @@ def _own_token(ref: str, entry: dict[str, Any], *, vault: Vault, http: httpx.Cli
                else "asks for a token, and none was given")
         _refused(ref, entry, vault, f"the server {why}")
         raise ConnectionFailed(f"{ref}: the server {why}; add it again with one: "
-                               f"{fix} --token-stdin")
+                               f"{fix} --ask-token")
     entry["last_used"] = _now()
     vault.put(ref, entry)
     return Token(access_token=value, expires_at=NEVER, scopes=(), account=entry["account"],

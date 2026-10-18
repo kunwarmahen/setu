@@ -139,10 +139,10 @@ def address(url: str) -> tuple[str, str, str]:
         raise ServerError(f"{url!r} is not a server's address (try: https://example.com/mcp)")
     if parsed.username or parsed.password:
         raise ServerError("put no name or password in the address; give a token with "
-                          "--token-stdin instead")
+                          "--ask-token instead")
     if parsed.query or parsed.fragment:
         raise ServerError("the address has a query (?...); a key there would be kept "
-                          "in plain sight, so give the token with --token-stdin instead")
+                          "in plain sight, so give the token with --ask-token instead")
     host = parsed.hostname.lower()
     port = f":{parsed.port}" if parsed.port else ""
     shown = f"[{host}]" if ":" in host else host
@@ -233,7 +233,7 @@ class _HttpPeer:
                 f"{self.url} refused the token you gave (HTTP {response.status_code})"
                 if self.with_token
                 else f"{self.url} asks for a token (HTTP {response.status_code}); add one "
-                     "with --token-stdin (and --header NAME if it is not a Bearer token)")
+                     "with --ask-token (and --header NAME if it is not a Bearer token)")
         if response.status_code == 404:
             raise ServerError(f"{self.url} has no MCP server there (HTTP 404)")
         if response.status_code >= 400:
@@ -507,15 +507,15 @@ def connect(server_id: str | None, account: str, *, vault: Vault, http: httpx.Cl
         raise ServerError("the command is empty")
     if header and not token:
         raise ServerError("--header names where a token goes; give the token too "
-                          "(--token-stdin)")
+                          "(--ask-token)")
     if header and not HEADER_RE.fullmatch(header):
         raise ServerError(f"{header!r} is not a header's name (try X-API-Key)")
     if argv and token:
         raise ServerError("a program you run takes its keys in its environment: "
-                          "--env NAME, not --token-stdin")
+                          "--env NAME, not --ask-token")
     if url and env:
         raise ServerError("--env is for a program you run; a server at an address takes "
-                          "a token (--token-stdin)")
+                          "a token (--ask-token)")
     for name in env or {}:
         if not ENV_NAME_RE.fullmatch(name):
             raise ServerError(f"{name!r} is not an environment variable's name")

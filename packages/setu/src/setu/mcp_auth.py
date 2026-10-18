@@ -33,7 +33,7 @@ does, and ``setu check`` (Dvara's daily check) tries it.
 NOT EVERY SERVER CAN BE SIGNED IN TO THIS WAY. One whose authorization
 server offers no registration needs a client id from its own dashboard.
 That is said in those words; nothing is guessed. A 401 that names no
-metadata is a server that wants a pasted token (``--token-stdin``).
+metadata is a server that wants a pasted token (``--ask-token``).
 """
 
 from __future__ import annotations
