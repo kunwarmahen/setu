@@ -162,6 +162,8 @@ def _connect(args: argparse.Namespace) -> int:
     if args.server or args.server_command:
         return _connect_server(args)
     manifest = find(_connector_named(args))
+    if manifest.auth == "own":
+        return _connect_own_again(manifest, args)
     if args.phone:
         return _connect_phone(manifest, args)
     if manifest.auth == "homeassistant":
@@ -277,6 +279,30 @@ def _connect_server(args: argparse.Namespace) -> int:
               "its keys and its level, not a sandbox")
     print(f"next: an agent sees it once its package's [connections] needs names "
           f"{entry['connector']} (yours always do); setu mcp-config {ref}")
+    return 0
+
+
+def _connect_own_again(manifest, args: argparse.Namespace, emit: bool = False) -> int:
+    """``setu connect docs --level read``: a server of your own, at a new
+    level, from the address and token it was added with (own.again)."""
+    from setu import own
+    ref = connections.ref_for(manifest.id, args.account)
+    if emit:
+        _emit("started", ref=ref, level=args.level or "", scopes=[])
+    try:
+        with httpx.Client() as http:
+            entry = own.again(ref, vault=FileVault(), http=http, level=args.level)
+    except (own.ServerError, ManifestError) as exc:
+        if emit:
+            raise
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    held = find(manifest.id).level(entry["level"])
+    if emit:
+        _emit("connected", ref=ref, email=entry["email"], level=held.name,
+              level_label=held.label, asked_level=held.name, tools=entry["tools"])
+    else:
+        print(f"connected {ref} ({entry['email']}) -- {held.label}, {entry['tools']} tools")
     return 0
 
 
@@ -603,6 +629,9 @@ def _connect_json(args: argparse.Namespace) -> int:
             return 2
         return _connect_server_json(args)
     manifest = find(_connector_named(args))
+    if manifest.auth == "own":
+        # nothing to sign in to, here or on another device: tried again
+        return _connect_own_again(manifest, args, emit=True)
     if args.remote:
         return _connect_remote_json(manifest, args)
     if args.paste and manifest.auth == "browser":

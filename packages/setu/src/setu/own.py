@@ -554,6 +554,27 @@ def connect(server_id: str | None, account: str, *, vault: Vault, http: httpx.Cl
     return {**entry, "tools": len(found["tools"]), "manifest_path": str(path_for(server_id))}
 
 
+def again(ref: str, *, vault: Vault, http: httpx.Client,
+          level: str | None = None) -> dict[str, Any]:
+    """``setu connect docs --level read``: the connection added before,
+    tried again and kept at the level asked -- its address or program,
+    and its token or values, as they were. Changing a level is connecting
+    again, here as for every connector."""
+    entry = vault.get(ref)
+    if entry is None or entry.get("auth") != "own":
+        cid = ref.partition(":")[0]
+        raise ServerError(f"{ref} is not connected, so Setu has no address for it: add "
+                          f"it with setu connect --server URL --id {cid} --as "
+                          f"{ref.partition(':')[2]}")
+    server, secret = entry.get("server") or {}, entry.get("secret") or {}
+    header = secret.get("header") if secret.get("token") else None
+    return connect(entry["connector"], entry["account"], vault=vault, http=http,
+                   url=server.get("url"), command=server.get("command"),
+                   token=secret.get("token") or None,
+                   header=None if header == "Authorization" else header,
+                   env=secret.get("env") or None, level=level or entry.get("level"))
+
+
 # ---- running one -----------------------------------------------------------------------
 
 

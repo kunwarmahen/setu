@@ -465,7 +465,9 @@ and adds any new tools.
 **Two levels.** *All its tools* is what you get when you add one, since
 you brought it. *Only its reading tools* (`--level read`) shows an agent
 just the `read` ones. A call to any other is refused by Setu before it
-leaves your computer.
+leaves your computer. To change it later, `setu connect docs --level read`
+(or **Change level** on Setu's page): Setu tries the server again, with
+the address and token it already has.
 
 **Where it runs.** A server at an address runs like every connector:
 Setu's small bridge talks to it from inside the sandbox, with no network

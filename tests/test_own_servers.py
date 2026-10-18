@@ -516,3 +516,23 @@ class TestPage:
 
 def events_of(state) -> list[str]:
     return [e["event"] for e in state["events"]]
+
+
+class TestAgain:
+    def test_changing_the_level_keeps_its_address_and_token(self, home, server, capsys):
+        add(server.url)
+        assert main(["connect", "docs", "--level", "read"]) == 0
+        entry = FileVault().get("docs:personal")
+        assert entry["level"] == "read" and entry["secret"]["token"] == TOKEN
+        assert "Only its reading tools" in capsys.readouterr().out
+
+    def test_from_a_page_or_a_chat_it_needs_no_sign_in_page(self, home, server, capsys):
+        add(server.url)
+        assert main(["connect", "docs", "--level", "read", "--json", "--paste"]) == 0
+        events = [json.loads(x) for x in capsys.readouterr().out.splitlines()]
+        assert [e["event"] for e in events] == ["started", "connected"]
+
+    def test_an_account_never_added_is_told_how(self, home, server, capsys):
+        add(server.url)
+        assert main(["connect", "docs", "--as", "work"]) == 2
+        assert "setu connect --server URL --id docs --as work" in capsys.readouterr().err
