@@ -37,9 +37,10 @@ A PHONE ROAD IS AN APP, NOT A SERVER EITHER. Its connection carries
 table: the words that act, the words that spend, the pace, a guide. A
 harness that works the person's phone keeps to them.
 
-WHERE TO WATCH. ``watch`` names the two places whose change means the
-report would change: the vault (every connect, disconnect and level) and
-the folder of sites added here (a new site, a kept guide). A harness
+WHERE TO WATCH. ``watch`` names the places whose change means the
+report would change: the vault (every connect, disconnect and level),
+the folder of sites added here (a new site, a kept guide), and the
+folder of servers of your own (a tool reclassed in its file). A harness
 mid-session compares their times before each turn and asks again only
 when one moved -- cheaper than running ``setu status`` every turn.
 
@@ -56,7 +57,7 @@ from typing import Any
 
 from setu import __version__, catalog, certify, config, connections, health, sandbox, seal
 from setu import browser as site_browser
-from setu.manifest import Manifest, ManifestError, installed, sites_dir
+from setu.manifest import Manifest, ManifestError, installed, servers_dir, sites_dir
 from setu.vault import FileVault, Vault, default_home
 
 FORMAT = "setu.status.v1"
@@ -293,7 +294,8 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
                     if index is not None else None),
         "problems": problems + [f"{c['id']}: withdrawn by Setu -- {c['yanked']}"
                                 for c in cards if c["yanked"]],
-        "watch": [str(getattr(vault, "path", "")) or None, str(sites_dir())],
+        "watch": [str(getattr(vault, "path", "")) or None, str(sites_dir()),
+                  str(servers_dir())],
         # a folder locked with a passphrase, and whether its key is held now
         "lock": {"locked": seal.read_lock(home) is not None,
                  "open": seal.held_key(home) is not None},

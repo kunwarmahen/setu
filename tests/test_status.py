@@ -83,8 +83,9 @@ def test_the_command_prints_exactly_the_report(home):
 
 def test_the_report_says_where_to_watch(home):
     from setu import status
-    vault, sites = status.report()["watch"]
+    vault, sites, servers = status.report()["watch"]
     assert vault.endswith("vault.json") and sites.endswith("sites")
+    assert servers.endswith("servers")
 
 
 def test_each_card_says_what_it_can_reach_as_it_is(home):
