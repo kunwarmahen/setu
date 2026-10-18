@@ -437,6 +437,31 @@ from the command line, where every program on the computer could read
 it. Setu won't take an address with `?key=...` in it either. Put the key
 in the token instead.
 
+**A server that signs you in on its own page.** Many remote MCP servers
+(Linear's and Notion's among them) have no token to paste. They answer
+the first request with *"401, sign in here"*, which is MCP's own sign-in
+(OAuth). Give the address with no token and Setu follows it: it finds
+the server's sign-in page, registers itself there (no developer portal,
+no secret), and opens the page in your browser:
+
+```
+setu connect --server https://mcp.linear.app/mcp --id linear
+#   https://mcp.linear.app/mcp signs in on its own page. A browser window is opening:
+#   sign in there, then come back here.
+#   connected linear:personal (mcp.linear.app/mcp) -- All its tools, ...
+```
+
+You sign in there, with your own password, and never type it into Setu.
+The refresh token goes into the vault beside the connection, and Setu
+renews the access token when it runs out, so neither ever reaches an
+agent, a container or a chat. A renewal the server refuses marks the
+connection as an expired sign-in, and `setu check` (Dvara's daily check)
+tells you. From Setu's page on another device, or from a chat, you get
+the sign-in link, and you paste back the address it ends on, as with
+Google. A server whose sign-in won't let a program register itself is
+said to need a client id from its own dashboard. Setu doesn't make one
+up. Disconnecting revokes the sign-in where the server offers that.
+
 **A program of yours that speaks MCP** (on stdin and stdout):
 
 ```
@@ -450,7 +475,8 @@ time it starts.
 
 **Tried before it's kept.** Setu talks to the server first: starts a
 session, asks for its tools. A server that doesn't answer, that wants a
-token you didn't give, or that refuses the one you gave, saves nothing.
+token you didn't give (and doesn't say where to sign in), or that
+refuses the one you gave, saves nothing.
 
 **Its tools, written down.** Setu writes the server's tools into a file
 of its own, `~/.local/state/setu/servers/<id>.toml`, each one marked
@@ -496,7 +522,8 @@ sessions see every connection, but a package sees one only when its
 
 **Disconnect** with `setu disconnect docs:personal`. Its token is deleted,
 and the server's file goes with its last connection. A token you pasted
-can only be revoked on the server's side, so do that there too.
+can only be revoked on the server's side, so do that there too. A sign-in
+Setu made is revoked from here, where the server offers that.
 
 A real one, run here: a notes server written with the official MCP SDK
 (Streamable HTTP, a Bearer token), added with no token, with the wrong
@@ -679,7 +706,7 @@ setu connect amazon --as personal  # a site with no API: sign in in a window, th
 setu connect --site example.com    # any other site: Setu writes cautious rules for it
 setu site guide example --set "…"  # that site's short guide (shown without --set)
 setu site file example [--set]     # its whole file; --set replaces it from stdin, checked first
-setu connect --server URL --id docs --token-stdin   # an MCP server of your own (token optional)
+setu connect --server URL --id docs [--token-stdin]   # an MCP server of your own: a token, none, or its own sign-in page
 setu connect --server-command 'uvx weather-mcp' --id weather --env WEATHER_KEY   # or a program
 setu config browser PATH           # which browser that window is (default: Chrome on PATH)
 setu catalog                       # the signed catalog: labels, installs, withdrawn versions
@@ -1166,10 +1193,18 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   `read`, else `write`, `"*" = "write"`), and a line already in the file is
   kept. An address's file has `api_base`, `mcp_path` and `[requests.read]`, so
   the proxy's MCP check holds the first level. The vault entry has `server`
-  (`url` or `command`) and `secret` (`token` and `header`, or `env`).
+  (`url` or `command`) and `secret` (`token` and `header`, or `env`; or, for
+  a server that signs in on its own page, `kind = "oauth"` with the refresh
+  token, the client id it is bound to, the token and revocation endpoints and
+  the `resource`, from `mcp_auth.py`: the 401's `resource_metadata` (RFC 9728),
+  the authorization server's metadata (RFC 8414), dynamic registration
+  (RFC 7591), PKCE S256, `resource` (RFC 8707), and the challenge's `scope`).
+  `connections.token` refreshes an `oauth` one when due or refused (a 4xx
+  marks it expired), `check` tries it rather than skipping it, and
+  `disconnect` revokes it (RFC 7009) where offered.
   `connections.Token.headers()` sends the token as `Authorization: Bearer` or
   bare in a named header, or sends nothing. A 401 marks the connection
-  `expired`, and `setu check` skips it. `setu run` gives the bridge
+  `expired`, and `setu check` skips a pasted one. `setu run` gives the bridge
   `SETU_MCP_PATH` and `SETU_READ_TOOLS`. `status`'s `watch` names
   `servers/` beside the vault and `sites/`, so a harness asks again when a
   server's file is edited. A program is started by `setu run`

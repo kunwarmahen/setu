@@ -78,9 +78,10 @@
       <h2 id="h-server">Add your own server</h2>
     </div>
     <p class="lede">An MCP server nobody wrote a connector for: give its address, and
-      its token if it needs one. Setu tries it, writes down which of its tools only
-      read, and keeps the token. Every agent you allow can then use it, on this page's
-      computer and from your chats. The token is never shown again.</p>
+      its token if it needs one. One that signs you in on its own page opens that page
+      instead: sign in there, as you would to Google. Setu tries it, writes down which
+      of its tools only read, and keeps the token. Every agent you allow can then use
+      it, on this page's computer and from your chats. The token is never shown again.</p>
     <div class="card">
       <div class="actions owner-only" role="radiogroup" aria-label="where the server is">
         <label class="small"><input type="radio" name="server-kind" value="url" checked>
@@ -94,7 +95,7 @@
       </div>
       <div class="actions" id="server-token-row">
         <input id="server-token" class="field wide" type="password" autocomplete="off"
-               placeholder="its token (leave empty if it needs none)"
+               placeholder="its token (empty if it needs none, or signs in on its own page)"
                aria-label="the server's token">
         <input id="server-header" class="field" type="text" placeholder="Authorization"
                aria-label="the header the token goes in (empty: Authorization: Bearer)">

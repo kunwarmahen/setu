@@ -246,6 +246,27 @@ def _server_secrets(args: argparse.Namespace) -> tuple[str | None, dict[str, str
     return token, env
 
 
+def _server_sign_in(args: argparse.Namespace, http: httpx.Client, emit: bool):
+    """How to sign in to a server that asks on its own page (mcp_auth.py):
+    a browser here, or -- for a page (``--json``) -- the link sent as an
+    event, and with ``--paste`` the address it ended on read back."""
+    from setu import mcp_auth
+
+    def sign_in(url: str, said: str) -> dict:
+        if emit:
+            return mcp_auth.sign_in(url, said, http=http,
+                                    on_url=lambda link: _emit("url", url=link,
+                                                              paste=args.paste),
+                                    timeout=args.timeout, pasted=_pasted(args))
+        print(f"{url} signs in on its own page. A browser window is opening: sign in "
+              "there, then come back here.")
+        return mcp_auth.sign_in(
+            url, said, http=http,
+            open_browser=None if args.no_browser else webbrowser.open,
+            on_url=lambda link: print(f"\nIf no window opened, open this address:\n{link}\n"))
+    return sign_in
+
+
 def _add_server(args: argparse.Namespace, on_started: Callable[[str], None] | None = None):
     from setu import own
     token, env = _server_secrets(args)
@@ -260,7 +281,8 @@ def _add_server(args: argparse.Namespace, on_started: Callable[[str], None] | No
     with httpx.Client() as http:
         return own.connect(sid, args.account, vault=FileVault(), http=http,
                            url=args.server, command=args.server_command, token=token,
-                           header=args.header, env=env, level=args.level)
+                           header=args.header, env=env, level=args.level,
+                           sign_in=_server_sign_in(args, http, emit=on_started is not None))
 
 
 def _connect_server(args: argparse.Namespace) -> int:
@@ -295,7 +317,8 @@ def _connect_own_again(manifest, args: argparse.Namespace, emit: bool = False) -
         _emit("started", ref=ref, level=args.level or "", scopes=[])
     try:
         with httpx.Client() as http:
-            entry = own.again(ref, vault=FileVault(), http=http, level=args.level)
+            entry = own.again(ref, vault=FileVault(), http=http, level=args.level,
+                              sign_in=_server_sign_in(args, http, emit=emit))
     except (own.ServerError, ManifestError) as exc:
         if emit:
             raise
@@ -627,9 +650,10 @@ def _connect_json(args: argparse.Namespace) -> int:
     if args.site:
         return _connect_site_json(args)
     if args.server or args.server_command:
-        if args.remote or args.paste:
-            _emit("error", message="a server of your own has no sign-in page to open "
-                  "elsewhere: give its token on stdin")
+        if args.remote or (args.paste and not args.server):
+            _emit("error", message="a server of your own has no window to stream, and a "
+                  "program you run has no sign-in page: --paste is for a server at an "
+                  "address that signs in on its own page")
             return 2
         return _connect_server_json(args)
     manifest = find(_connector_named(args))

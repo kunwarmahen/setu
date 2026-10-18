@@ -519,6 +519,10 @@ class Api:
         argv += ["--id", sid] if sid else []
         argv += ["--token-stdin"] if token else []
         argv += ["--header", header] if header else []
+        if url and not token and not local:
+            # one that signs in on its own page: from another device, its
+            # link is opened there and the address it ends on pasted back
+            argv += ["--paste"]
         for name in env:
             argv += ["--env", name]
         started = self._start(argv, f"{sid or 'server'}:{account}")

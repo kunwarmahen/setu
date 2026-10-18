@@ -51,6 +51,12 @@ TWO ROADS, AND THE CARD SAYS WHICH.
   lives in the vault entry, never in the file, so only ``setu connect``
   -- the person, at their computer -- can make Setu run a program.
 
+A SERVER THAT SIGNS IN ON ITS OWN PAGE. One that answers 401 and says
+where its sign-in is (MCP's OAuth) is signed in to the way Google is:
+its page in a browser, or a link opened elsewhere and the address it
+ended on pasted back (mcp_auth.py). The refresh token stays in the
+vault and is renewed by Setu, so nothing else ever holds it.
+
 A TOKEN IS NEVER AN ARGUMENT, and never part of the address: ``--token-
 stdin`` reads it, and an address with a query string (where keys like
 to hide) is refused with that advice.
@@ -483,9 +489,15 @@ def _clean_env(base: dict[str, str] | None = None) -> dict[str, str]:
 def connect(server_id: str | None, account: str, *, vault: Vault, http: httpx.Client,
             url: str | None = None, command: str | list[str] | None = None,
             token: str | None = None, header: str | None = None,
-            env: dict[str, str] | None = None, level: str | None = None) -> dict[str, Any]:
+            env: dict[str, str] | None = None, level: str | None = None,
+            sign_in: Callable[[str, str], dict[str, Any]] | None = None,
+            signed_in: dict[str, Any] | None = None) -> dict[str, Any]:
     """Try the server, write its file, keep the connection. The entry
-    comes back with ``tools`` (how many) and ``manifest_path``."""
+    comes back with ``tools`` (how many) and ``manifest_path``.
+
+    ``sign_in(url, challenge)`` is called when the server asks for a
+    sign-in on its own page (mcp_auth.sign_in, with the caller's browser
+    or paste road); ``signed_in`` is one already made (``again``)."""
     from setu import connections
     if (url is None) == (command is None):
         raise ServerError("give the server's address (--server URL) or the command that "
@@ -517,13 +529,12 @@ def connect(server_id: str | None, account: str, *, vault: Vault, http: httpx.Cl
     secret: dict[str, Any]
     if url:
         address(url)
-        sent = connections.Token(access_token=token or "", expires_at=0, scopes=(),
-                                 account=account, email="",
-                                 header=header or "Authorization").headers()
-        found = probe_http(url.strip(), sent, http)
+        found, signed_in = _try_signed_in(url.strip(), account, http, token=token,
+                                          header=header, sign_in=sign_in, signed_in=signed_in)
         _, path, host = address(url)
         where, server = host + ("" if path == "/" else path), {"url": url.strip()}
-        secret = {"token": token or "", "header": header or "Authorization"} if token else {}
+        secret = (signed_in if signed_in is not None else
+                  {"token": token or "", "header": header or "Authorization"} if token else {})
     else:
         found = probe_stdio(argv, {**_clean_env(), **(env or {})})
         where, server = Path(argv[0]).name, {"command": argv}
@@ -560,6 +571,44 @@ def connect(server_id: str | None, account: str, *, vault: Vault, http: httpx.Cl
     return {**entry, "tools": len(found["tools"]), "manifest_path": str(path_for(server_id))}
 
 
+def _try_signed_in(url: str, account: str, http: httpx.Client, *, token: str | None,
+                   header: str | None, sign_in: Callable[[str, str], dict[str, Any]] | None,
+                   signed_in: dict[str, Any] | None) -> tuple[dict[str, Any], dict | None]:
+    """The server's answer, and the sign-in it took (None for a pasted
+    token or none). Tried as given first; only a 401 that says where its
+    sign-in is starts one."""
+    from setu import connections, mcp_auth
+
+    def probe(value: str, name: str) -> dict[str, Any]:
+        sent = connections.Token(access_token=value, expires_at=0, scopes=(),
+                                 account=account, email="", header=name).headers()
+        return probe_http(url, sent, http)
+
+    try:
+        if signed_in is not None:
+            try:
+                if mcp_auth.due(signed_in):
+                    signed_in = mcp_auth.refresh(signed_in, http)
+                return probe(signed_in["token"], "Authorization"), signed_in
+            except (mcp_auth.McpAuthError, ServerError):
+                if sign_in is None:
+                    raise
+                signed_in = None        # renewed no more: a new sign-in, below
+        try:
+            return probe(token or "", header or "Authorization"), None
+        except ServerError:
+            said = None if token else mcp_auth.challenge(url, http)
+            if said is None:
+                raise
+        if sign_in is None:
+            raise ServerError(f"{url} signs in on its own page; add it where a browser can "
+                              "open that page (setu connect --server URL, or Setu's page)")
+        signed_in = sign_in(url, said)
+        return probe(signed_in["token"], "Authorization"), signed_in
+    except mcp_auth.McpAuthError as exc:
+        raise ServerError(f"signing in to {url}: {exc}") from None
+
+
 def _checked_id(server_id: str, account: str) -> str:
     """An id this server may have: a plain word no connector or site has."""
     from setu import connections
@@ -574,8 +623,8 @@ def _checked_id(server_id: str, account: str) -> str:
     return server_id
 
 
-def again(ref: str, *, vault: Vault, http: httpx.Client,
-          level: str | None = None) -> dict[str, Any]:
+def again(ref: str, *, vault: Vault, http: httpx.Client, level: str | None = None,
+          sign_in: Callable[[str, str], dict[str, Any]] | None = None) -> dict[str, Any]:
     """``setu connect docs --level read``: the connection added before,
     tried again and kept at the level asked -- its address or program,
     and its token or values, as they were. Changing a level is connecting
@@ -587,6 +636,12 @@ def again(ref: str, *, vault: Vault, http: httpx.Client,
                           f"it with setu connect --server URL --id {cid} --as "
                           f"{ref.partition(':')[2]}")
     server, secret = entry.get("server") or {}, entry.get("secret") or {}
+    if secret.get("kind") == "oauth":
+        # its own sign-in, renewed if due: nothing to sign in to again
+        # and signed in to anew (sign_in) when the server stopped taking it
+        return connect(entry["connector"], entry["account"], vault=vault, http=http,
+                       url=server.get("url"), signed_in=secret, sign_in=sign_in,
+                       level=level or entry.get("level"))
     header = secret.get("header") if secret.get("token") else None
     return connect(entry["connector"], entry["account"], vault=vault, http=http,
                    url=server.get("url"), command=server.get("command"),

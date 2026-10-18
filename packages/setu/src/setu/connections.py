@@ -560,7 +560,7 @@ def token(ref: str, *, vault: Vault, http: httpx.Client, force: bool = False) ->
     if entry.get("auth") == "homeassistant":
         return _ha_token(ref, entry, vault=vault, http=http, force=force)
     if entry.get("auth") == "own":
-        return _own_token(ref, entry, vault=vault, force=force)
+        return _own_token(ref, entry, vault=vault, http=http, force=force)
     if force or time.time() >= float(secret.get("expires_at", 0)) - EXPIRY_SKEW:
         client = google.Client(client_id=secret["client_id"],
                                client_secret=secret["client_secret"],
@@ -626,11 +626,16 @@ def _ha_token(ref: str, entry: dict[str, Any], *, vault: Vault, http: httpx.Clie
                  level=entry.get("level", ""))
 
 
-def _own_token(ref: str, entry: dict[str, Any], *, vault: Vault, force: bool) -> Token:
+def _own_token(ref: str, entry: dict[str, Any], *, vault: Vault, http: httpx.Client,
+               force: bool) -> Token:
     """A server of your own: the token pasted when it was added, or none.
     ``force`` means the server refused it -- nothing here can make a new
-    one, so the connection is marked and the person told how to mend it."""
+    one, so the connection is marked and the person told how to mend it.
+    One signed in to on its own page (mcp_auth.py) is refreshed instead,
+    when due or refused, as Home Assistant's is."""
     secret = entry.get("secret") or {}
+    if secret.get("kind") == "oauth":
+        return _own_oauth_token(ref, entry, vault=vault, http=http, force=force)
     value = str(secret.get("token") or "")
     if force:
         fix = f"setu connect {entry['connector']} --as {entry['account']}"
@@ -644,6 +649,28 @@ def _own_token(ref: str, entry: dict[str, Any], *, vault: Vault, force: bool) ->
     return Token(access_token=value, expires_at=NEVER, scopes=(), account=entry["account"],
                  email=entry.get("email", ""), level=entry.get("level", ""),
                  header=str(secret.get("header") or "Authorization"))
+
+
+def _own_oauth_token(ref: str, entry: dict[str, Any], *, vault: Vault, http: httpx.Client,
+                     force: bool) -> Token:
+    from setu import mcp_auth
+    secret = entry["secret"]
+    if force or mcp_auth.due(secret):
+        try:
+            secret = mcp_auth.refresh(secret, http)
+        except mcp_auth.McpAuthError as exc:
+            if exc.refused:
+                _refused(ref, entry, vault, str(exc))
+            raise ConnectionFailed(
+                f"{ref} could not renew its sign-in ({exc}); sign in again: setu connect "
+                f"{entry['connector']} --as {entry['account']}") from None
+        entry.pop(EXPIRED, None)
+    entry["secret"] = secret
+    entry["last_used"] = _now()
+    vault.put(ref, entry)
+    return Token(access_token=secret["token"], expires_at=float(secret["expires_at"]),
+                 scopes=(), account=entry["account"], email=entry.get("email", ""),
+                 level=entry.get("level", ""), header="Authorization")
 
 
 def check(*, vault: Vault, http: httpx.Client) -> list[dict[str, Any]]:
@@ -667,7 +694,9 @@ def check(*, vault: Vault, http: httpx.Client) -> list[dict[str, Any]]:
                                "account": entry.get("account", ""),
                                "email": entry.get("email", "")}
         auth = entry.get("auth", "google")
-        if (auth in ("browser", "phone", "own") or entry.get("locked")
+        signed_in = auth == "own" and (entry.get("secret") or {}).get("kind") == "oauth"
+        if (auth in ("browser", "phone") or (auth == "own" and not signed_in)
+                or entry.get("locked")
                 or (entry.get("secret") or {}).get("kind") == "long_lived"):
             rows.append({**row, "state": "skipped",
                          "why": "locked" if entry.get("locked") else auth
@@ -699,14 +728,20 @@ def disconnect(ref: str, *, vault: Vault, http: httpx.Client) -> tuple[bool, boo
         vault.delete(ref)              # the app's sign-in is on the phone
         return True, False
     if entry.get("auth") == "own":
-        # a pasted token is the server's to revoke; its file goes with the
+        # a pasted token is the server's to revoke; a sign-in Setu made is
+        # revoked where the server offers that. Its file goes with the
         # last connection to it, so a server you dropped leaves nothing
+        secret = entry.get("secret") or {}
+        revoked = False
+        if secret.get("kind") == "oauth":
+            from setu import mcp_auth
+            revoked = mcp_auth.revoke(secret, http)
         vault.delete(ref)
         cid = entry.get("connector", "")
         if not any((vault.get(r) or {}).get("connector") == cid for r in vault.list()):
             from setu import own
             own.forget(cid)
-        return True, False
+        return True, revoked
     if entry.get("auth") == "browser":
         # nothing to revoke from here: the profile IS the sign-in
         removed = site_browser.remove_profile(entry.get("profile") or "")
