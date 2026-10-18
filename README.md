@@ -460,7 +460,18 @@ A `write` tool is asked about first. A tool the server adds later counts
 as `write` until you say otherwise. The marks are the server's own claim,
 so look them over and change any line: `setu site file docs` shows the
 file, and `--set` replaces it. Adding the server again keeps your lines
-and adds any new tools.
+and adds any new tools. A Yantra that is already running sees the change
+to the file and restarts that one connection, so you don't restart it.
+
+**A server that marks nothing read** comes in with every tool as `write`.
+At *Only its reading tools*, or for a package whose need is `:read`
+(`"*:read"` included), that is no tools at all: the agent sees the
+connection but none of its tools. Mark the reading ones `read` in its
+file (`setu site file docs`), or give the package `docs:write`. A server
+that sends MCP's `readOnlyHint` on its tools needs neither: a real one
+on the internet, behind a Bearer token, came in with all 51 of its
+tools `read`, and a household agent with `"*:read"` was given all 51,
+none of them asking.
 
 **Two levels.** *All its tools* is what you get when you add one, since
 you brought it. *Only its reading tools* (`--level read`) shows an agent
@@ -1159,7 +1170,9 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   `connections.Token.headers()` sends the token as `Authorization: Bearer` or
   bare in a named header, or sends nothing. A 401 marks the connection
   `expired`, and `setu check` skips it. `setu run` gives the bridge
-  `SETU_MCP_PATH` and `SETU_READ_TOOLS`. A program is started by `setu run`
+  `SETU_MCP_PATH` and `SETU_READ_TOOLS`. `status`'s `watch` names
+  `servers/` beside the vault and `sites/`, so a harness asks again when a
+  server's file is edited. A program is started by `setu run`
   itself (`own.run_command`), its stdio relayed through `own.Level`.
   `installed()` reads `servers/` after `sites/`, accepting `auth = "own"`
   only. Cards carry `own`, and connection rows carry `server`.
