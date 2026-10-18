@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from setu.manifest import Manifest, ManifestError, installed, load, sites_dir
+from setu.manifest import Manifest, ManifestError, installed, load, servers_dir, sites_dir
 
 #: Second-level labels that are part of a country's suffix, not a name.
 _SUFFIX_LABELS = {"co", "com", "org", "net", "gov", "ac", "edu", "ne", "or", "go"}
@@ -154,7 +154,10 @@ def to_toml(data: dict[str, Any]) -> str:
 
 
 def path_for(site_id: str) -> Path:
-    return sites_dir() / f"{site_id}.toml"
+    """A site's file in ``sites/`` -- or, for a server of your own, its
+    file in ``servers/`` (own.py), which ``setu site file`` edits too."""
+    server = servers_dir() / f"{site_id}.toml"
+    return server if server.exists() else sites_dir() / f"{site_id}.toml"
 
 
 def write(data: dict[str, Any]) -> Manifest:
@@ -196,6 +199,10 @@ def set_text(site_id: str, text: str) -> Manifest:
     if manifest.id != site_id:
         staged.unlink()
         raise SiteError(f"the file says id = {manifest.id!r}; it must stay {site_id!r}")
+    if (manifest.road, manifest.auth) != (known.road, known.auth):
+        staged.unlink()
+        raise SiteError(f"the file says road = {manifest.road!r}, auth = {manifest.auth!r}; "
+                        f"it must stay {known.road!r}, {known.auth!r}")
     target.with_suffix(".toml.bak").write_text(target.read_text(encoding="utf-8"),
                                                 encoding="utf-8")
     staged.replace(target)

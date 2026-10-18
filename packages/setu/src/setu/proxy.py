@@ -229,7 +229,7 @@ class Proxy:
     def _send(self, method: str, path: str, headers: dict[str, str],
               body: bytes) -> httpx.Response:
         def once(force: bool) -> httpx.Response:
-            sent = dict(headers, Authorization=f"Bearer {self.token(force=force).access_token}")
+            sent = {**headers, **self.token(force=force).headers()}
             return self.http.request(method, self.base + path, headers=sent, content=body,
                                      follow_redirects=False)
         response = once(False)

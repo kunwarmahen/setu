@@ -76,6 +76,14 @@ through Setu: the connector is handed a short-lived token instead.
 Discovery is by entry point: a connector package names its manifest in
 the ``setu.connectors`` group, so installing it is registering it.
 
+A SERVER OF YOUR OWN IS ADDED BY SETU (``auth = "own"``). A person's own
+MCP server -- an address, or a program they run -- gets a manifest Setu
+writes into ``servers/`` (own.py): ``road = "mcp"`` and NO ``command``,
+because the program is always Setu's own bridge (``setu-own-mcp``), and
+what it reaches is in the connection Setu made, never in the file. So a
+file dropped into ``servers/`` cannot run anything either; the person
+edits its ``[verbs]``, which Setu wrote from the server's own list.
+
 A SITE CAN ALSO BE ADDED BY HAND. A browser-road manifest needs no code,
 so a person may drop one in ``sites/`` beside the vault
 (``~/.local/state/setu/sites/example.toml``) and it is listed with the
@@ -101,6 +109,10 @@ from setu.vault import default_home
 ENTRY_POINT_GROUP = "setu.connectors"
 #: Where hand-added browser-road manifests live, under Setu's home.
 SITES = "sites"
+#: Where the manifests of a person's own MCP servers live (own.py).
+SERVERS = "servers"
+#: The program every server of your own runs as: Setu's bridge.
+OWN_COMMAND = ("setu-own-mcp",)
 VERB_CLASSES = ("read", "write", "spend")
 #: The verbs key that classes every tool a manifest does not list.
 ANY_TOOL = "*"
@@ -263,13 +275,20 @@ def parse(data: dict[str, Any], source: str = "manifest") -> Manifest:
         # otherwise read as "talks to nobody".
         raise ManifestError(f"{source}: unknown key(s) {sorted(unknown)}")
     road = data.get("road")
+    own = data.get("auth") == "own"
     for key in ("id", "name", "road", "auth", "levels",
-                *(() if road == "browser" else ("command",))):
+                *(() if road == "browser" or own else ("command",))):
         if key not in data:
             raise ManifestError(f"{source}: missing {key!r}")
     command = data.get("command") or []
     if isinstance(command, str):
         command = [command]
+    if own:
+        if road != "mcp" or command:
+            # what it runs is Setu's to say, and what it reaches the vault's
+            raise ManifestError(f"{source}: a server of your own is road = \"mcp\" and "
+                                "names no command (Setu's bridge runs it)")
+        command = list(OWN_COMMAND)
     levels = []
     for name, spec in data["levels"].items():
         scopes = spec.get("scopes") or []
@@ -409,31 +428,50 @@ def sites_dir() -> Path:
     return default_home() / SITES
 
 
+def servers_dir() -> Path:
+    return default_home() / SERVERS
+
+
 def local(directory: Path | None = None) -> tuple[dict[str, Manifest], list[str]]:
-    """The browser-road manifests added on this computer, by id, and what
-    was wrong with the files that were skipped."""
-    directory = directory or sites_dir()
+    """The browser-road manifests added on this computer (``sites/``) and
+    the person's own servers (``servers/``), by id, and what was wrong
+    with the files that were skipped."""
     found: dict[str, Manifest] = {}
     problems: list[str] = []
+    folders = [(directory, "browser")] if directory else [(sites_dir(), "browser"),
+                                                          (servers_dir(), "own")]
+    for folder, kind in folders:
+        _read_local(folder, kind, found, problems)
+    return found, problems
+
+
+def _read_local(directory: Path, kind: str, found: dict[str, Manifest],
+                problems: list[str]) -> None:
     if not directory.is_dir():
-        return found, problems
+        return
     for path in sorted(directory.glob("*.toml")):
         try:
             manifest = load(path)
         except (ManifestError, tomllib.TOMLDecodeError, OSError) as exc:
             problems.append(f"{path}: skipped -- {exc}")
             continue
-        if manifest.road != "browser":
+        if kind == "browser" and manifest.road != "browser":
             problems.append(f"{path}: skipped -- only a site reached through the browser "
                             "may be added here; a connector that runs a program is installed "
                             "as a package")
+            continue
+        if kind == "own" and manifest.auth != "own":
+            problems.append(f"{path}: skipped -- only a server of your own (auth = \"own\", "
+                            "written by setu connect --server) is kept here")
+            continue
+        if manifest.id in found:
+            problems.append(f"{path}: skipped -- {manifest.id!r} is a site added here already")
             continue
         if manifest.id != path.stem:
             problems.append(f"{path}: skipped -- its id is {manifest.id!r}; name the file "
                             f"{manifest.id}.toml")
             continue
         found[manifest.id] = _replace(manifest, local=True)
-    return found, problems
 
 
 def installed(problems: list[str] | None = None) -> dict[str, Manifest]:
@@ -450,7 +488,8 @@ def installed(problems: list[str] | None = None) -> dict[str, Manifest]:
     added, skipped = local()
     for cid, manifest in added.items():
         if cid in found:
-            skipped.append(f"{sites_dir() / (cid + '.toml')}: skipped -- {cid!r} is "
+            folder = servers_dir() if manifest.auth == "own" else sites_dir()
+            skipped.append(f"{folder / (cid + '.toml')}: skipped -- {cid!r} is "
                            "installed already, and the installed one is used")
             continue
         found[cid] = manifest

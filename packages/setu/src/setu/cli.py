@@ -20,6 +20,10 @@
     setu config homeassistant-url URL    remember where your Home Assistant is
     setu connect amazon --as personal    a site with no API: sign in in a window of its own
     setu connect --site example.com      any other site: Setu writes its rules once you sign in
+    setu connect --server URL --id docs [--token-stdin [--header X-API-Key]]
+                                         an MCP server of your own, at an address
+    setu connect --server-command 'uvx weather-mcp' --id weather [--env API_KEY]
+                                         or a program of yours that speaks MCP (runs as you)
     setu site guide example [--set TEXT] a site added here: its short guide, shown or replaced
     setu site event amazon:personal robot_check   a harness noting what went wrong (a week kept)
     setu config browser PATH             which browser that window is (default: Chrome on PATH)
@@ -75,6 +79,11 @@ profile and serves a page that streams it (remote.py). Events:
 stops working), ``opened`` (a device opened it), then ``connected`` or
 ``error``. Where it listens and the address in the link are
 ``SETU_WINDOW_HOST``, ``SETU_WINDOW_PORT`` and ``SETU_WINDOW_URL``.
+
+``setu connect --server URL --json`` adds a server of your own (own.py):
+``started``, then ``connected`` (with ``tools``, how many it listed) or
+``error``. A token, and each ``--env`` value, is one line on stdin, in
+that order -- never an argument, which every process here can read.
 """
 
 from __future__ import annotations
@@ -84,6 +93,7 @@ import base64
 import contextlib
 import json
 import os
+import shlex
 import shutil
 import sys
 import threading
@@ -149,6 +159,8 @@ def _connect(args: argparse.Namespace) -> int:
             return 2
     if args.site:
         return _connect_site(args)
+    if args.server or args.server_command:
+        return _connect_server(args)
     manifest = find(_connector_named(args))
     if args.phone:
         return _connect_phone(manifest, args)
@@ -203,20 +215,81 @@ def _remember_ha(base: str) -> None:
         config.save("homeassistant_url", homeassistant.normalise_url(base))
 
 
-def _read_token(args: argparse.Namespace) -> str | None:
+def _read_token(args: argparse.Namespace,
+                label: str = "Home Assistant long-lived token") -> str | None:
     """A pasted long-lived token, from stdin -- never from argv, where
     every process on the machine could read it."""
     if not args.token_stdin:
         return None
+    return _stdin_secret(label, "no token was given on stdin")
+
+
+def _stdin_secret(label: str, missing: str) -> str:
     if sys.stdin.isatty():
         import getpass
-        token = getpass.getpass("Home Assistant long-lived token (not shown): ")
+        value = getpass.getpass(f"{label} (not shown): ")
     else:
-        token = sys.stdin.readline()
-    token = token.strip()
-    if not token:
-        raise connections.ConnectionFailed("no token was given on stdin")
-    return token
+        value = sys.stdin.readline()
+    value = value.strip()
+    if not value:
+        raise connections.ConnectionFailed(missing)
+    return value
+
+
+def _server_secrets(args: argparse.Namespace) -> tuple[str | None, dict[str, str]]:
+    """The token, then each ``--env`` value: lines on stdin, in order."""
+    token = _read_token(args, "the server's token")
+    env = {name: _stdin_secret(name, f"no value for {name} was given on stdin")
+           for name in args.env or ()}
+    return token, env
+
+
+def _add_server(args: argparse.Namespace, on_started: Callable[[str], None] | None = None):
+    from setu import own
+    token, env = _server_secrets(args)
+    sid = args.id or own.id_from(url=args.server, command=(
+        shlex.split(args.server_command) if args.server_command else None))
+    if on_started is not None:
+        on_started(connections.ref_for(sid.lower(), args.account))
+    with httpx.Client() as http:
+        return own.connect(sid, args.account, vault=FileVault(), http=http,
+                           url=args.server, command=args.server_command, token=token,
+                           header=args.header, env=env, level=args.level)
+
+
+def _connect_server(args: argparse.Namespace) -> int:
+    from setu import own
+    try:
+        entry = _add_server(args)
+    except (own.ServerError, connections.ConnectionFailed, ManifestError) as exc:
+        print(f"error: {exc}; nothing was saved", file=sys.stderr)
+        return 2
+    ref = connections.ref_for(entry["connector"], args.account)
+    manifest = find(entry["connector"])
+    level = manifest.level(entry["level"])
+    print(f"connected {ref} ({entry['email']}) -- {level.label}, {entry['tools']} tools")
+    reads = len(own.read_tools(manifest))
+    print(f"  {reads} of them only read (they may run unasked); the rest are asked about. "
+          f"Its file is {entry['manifest_path']}: change any tool's line there "
+          f"(setu site file {entry['connector']})")
+    if "command" in entry["server"]:
+        print("  it runs as you, on this computer, with your network and files: Setu keeps "
+              "its keys and its level, not a sandbox")
+    print(f"next: an agent sees it once its package's [connections] needs names "
+          f"{entry['connector']} (yours always do); setu mcp-config {ref}")
+    return 0
+
+
+def _connect_server_json(args: argparse.Namespace) -> int:
+    entry = _add_server(args, on_started=lambda ref: _emit(
+        "started", ref=ref, level=args.level or "write", scopes=[]))
+    ref = connections.ref_for(entry["connector"], args.account)
+    manifest = find(entry["connector"])
+    level = manifest.level(entry["level"])
+    _emit("connected", ref=ref, email=entry["email"], level=level.name,
+          level_label=level.label, asked_level=level.name, tools=entry["tools"],
+          manifest_path=entry["manifest_path"])
+    return 0
 
 
 def _connect_phone(manifest, args: argparse.Namespace) -> int:
@@ -523,6 +596,12 @@ def _connect_json(args: argparse.Namespace) -> int:
         return 2
     if args.site:
         return _connect_site_json(args)
+    if args.server or args.server_command:
+        if args.remote or args.paste:
+            _emit("error", message="a server of your own has no sign-in page to open "
+                  "elsewhere: give its token on stdin")
+            return 2
+        return _connect_server_json(args)
     manifest = find(_connector_named(args))
     if args.remote:
         return _connect_remote_json(manifest, args)
@@ -733,14 +812,29 @@ def _run(args: argparse.Namespace) -> int:
     # a server of the person's own (Home Assistant) is the connection's
     # address, not the manifest's
     base = entry.get("base_url") or manifest.api_base
+    env = None
+    if entry.get("auth") == "own":
+        from setu import own
+        if entry.get("locked"):
+            print(f"error: {args.ref} is locked: its folder opens with its person's "
+                  "passphrase (setu lock unlock)", file=sys.stderr)
+            return 2
+        if "command" in (entry.get("server") or {}):
+            try:
+                return own.run_command(args.ref, entry, manifest)
+            except own.ServerError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 2
+        env = {**os.environ, own.ENV_PATH: manifest.mcp_path or "/",
+               own.ENV_READ: json.dumps(own.read_tools(manifest))}
     try:
         # the site's answers pass through here now, not only token refreshes
-        with httpx.Client(timeout=60.0) as http:
+        with httpx.Client(timeout=120.0) as http:
             if args.callback or manifest.token_mode == "callback":
                 return helper.run(args.ref, manifest.command, vault=vault, http=http,
                                   api_base=base)
             return helper.run_proxied(args.ref, manifest, vault=vault, http=http,
-                                      api_base=base)
+                                      api_base=base, env=env)
     except connections.ConnectionFailed as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -1193,7 +1287,8 @@ def build_parser() -> argparse.ArgumentParser:
                          "(default: setu config homeassistant-url)")
     connect.add_argument("--token-stdin", action="store_true",
                          help="Home Assistant: read a long-lived token from stdin "
-                         "instead of signing in on its login page")
+                         "instead of signing in on its login page; --server: the "
+                         "server's token")
     connect.add_argument("--browser", help="a site with no API: the browser to sign in "
                          "with (default: setu config browser, else Chrome on PATH)")
     connect.add_argument("--phone", action="store_true",
@@ -1202,8 +1297,20 @@ def build_parser() -> argparse.ArgumentParser:
                               "the phone keeps to the level")
     connect.add_argument("--site", help="a site Setu has no connector for (example.com): "
                          "sign in, and Setu writes cautious rules for it in sites/")
-    connect.add_argument("--id", help="with --site: the name to give it (default: from "
-                         "the address)")
+    connect.add_argument("--id", help="with --site or --server: the name to give it "
+                         "(default: from the address)")
+    connect.add_argument("--server", metavar="URL",
+                         help="an MCP server of your own, at this address (Streamable HTTP): "
+                              "Setu tries it, writes its tools down in servers/, and keeps "
+                              "its token (--token-stdin), if it needs one")
+    connect.add_argument("--server-command", metavar="CMD",
+                         help="an MCP server of your own that is a program (stdio), e.g. "
+                              "'uvx weather-mcp': it runs as you, unsandboxed")
+    connect.add_argument("--header", help="with --server --token-stdin: the header the token "
+                         "goes in, sent bare (default: Authorization: Bearer)")
+    connect.add_argument("--env", action="append", metavar="NAME",
+                         help="with --server-command: an environment value it needs (a key); "
+                              "read from stdin, hidden, and kept in the vault. Repeatable")
     connect.add_argument("--signed-in", action="store_true",
                          help="if the page cannot show whether you signed in, take it "
                          "that you did")

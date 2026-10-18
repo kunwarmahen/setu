@@ -56,6 +56,14 @@ and the level, so a harness working the phone knows what it may do
 there; there is no token, no profile, and nothing to revoke from here.
 Disconnecting deletes the entry; the app stays signed in on the phone.
 
+A SERVER OF YOUR OWN HOLDS WHAT YOU GAVE IT (``auth = "own"``, own.py):
+nothing, a token pasted once, or -- for a program you run -- the
+values of the environment it needs. A pasted token has nothing to
+refresh; refused, it marks the connection, as an expired sign-in does,
+and it is sent in the header the person named (``Authorization:
+Bearer`` unless they said ``X-API-Key``). Disconnecting forgets it, and
+the server's file goes with its last connection.
+
 A SITE SETU WROTE THE RULES FOR is proved by its page (``connect_site``):
 nobody named its sign-in cookies, so after the window the start page is
 looked at once more, and a page that still shows a sign-in saves
@@ -120,6 +128,17 @@ class Token:
     account: str
     email: str
     level: str = ""
+    #: Where the token travels: ``Authorization: Bearer <it>`` unless a
+    #: server of your own named its own header (sent bare).
+    header: str = "Authorization"
+
+    def headers(self) -> dict[str, str]:
+        """What a request carries: nothing when there is no token."""
+        if not self.access_token:
+            return {}
+        if self.header.lower() == "authorization":
+            return {"Authorization": f"Bearer {self.access_token}"}
+        return {self.header: self.access_token}
 
 
 def public(entry: dict[str, Any]) -> dict[str, Any]:
@@ -540,6 +559,8 @@ def token(ref: str, *, vault: Vault, http: httpx.Client, force: bool = False) ->
     secret = entry["secret"]
     if entry.get("auth") == "homeassistant":
         return _ha_token(ref, entry, vault=vault, http=http, force=force)
+    if entry.get("auth") == "own":
+        return _own_token(ref, entry, vault=vault, force=force)
     if force or time.time() >= float(secret.get("expires_at", 0)) - EXPIRY_SKEW:
         client = google.Client(client_id=secret["client_id"],
                                client_secret=secret["client_secret"],
@@ -605,6 +626,26 @@ def _ha_token(ref: str, entry: dict[str, Any], *, vault: Vault, http: httpx.Clie
                  level=entry.get("level", ""))
 
 
+def _own_token(ref: str, entry: dict[str, Any], *, vault: Vault, force: bool) -> Token:
+    """A server of your own: the token pasted when it was added, or none.
+    ``force`` means the server refused it -- nothing here can make a new
+    one, so the connection is marked and the person told how to mend it."""
+    secret = entry.get("secret") or {}
+    value = str(secret.get("token") or "")
+    if force:
+        fix = f"setu connect {entry['connector']} --as {entry['account']}"
+        why = ("refused the token you gave it" if value
+               else "asks for a token, and none was given")
+        _refused(ref, entry, vault, f"the server {why}")
+        raise ConnectionFailed(f"{ref}: the server {why}; add it again with one: "
+                               f"{fix} --token-stdin")
+    entry["last_used"] = _now()
+    vault.put(ref, entry)
+    return Token(access_token=value, expires_at=NEVER, scopes=(), account=entry["account"],
+                 email=entry.get("email", ""), level=entry.get("level", ""),
+                 header=str(secret.get("header") or "Authorization"))
+
+
 def check(*, vault: Vault, http: httpx.Client) -> list[dict[str, Any]]:
     """Try every sign-in that can run out, once, and say how each stands.
 
@@ -626,11 +667,12 @@ def check(*, vault: Vault, http: httpx.Client) -> list[dict[str, Any]]:
                                "account": entry.get("account", ""),
                                "email": entry.get("email", "")}
         auth = entry.get("auth", "google")
-        if (auth in ("browser", "phone") or entry.get("locked")
+        if (auth in ("browser", "phone", "own") or entry.get("locked")
                 or (entry.get("secret") or {}).get("kind") == "long_lived"):
             rows.append({**row, "state": "skipped",
                          "why": "locked" if entry.get("locked") else auth
-                         if auth in ("browser", "phone") else "long-lived token"})
+                         if auth in ("browser", "phone") else "your own server"
+                         if auth == "own" else "long-lived token"})
             continue
         try:
             token(ref, vault=vault, http=http, force=True)
@@ -655,6 +697,15 @@ def disconnect(ref: str, *, vault: Vault, http: httpx.Client) -> tuple[bool, boo
         return False, False
     if entry.get("auth") == "phone":
         vault.delete(ref)              # the app's sign-in is on the phone
+        return True, False
+    if entry.get("auth") == "own":
+        # a pasted token is the server's to revoke; its file goes with the
+        # last connection to it, so a server you dropped leaves nothing
+        vault.delete(ref)
+        cid = entry.get("connector", "")
+        if not any((vault.get(r) or {}).get("connector") == cid for r in vault.list()):
+            from setu import own
+            own.forget(cid)
         return True, False
     if entry.get("auth") == "browser":
         # nothing to revoke from here: the profile IS the sign-in

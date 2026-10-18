@@ -8,6 +8,7 @@ dependencies = ["httpx>=0.28", "cryptography>=42"]
 
 [project.scripts]
 setu = "setu.cli:main"
+setu-own-mcp = "setu.own:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -3,7 +3,7 @@
 **Sign in to a site once. The agents you allow can use it, and never see the key.**
 
 Setu (सेतु, "bridge") connects your accounts — Gmail, Home Assistant, Amazon
-and X so far — to an AI agent, so you can ask *"anything from my accountant this
+and X so far, and any MCP server of your own — to an AI agent, so you can ask *"anything from my accountant this
 week?"* or *"which lights are still on?"* and get an answer from your real
 inbox or your real home. It is built around three promises:
 
@@ -406,9 +406,116 @@ won't press a button, or a link whose words spend, delete or send
 ([Yantra's note 128](https://github.com/kunwarmahen/yantra/blob/main/notes/128-a-link-that-runs-a-script.md)).
 
 Only sites reached through the browser can be added this way. A connector
-that runs a program has to be installed as a package. If an installed
+that runs a program has to be installed as a package. (An MCP server of
+your own is added with `setu connect --server`; see the next section.) If an installed
 connector has the same `id`, the installed one is used. A file Setu can't
 read is skipped, and `setu connectors` and `setu status` say why.
+
+---
+
+## What you get: your own MCP servers
+
+You may already have an MCP server nobody wrote a Setu connector for: a
+docs server at work, a notes server on your home computer, a tool you
+run with `uvx`. Add it to Setu once, and every agent that asks Setu what
+to start — Yantra, Samay's runs, dvara's chat on Telegram and the
+Sarathi page — starts it, without a line of config in any of them. Its
+token, if it has one, lives in Setu's vault and nowhere else.
+
+**A server at an address** (it speaks MCP over HTTP):
+
+```
+setu connect --server https://docs.example.com/mcp --id docs --token-stdin
+#   the server's token (not shown):
+#   connected docs:personal (docs.example.com/mcp) -- All its tools, 6 tools
+```
+
+Leave out `--token-stdin` for a server that needs no token. If the token
+goes in a header of its own rather than `Authorization: Bearer`, name it:
+`--header X-API-Key`. The token is read from the keyboard (or stdin), never
+from the command line, where every program on the computer could read
+it. Setu won't take an address with `?key=...` in it either. Put the key
+in the token instead.
+
+**A program of yours that speaks MCP** (on stdin and stdout):
+
+```
+setu connect --server-command 'uvx weather-mcp' --id weather --env WEATHER_KEY
+#   WEATHER_KEY (not shown):
+```
+
+Each `--env NAME` is a value the program needs, such as its API key. It is
+asked for, hidden, and kept in the vault, and the program gets it each
+time it starts.
+
+**Tried before it's kept.** Setu talks to the server first: starts a
+session, asks for its tools. A server that doesn't answer, that wants a
+token you didn't give, or that refuses the one you gave, saves nothing.
+
+**Its tools, written down.** Setu writes the server's tools into a file
+of its own, `~/.local/state/setu/servers/<id>.toml`, each one marked
+`read` or `write`. A tool the server itself calls read-only is `read`,
+and everything else is `write`. A `read` tool may run without asking you.
+A `write` tool is asked about first. A tool the server adds later counts
+as `write` until you say otherwise. The marks are the server's own claim,
+so look them over and change any line: `setu site file docs` shows the
+file, and `--set` replaces it. Adding the server again keeps your lines
+and adds any new tools.
+
+**Two levels.** *All its tools* is what you get when you add one, since
+you brought it. *Only its reading tools* (`--level read`) shows an agent
+just the `read` ones. A call to any other is refused by Setu before it
+leaves your computer.
+
+**Where it runs.** A server at an address runs like every connector:
+Setu's small bridge talks to it from inside the sandbox, with no network
+and no key, and Setu adds the token and sends each request to that
+address only. A program you run is different. It needs your network and
+your files, so it runs as you, outside the sandbox, and its card says
+so. Setu still keeps its keys and its level. Only someone at the
+computer can add one, because adding one means Setu will run that
+program.
+
+**An agent somebody else wrote** still has to ask. Your own Yantra
+sessions see every connection, but a package sees one only when its
+`agent.toml` names it: `[connections] needs = ["docs:write"]` (or
+`"*:read"` for every account you have, at that level).
+
+**Disconnect** with `setu disconnect docs:personal`. Its token is deleted,
+and the server's file goes with its last connection. A token you pasted
+can only be revoked on the server's side, so do that there too.
+
+A real one, run here: a notes server written with the official MCP SDK
+(Streamable HTTP, a Bearer token), added with no token, with the wrong
+one, then the right one, and asked about from Yantra on a local model:
+
+```
+$ setu connect --server http://127.0.0.1:8811/mcp --id kitchen
+error: http://127.0.0.1:8811/mcp asks for a token (HTTP 401); add one with --token-stdin (and --header NAME if it is not a Bearer token); nothing was saved
+$ echo wrong | setu connect --server http://127.0.0.1:8811/mcp --id kitchen --token-stdin
+error: http://127.0.0.1:8811/mcp refused the token you gave (HTTP 401); nothing was saved
+$ setu connect --server http://127.0.0.1:8811/mcp --id kitchen --token-stdin
+connected kitchen:personal (127.0.0.1/mcp) -- All its tools, 2 tools
+  1 of them only read (they may run unasked); the rest are asked about. ...
+
+$ yantra --provider ollama --model qwen3.8-64k "What is on my kitchen board?"
+setu: kitchen-personal (2 tool(s)) -- via .../setu
+→ mcp__kitchen-personal__list_notes()
+    milk on Friday
+    call the plumber
+Your kitchen board has two notes pinned: Milk on Friday, Call the plumber.
+
+$ yantra --provider ollama --model qwen3.8-64k "Pin a note on my kitchen board: buy bread"
+→ mcp__kitchen-personal__add_note()
+╭─ approve mcp__kitchen-personal__add_note()? ──────────────────────
+│ mcp__kitchen-personal__add_note({"text": "buy bread"}) -- mcp server 'kitchen-personal'
+run it? [y/n/e/s] (n): y
+    pinned: buy bread
+```
+
+The read ran without asking, and the write was asked about first. (qwen
+then sent the same call a second time. That one was asked about too, and
+with nobody there to say yes, it didn't run.)
 
 ---
 
@@ -559,6 +666,8 @@ setu connect amazon --as personal  # a site with no API: sign in in a window, th
 setu connect --site example.com    # any other site: Setu writes cautious rules for it
 setu site guide example --set "…"  # that site's short guide (shown without --set)
 setu site file example [--set]     # its whole file; --set replaces it from stdin, checked first
+setu connect --server URL --id docs --token-stdin   # an MCP server of your own (token optional)
+setu connect --server-command 'uvx weather-mcp' --id weather --env WEATHER_KEY   # or a program
 setu config browser PATH           # which browser that window is (default: Chrome on PATH)
 setu catalog                       # the signed catalog: labels, installs, withdrawn versions
 setu serve                         # your connections, levels and logs in a browser page
@@ -885,6 +994,17 @@ container whose `/proc` is masked (Podman's default; `--security-opt
 unmask=/proc/*` lifts it). Setu tries the real sandbox before saying it
 has one, so it never claims a wall it can't build.
 
+**A server of your own** at an address is held the same way: Setu's
+bridge runs in the sandbox with no network and no key, Setu adds the
+token and sends each request to that server's address only, and at
+*Only its reading tools* it refuses any tool not marked `read`, by name,
+before the request leaves. A program you add with `--server-command` is
+not sandboxed. It runs as you, with your network and files, because a
+server you run needs them. Setu keeps its keys in the vault and its
+level on the wire, and `setu status` says it runs as you. Only `setu
+connect`, run at the computer, can make Setu run a program: the command is
+kept in the vault, never in a file someone could drop into a folder.
+
 **A folder locked with a passphrase.** When your sign-ins sit on
 somebody else's computer (a family member's server running
 [dvara](https://github.com/kunwarmahen/dvara) for you), you can lock
@@ -930,7 +1050,8 @@ reads are sent to that provider.
 ## For developers
 
 ```
-packages/setu/        the core: vault, Google sign-in, connections, the request proxy and sandbox, setu.http()
+packages/setu/        the core: vault, Google sign-in, connections, the request proxy and sandbox, setu.http(),
+                      and servers of your own (own.py: try, write down, the setu-own-mcp bridge)
 packages/setu-gmail/  the Gmail connector: an MCP server, and its manifest
 packages/setu-homeassistant/  two Home Assistant connectors: REST tools, and a bridge to its MCP server
 packages/setu-sites/  Amazon and X: browser-road manifests, no code
@@ -1012,9 +1133,25 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   be its `id`, an installed id wins, and any other road is refused. A file that
   is skipped becomes a line in `problems`, not an error. These cards carry
   `label: "local"`.
-* **A server of your own.** A connection may carry its own address
-  (`base_url`); `setu run` hands that to the connector instead of the
-  manifest's.
+* **A server's own address.** A connection may carry its own address
+  (`base_url`, Home Assistant's); `setu run` hands that to the connector
+  instead of the manifest's.
+* **Servers of your own** (`own.py`): `connect --server URL` / `--server-command
+  CMD` tries the server (`initialize`, `tools/list`, every page), then writes
+  `servers/<id>.toml` with `road = "mcp"`, `auth = "own"` and no `command`
+  (`manifest.parse` refuses one: the program is `setu-own-mcp`, always). Its
+  `[verbs]` come from the list (`readOnlyHint` and not `destructiveHint` →
+  `read`, else `write`, `"*" = "write"`), and a line already in the file is
+  kept. An address's file has `api_base`, `mcp_path` and `[requests.read]`, so
+  the proxy's MCP check holds the first level. The vault entry has `server`
+  (`url` or `command`) and `secret` (`token` and `header`, or `env`).
+  `connections.Token.headers()` sends the token as `Authorization: Bearer` or
+  bare in a named header, or sends nothing. A 401 marks the connection
+  `expired`, and `setu check` skips it. `setu run` gives the bridge
+  `SETU_MCP_PATH` and `SETU_READ_TOOLS`. A program is started by `setu run`
+  itself (`own.run_command`), its stdio relayed through `own.Level`.
+  `installed()` reads `servers/` after `sites/`, accepting `auth = "own"`
+  only. Cards carry `own`, and connection rows carry `server`.
 * **One grant per app per Google account.** Revoking any token of a grant ends
   all of it, so Setu never revokes a grant another connection still uses.
 * **The page** (`page.py`, `static/`): `setu serve` serves four static

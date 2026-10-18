@@ -28,6 +28,10 @@ the manifest's ``[browser]`` table: hosts, spending guards, pace, guide.
 A profile path is not a secret the way a key is, but it is where the
 cookies are, so it is said only to the harness, as the key's location is.
 
+A SERVER OF YOUR OWN IS A CONNECTOR LIKE ANY OTHER (own.py): its card
+says ``own``, its connection carries ``server`` -- the address, or the
+program -- and never the token or the environment values given for it.
+
 A PHONE ROAD IS AN APP, NOT A SERVER EITHER. Its connection carries
 ``phone`` (which app), and its connector card the manifest's ``[phone]``
 table: the words that act, the words that spend, the pace, a guide. A
@@ -145,12 +149,16 @@ def _connector(manifest: Manifest, connected: bool,
         # what it can reach if something was missed -- as it is, not as hoped
         "contained": contained(manifest.road, list(manifest.hosts), manifest.name,
                                token_mode=manifest.token_mode,
-                               rules=bool(manifest.requests or manifest.mcp_path)),
+                               rules=bool(manifest.requests or manifest.mcp_path),
+                               program=manifest.auth == "own" and not manifest.api_base),
+        # a server of your own (own.py): its tools were classed from its list
+        "own": manifest.auth == "own",
     }
 
 
 def contained(road: str, hosts: list[str], name: str, *, token_mode: str = "proxy",
-              rules: bool | None = None, confined: bool | None = None) -> str:
+              rules: bool | None = None, confined: bool | None = None,
+              program: bool = False) -> str:
     """One honest line on what a connector can reach -- as it is on this
     computer, not as hoped. Under the proxy the connector holds no key
     and Setu makes its requests (proxy.py); bubblewrap is what takes its
@@ -162,6 +170,9 @@ def contained(road: str, hosts: list[str], name: str, *, token_mode: str = "prox
     if road == "browser":
         return (f"a browser profile: the agent's site tools keep to {where}; buying and "
                 "paying are handed to you; the pages' own scripts are not limited")
+    if program:
+        return ("runs as you: a program on this computer, with your network and your files; "
+                "Setu keeps its keys and its level, not a sandbox")
     if token_mode == "callback":
         return (f"runs as its own program holding a short-lived {name} key; declares "
                 f"{where}; Setu does not limit where it connects")
@@ -240,6 +251,9 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
             "browser": ({"profile": entry.get("profile", ""),
                          "executable": entry.get("browser", ""), "home": entry.get("home", "")}
                         if entry.get("auth") == "browser" else None),
+            # a server of your own: its address or its program, never its keys
+            "server": (dict(entry.get("server") or {}) if entry.get("auth") == "own"
+                       else None),
             # an app on the person's phone: which one (the card has the rules)
             "phone": dict(entry.get("phone") or {}) if entry.get("auth") == "phone" else None,
         })
