@@ -73,6 +73,57 @@
     </div>
   </section>
 
+  <section aria-labelledby="h-server">
+    <div class="section-head">
+      <h2 id="h-server">Add your own server</h2>
+    </div>
+    <p class="lede">An MCP server nobody wrote a connector for: give its address, and
+      its token if it needs one. Setu tries it, writes down which of its tools only
+      read, and keeps the token. Every agent you allow can then use it, on this page's
+      computer and from your chats. The token is never shown again.</p>
+    <div class="card">
+      <div class="actions owner-only" role="radiogroup" aria-label="where the server is">
+        <label class="small"><input type="radio" name="server-kind" value="url" checked>
+          at an address</label>
+        <label class="small"><input type="radio" name="server-kind" value="command">
+          a program on this computer</label>
+      </div>
+      <div class="actions" id="server-url-row">
+        <input id="server-url" class="field wide" type="url"
+               placeholder="https://example.com/mcp" aria-label="the server's address">
+      </div>
+      <div class="actions" id="server-token-row">
+        <input id="server-token" class="field wide" type="password" autocomplete="off"
+               placeholder="its token (leave empty if it needs none)"
+               aria-label="the server's token">
+        <input id="server-header" class="field" type="text" placeholder="Authorization"
+               aria-label="the header the token goes in (empty: Authorization: Bearer)">
+      </div>
+      <div class="actions" id="server-command-row" hidden>
+        <input id="server-command" class="field wide" type="text"
+               placeholder="uvx weather-mcp" aria-label="the command that starts it">
+      </div>
+      <div id="server-env" hidden></div>
+      <div class="actions" id="server-env-add-row" hidden>
+        <button id="server-env-add" class="btn" type="button">+ a value it needs (a key)</button>
+      </div>
+      <p class="meta" id="server-command-note" hidden>A program runs as you, on this
+        computer, with your network and files. Setu keeps its keys and its level, not a
+        sandbox.</p>
+      <div class="actions">
+        <label class="small">name <input id="server-id" class="field" type="text"
+               maxlength="40" placeholder="optional" aria-label="its name (default: from the address)"></label>
+        <label class="small">as <input id="server-account" class="field" type="text"
+               value="personal" maxlength="40" aria-label="your name for this account"></label>
+        <select id="server-level" aria-label="what agents may use">
+          <option value="write">All its tools (asks before ones that change things)</option>
+          <option value="read">Only its reading tools</option>
+        </select>
+        <button id="server-go" class="btn go" type="button">Add</button>
+      </div>
+    </div>
+  </section>
+
   <section aria-labelledby="h-people" class="owner-only" id="people-section" hidden>
     <div class="section-head">
       <h2 id="h-people">People's pages</h2>

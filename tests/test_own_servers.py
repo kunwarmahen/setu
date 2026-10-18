@@ -443,3 +443,76 @@ class TestLifecycle:
             text.replace('add_page = "write"', 'add_page = "read"')))
         assert main(["site", "file", "docs", "--set"]) == 0
         assert installed()["docs"].verbs["add_page"] == "read"
+
+
+# ---- from Setu's page ------------------------------------------------------------------
+
+
+def _finished(api, timeout: float = 30.0) -> dict:
+    import time
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        state = api.signin.state()
+        if any(e["event"] == "done" for e in state["events"]):
+            return state
+        time.sleep(0.05)
+    raise AssertionError(f"never finished: {api.signin.state()}")
+
+
+class TestPage:
+    def test_the_page_adds_one_and_the_token_rides_stdin_never_the_arguments(self, home,
+                                                                             server):
+        from setu import page
+        api = page.Api(FileVault())
+        api.handle("POST", "/api/add-server", {},
+                   {"url": server.url, "id": "docs", "token": TOKEN, "level": "read"})
+        argv = api.signin.process.args
+        state = _finished(api)
+        assert TOKEN not in json.dumps(argv) and "--token-stdin" in argv
+        connected = next(e for e in state["events"] if e["event"] == "connected")
+        assert connected["ref"] == "docs:personal" and connected["tools"] == 3
+        assert TOKEN not in json.dumps(state)
+        assert FileVault().get("docs:personal")["secret"]["token"] == TOKEN
+        _, cards = api.handle("GET", "/api/connections", {})
+        assert TOKEN not in json.dumps(cards)
+
+    @pytest.mark.parametrize("person,local", [(None, False), ("asha", True)])
+    def test_a_program_is_only_the_owners_at_the_computer(self, home, person, local):
+        from setu import page
+        api = page.Api(FileVault(), person=person)
+        with pytest.raises(page.ApiError) as caught:
+            api.handle("POST", "/api/add-server", {}, {"command": "uvx weather-mcp"},
+                       local=local)
+        assert caught.value.code == 403 and api.signin is None
+
+    @pytest.mark.parametrize("body", [
+        {},
+        {"url": "https://x.example/mcp", "command": "uvx x"},
+        {"url": "docs.example.com"},
+        {"url": "https://x.example/mcp", "id": "Not A Name"},
+        {"url": "https://x.example/mcp", "header": "X-API-Key"},
+        {"url": "https://x.example/mcp", "env": {"KEY": "v"}},
+        {"command": "uvx x", "token": "t"},
+        {"command": "uvx x", "env": {"not a name": "v"}},
+        {"url": "https://x.example/mcp", "level": "everything"},
+    ])
+    def test_a_body_that_does_not_fit_is_refused_before_anything_runs(self, home, body):
+        from setu import page
+        api = page.Api(FileVault())
+        with pytest.raises(page.ApiError) as caught:
+            api.handle("POST", "/api/add-server", {}, body)
+        assert caught.value.code == 400 and api.signin is None
+
+    def test_a_person_adds_one_to_their_own_folder(self, home, server, tmp_path):
+        from setu import page
+        theirs = tmp_path / "people" / "asha"
+        api = page.Api.for_person("asha", theirs)
+        api.handle("POST", "/api/add-server", {}, {"url": server.url, "id": "docs",
+                                                    "token": TOKEN}, local=False)
+        assert events_of(_finished(api))[-2:] == ["connected", "done"]
+        assert FileVault(theirs).get("docs:personal") is not None
+        assert FileVault().get("docs:personal") is None          # not the owner's folder
+
+
+def events_of(state) -> list[str]:
+    return [e["event"] for e in state["events"]]

@@ -708,6 +708,13 @@ You can also make changes there:
 * **Add a site** opens a window on any site you name. You sign in, and
   Setu writes careful rules for it. If it can't tell from the page whether
   you signed in, it asks you.
+* **Add your own server**: an MCP server's address, its token if it needs
+  one (and the header it goes in, if that isn't `Authorization`), a name,
+  and what agents may use. Setu tries it, and the card appears with its
+  tools counted. The token goes straight to `setu connect` and is never
+  shown again, not even on its card. *A program on this computer*
+  (a command, with any keys it needs) is offered only on your own page
+  opened at the computer running Setu, because Setu will run it as you.
 
 The rest of the page is the terminal's other jobs:
 
@@ -732,7 +739,8 @@ The rest of the page is the terminal's other jobs:
 Opened from another device (with `--host`), the page uses the roads made
 for that: Google's sign-in ends on an address you paste back into the
 page, and a browser sign-in is streamed to you. Adding a site needs you at
-the computer. Locking the folder stays a terminal step (`setu lock`), so
+the computer, and so does adding a program as a server; a server at an
+address can be added from anywhere. Locking the folder stays a terminal step (`setu lock`), so
 the passphrase is never typed into a page.
 
 It's safe to leave running:
@@ -778,8 +786,9 @@ to their page until they press **Close this page on this device**.
 
 Their page is yours minus the parts that change your computer: no
 catalog, installs, certifiers, settings or adding a site. They see
-their own connections, connect, change a level, disconnect, and read
-what each one did, all in their own folder. They never see yours or
+their own connections, connect, change a level, disconnect, add a
+server of their own at an address (never a program), and read what each
+one did, all in their own folder. They never see yours or
 anybody else's.
 
 * **A folder that isn't there yet is nobody yet**, not an error: a door makes
@@ -1158,7 +1167,10 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   files (page, script, style, icon) and `GET /api/status`,
   `/api/connections`, `/api/connectors` and
   `/api/requests?ref=REF&limit=N`. Changes are `POST /api/connect`,
-  `/api/add-site`, `/api/disconnect` and `/api/signin/{answer,paste,cancel}`,
+  `/api/add-site`, `/api/add-server` (its `token` and `env` values go to
+  `setu connect --server --json` on stdin; a `command` is refused with 403
+  from a person's page or another device), `/api/disconnect` and
+  `/api/signin/{answer,paste,cancel}`,
   with `GET /api/signin` for a sign-in's events. A sign-in is `setu connect
   --json` run as a child process (`--paste` or `--remote` when the request
   comes from another device). A POST from another site's `Origin` is
@@ -1179,7 +1191,8 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   `p.<person>.<secret>` key, once. That key opens an `Api` on the
   person's folder (children run with `SETU_HOME` there and without
   `SETU_VAULT_KEY`). It answers only status, connections, connectors,
-  requests and the sign-in calls, and gives 403 for the rest. `POST
+  requests, the sign-in calls and `add-server` (an address only), and gives
+  403 for the rest. `POST
   /api/session/close` forgets that one key. `config.people_page()` is
   read in the owner's folder on every request. The owner's token alone
   gets `GET /api/people` (`people.overview`: each folder's open pages as

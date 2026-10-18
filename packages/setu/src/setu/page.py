@@ -12,6 +12,8 @@ API on the same server:
     POST /api/connect      {connector, account, level, road?}   start a sign-in
     POST /api/add-site     {site, account, level}               a site Setu has no
                                                                 connector for
+    POST /api/add-server   {url | command, id?, account, level, token?, header?,
+                            env?}                               an MCP server of your own
     GET  /api/signin       the sign-in in progress, and what it has said so far
     POST /api/signin/answer {yes}        "did you sign in?", when the page can't tell
     POST /api/signin/paste  {address}    the address a sign-in ended on, pasted back
@@ -43,6 +45,14 @@ opens a window here. A page opened on this computer gets those. A page
 reached from elsewhere (``--host``) gets the roads made for another
 device: the address pasted back, or the streamed window (``--remote``).
 A request says which it wants only by where it comes from.
+
+A SERVER OF YOUR OWN, FROM THE PAGE (``add-server``). Its token and
+environment values come in the request's body and go to ``setu connect
+--server --json`` on its stdin, never its arguments; no answer carries
+them back. A server at an address may be added from any page, a
+person's too, into their own folder. A program (``command``) only from
+the owner's page opened on this computer: Setu would run it as the
+service's user, which is the owner's to decide, at the machine.
 
 A WRITE COMES FROM THE PAGE ITSELF. On top of the token, a POST whose
 ``Origin`` is another site is refused -- a form on a page you happen to
@@ -153,8 +163,12 @@ SITE_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 INSTALL_SECONDS = 600
 #: What a person's page answers; the rest of the API is the owner's.
 PERSON_GET = {("status",), ("connections",), ("connectors",), ("requests",), ("signin",)}
-PERSON_POST = {("connect",), ("disconnect",), ("signin", "answer"), ("signin", "paste"),
-               ("signin", "cancel")}
+PERSON_POST = {("connect",), ("add-server",), ("disconnect",), ("signin", "answer"),
+               ("signin", "paste"), ("signin", "cancel")}
+#: A server's id, a token's header, an environment variable's name.
+SERVER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+HEADER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$")
+ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 #: What each setting is, in words, for the page.
 SETTINGS = {
     "client-file": "Google's Desktop app client file (its path; the file stays where it is)",
@@ -378,6 +392,8 @@ class Api:
             return 200, self.connect(body, local)
         if parts == ["add-site"]:
             return 200, self.add_site(body, local)
+        if parts == ["add-server"]:
+            return 200, self.add_server(body, local)
         if parts == ["disconnect"]:
             return 200, self.disconnect(str(body.get("ref") or ""))
         if parts == ["signin", "answer"]:
@@ -461,6 +477,56 @@ class Api:
                                 f"there, run setu connect --site {site} --as {account}")
         return self._start([*self.setu, "connect", "--site", site, "--as", account,
                             "--level", level, "--json"], f"{site}:{account}")
+
+    def add_server(self, body: dict, local: bool) -> dict[str, Any]:
+        url = str(body.get("url") or "").strip()
+        command = str(body.get("command") or "").strip()
+        sid = str(body.get("id") or "").strip().lower()
+        account = str(body.get("account") or "personal").strip()
+        level = str(body.get("level") or "write")
+        token = str(body.get("token") or "").strip()
+        header = str(body.get("header") or "").strip()
+        env = body.get("env") or {}
+        if bool(url) == bool(command):
+            raise ApiError(400, "give the server's address, or the command that starts it")
+        if url and not url.startswith(("http://", "https://")):
+            raise ApiError(400, f"{url!r} is not a server's address (try "
+                                "https://example.com/mcp)")
+        if sid and not SERVER_ID_RE.match(sid):
+            raise ApiError(400, f"{sid!r} cannot name a server: letters, digits, - and _")
+        if not ACCOUNT_RE.match(account):
+            raise ApiError(400, f"account name {account!r} is not a plain word")
+        if level not in ("read", "write"):
+            raise ApiError(400, f"a server's levels are read and write, not {level!r}")
+        if header and (not HEADER_RE.match(header) or not token):
+            raise ApiError(400, "a header needs a token, and a plain name (X-API-Key)")
+        if not isinstance(env, dict) or not all(
+                isinstance(k, str) and ENV_NAME_RE.match(k) and isinstance(v, str) and v
+                for k, v in env.items()):
+            raise ApiError(400, "env maps names (API_KEY) to values")
+        if command and (token or header):
+            raise ApiError(400, "a program takes its keys in its environment, not a token")
+        if url and env:
+            raise ApiError(400, "a server at an address takes a token, not environment "
+                                "values")
+        if command and (self.person is not None or not local):
+            # Setu would run it as this service's user: the owner's call, at the machine
+            raise ApiError(403, "a program of your own runs on the computer running Setu, "
+                                "as its owner: add it there (setu connect --server-command)")
+        argv = [*self.setu, "connect", *(["--server", url] if url else
+                                         ["--server-command", command]),
+                "--as", account, "--level", level, "--json"]
+        argv += ["--id", sid] if sid else []
+        argv += ["--token-stdin"] if token else []
+        argv += ["--header", header] if header else []
+        for name in env:
+            argv += ["--env", name]
+        started = self._start(argv, f"{sid or 'server'}:{account}")
+        assert self.signin is not None
+        # the secrets go on stdin, in the order the arguments named them
+        for line in ([token] if token else []) + list(env.values()):
+            self.signin.say(line)
+        return started
 
     def disconnect(self, ref: str) -> dict[str, Any]:
         if not ref or ref not in self.vault.list():

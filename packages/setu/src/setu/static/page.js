@@ -329,6 +329,57 @@ function wireAddSite() {
   });
 }
 
+// -- add a server of your own ---------------------------------------------------------
+
+function wireAddServer() {
+  const $ = (id) => document.getElementById(id);
+  const kind = () => (person ? "url"
+    : document.querySelector('input[name="server-kind"]:checked').value);
+  const show = () => {
+    const program = kind() === "command";
+    $("server-url-row").hidden = program;
+    $("server-token-row").hidden = program;
+    $("server-command-row").hidden = !program;
+    $("server-env").hidden = !program;
+    $("server-env-add-row").hidden = !program;
+    $("server-command-note").hidden = !program;
+  };
+  document.querySelectorAll('input[name="server-kind"]').forEach((r) =>
+    r.addEventListener("change", show));
+  $("server-env-add").addEventListener("click", () => {
+    const name = h("input.field", { type: "text", placeholder: "API_KEY",
+                                    "aria-label": "the value's name" });
+    const value = h("input.field.wide", { type: "password", autocomplete: "off",
+                                          placeholder: "its value",
+                                          "aria-label": "the value (kept in the vault)" });
+    $("server-env").append(h("div.actions.env", {}, name, value));
+  });
+  $("server-go").addEventListener("click", () => {
+    const body = { id: $("server-id").value.trim(),
+                   account: $("server-account").value.trim() || "personal",
+                   level: $("server-level").value };
+    if (kind() === "command") {
+      body.command = $("server-command").value.trim();
+      if (!body.command) { say("Type the command that starts it first.", true); return; }
+      body.env = {};
+      for (const row of $("server-env").querySelectorAll(".env")) {
+        const [n, v] = row.querySelectorAll("input");
+        if (n.value.trim() && v.value) body.env[n.value.trim()] = v.value;
+      }
+    } else {
+      body.url = $("server-url").value.trim();
+      if (!body.url) { say("Type the server's address first.", true); return; }
+      body.token = $("server-token").value;
+      body.header = $("server-header").value.trim();
+    }
+    startSignIn("/api/add-server", body).then(() => {
+      $("server-token").value = "";                  // never left on the page
+      for (const v of $("server-env").querySelectorAll('input[type="password"]')) v.value = "";
+    });
+  });
+  show();
+}
+
 // -- a sign-in in progress ----------------------------------------------------------
 
 let watching = null;
@@ -426,7 +477,8 @@ function describe(e, running) {
       return h("p.warn", {}, `That address didn't fit: ${e.message}`);
     case "connected":
       return h("p.ok", {}, `Connected ${e.ref}` + (e.email ? ` as ${e.email}` : "") +
-                           (e.level_label ? ` — ${e.level_label}` : "") + ".");
+                           (e.level_label ? ` — ${e.level_label}` : "") +
+                           (e.tools != null ? `, ${e.tools} tools` : "") + ".");
     case "error":
       return h("p.warn", {}, e.message);
     case "cancelled":
@@ -682,6 +734,7 @@ async function refresh() {
 document.addEventListener("DOMContentLoaded", async () => {
   if (window.top !== window.self) document.body.classList.add("embedded");
   wireAddSite();
+  wireAddServer();
   wireClose();
   await claimLink();
   refresh();
