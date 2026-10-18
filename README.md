@@ -271,7 +271,7 @@ browser on your PATH? Name one: `setu config browser /path/to/brave`.
 ### Or: the site's own app, on your phone
 
 X turns a driven browser away more often than not, and Amazon sometimes
-does. Their own phone apps don't. With an Android phone an agent can work
+does. Their own phone apps don't. With an Android phone or an iPhone an agent can work
 ([Sparsh](https://github.com/kunwarmahen/sparsh)), connect the app
 instead:
 
@@ -299,8 +299,8 @@ disconnecting forgets it, and the app stays signed in on your phone.
 In [Yantra](https://github.com/kunwarmahen/yantra) the agent is told to
 use the app, and Sparsh is handed the rules (its `SPARSH_APP_RULES`). On
 the emulator, a Messages stand-in at Read only had its Send refused, and
-at the level above it was held for a yes. Not yet run with the real X or
-Amazon app.
+at the level above it was held for a yes. The real Amazon app has been
+worked this way on an iPhone 17; the real X app not yet.
 
 ### Any other site
 
