@@ -533,6 +533,49 @@ def events_of(state) -> list[str]:
     return [e["event"] for e in state["events"]]
 
 
+class TestShownAs:
+    """--name: the name it is shown by, separate from its id."""
+
+    def test_the_name_given_is_the_one_shown(self, home, server, monkeypatch):
+        monkeypatch.setattr(sys, "stdin", io.StringIO(TOKEN + "\n"))
+        assert main(["connect", "--server", server.url, "--id", "docs", "--name", "Our docs",
+                     "--ask-token"]) == 0
+        manifest = installed()["docs"]
+        assert manifest.id == "docs" and manifest.name == "Our docs"
+
+    def test_without_one_it_is_what_the_server_calls_itself(self, home, server):
+        add(server.url)
+        assert installed()["docs"].name == "Team docs"
+
+    def test_a_name_edited_in_its_file_survives_connecting_again(self, home, server):
+        add(server.url)
+        path = home / "servers" / "docs.toml"
+        path.write_text(path.read_text().replace('name = "Team docs"', 'name = "Kitchen"'))
+        with httpx.Client() as http:
+            own.again("docs:personal", vault=FileVault(), http=http, level="read")
+        assert installed()["docs"].name == "Kitchen"
+        with httpx.Client() as http:   # and a name given now wins over it
+            own.connect("docs", "personal", vault=FileVault(), http=http, url=server.url,
+                        token=TOKEN, display_name="Docs at work")
+        assert installed()["docs"].name == "Docs at work"
+
+    @pytest.mark.parametrize("bad", ["", "   ", "two\nlines", "x" * 61])
+    def test_a_name_that_is_not_one_line_is_refused(self, home, server, bad):
+        with httpx.Client() as http, pytest.raises(own.ServerError, match="--name"):
+            own.connect("docs", "personal", vault=FileVault(), http=http, url=server.url,
+                        token=TOKEN, display_name=bad)
+
+    def test_the_page_passes_the_name_it_is_shown_by(self, home, server):
+        from setu import page
+        api = page.Api(FileVault())
+        api.handle("POST", "/api/add-server", {}, {"url": server.url, "id": "docs",
+                                                    "name": "Our docs", "token": TOKEN})
+        argv = api.signin.process.args
+        assert argv[argv.index("--name") + 1] == "Our docs"
+        assert events_of(_finished(api))[-2:] == ["connected", "done"]
+        assert installed()["docs"].name == "Our docs"
+
+
 class TestAgain:
     def test_changing_the_level_keeps_its_address_and_token(self, home, server, capsys):
         add(server.url)

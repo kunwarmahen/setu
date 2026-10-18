@@ -355,7 +355,7 @@ function wireAddServer() {
     $("server-env").append(h("div.actions.env", {}, name, value));
   });
   $("server-go").addEventListener("click", () => {
-    const body = { id: $("server-id").value.trim(),
+    const body = { id: $("server-id").value.trim(), name: $("server-name").value.trim(),
                    account: $("server-account").value.trim() || "personal",
                    level: $("server-level").value };
     if (kind() === "command") {

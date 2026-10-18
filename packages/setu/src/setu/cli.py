@@ -20,7 +20,7 @@
     setu config homeassistant-url URL    remember where your Home Assistant is
     setu connect amazon --as personal    a site with no API: sign in in a window of its own
     setu connect --site example.com      any other site: Setu writes its rules once you sign in
-    setu connect --server URL --id docs [--ask-token [--header X-API-Key]]
+    setu connect --server URL --id docs [--name "Team docs"] [--ask-token [--header X-API-Key]]
                                          an MCP server of your own, at an address
     setu connect --server-command 'uvx weather-mcp' --id weather [--env API_KEY]
                                          or a program of yours that speaks MCP (runs as you)
@@ -282,7 +282,8 @@ def _add_server(args: argparse.Namespace, on_started: Callable[[str], None] | No
         return own.connect(sid, args.account, vault=FileVault(), http=http,
                            url=args.server, command=args.server_command, token=token,
                            header=args.header, env=env, level=args.level,
-                           sign_in=_server_sign_in(args, http, emit=on_started is not None))
+                           sign_in=_server_sign_in(args, http, emit=on_started is not None),
+                           display_name=args.server_name)
 
 
 def _connect_server(args: argparse.Namespace) -> int:
@@ -1365,6 +1366,10 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument("--server-command", metavar="CMD",
                          help="an MCP server of your own that is a program (stdio), e.g. "
                               "'uvx weather-mcp': it runs as you, unsandboxed")
+    connect.add_argument("--name", dest="server_name", metavar="NAME",
+                         help="with --server or --server-command: the name it is shown by "
+                              "on cards and pages (default: what the server calls itself); "
+                              "--id is the name agents and Setu use")
     connect.add_argument("--header", help="with --server --ask-token: the header the token "
                          "goes in, sent bare (default: Authorization: Bearer)")
     connect.add_argument("--env", action="append", metavar="NAME",

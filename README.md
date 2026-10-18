@@ -440,7 +440,16 @@ it; `--token-stdin` is the same flag under its old name.)
 
 Leave out `--ask-token` for a server that needs no token. If the token
 goes in a header of its own rather than `Authorization: Bearer`, name it:
-`--header X-API-Key`. Setu won't take an address with `?key=...` in it either. Put the key
+`--header X-API-Key`.
+
+**Two names.** `--id` is the name Setu and your agents use: the
+connection is `docs:personal` and its tools are `mcp__docs-personal__…`.
+Leave it out and it's made from the address. `--name` is the name it's
+shown by on cards and pages: `--name "Team docs"`. Leave that out and
+the server's own name for itself is used (a server added as `--id
+jyotirai` showed as *jyotir-ai*, what it calls itself). A name you set,
+or change in its file (`setu site file docs`), is kept when you connect
+again or change its level. Setu won't take an address with `?key=...` in it either. Put the key
 in the token instead.
 
 **A server that signs you in on its own page.** Many remote MCP servers
@@ -712,7 +721,7 @@ setu connect amazon --as personal  # a site with no API: sign in in a window, th
 setu connect --site example.com    # any other site: Setu writes cautious rules for it
 setu site guide example --set "…"  # that site's short guide (shown without --set)
 setu site file example [--set]     # its whole file; --set replaces it from stdin, checked first
-setu connect --server URL --id docs [--ask-token]   # an MCP server of your own: a token, none, or its own sign-in page
+setu connect --server URL --id docs [--name "Team docs"] [--ask-token]   # an MCP server of your own: a token, none, or its own sign-in page
 setu connect --server-command 'uvx weather-mcp' --id weather --env WEATHER_KEY   # or a program
 setu config browser PATH           # which browser that window is (default: Chrome on PATH)
 setu catalog                       # the signed catalog: labels, installs, withdrawn versions
@@ -1194,6 +1203,8 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
 * **Servers of your own** (`own.py`): `connect --server URL` / `--server-command
   CMD` tries the server (`initialize`, `tools/list`, every page), then writes
   `servers/<id>.toml` with `road = "mcp"`, `auth = "own"` and no `command`
+  (its `name` is `--name`, else the name already in the file, else the
+  server's `serverInfo` title or name)
   (`manifest.parse` refuses one: the program is `setu-own-mcp`, always). Its
   `[verbs]` come from the list (`readOnlyHint` and not `destructiveHint` →
   `read`, else `write`, `"*" = "write"`), and a line already in the file is

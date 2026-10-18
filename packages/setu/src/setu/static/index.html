@@ -112,8 +112,12 @@
         computer, with your network and files. Setu keeps its keys and its level, not a
         sandbox.</p>
       <div class="actions">
-        <label class="small">name <input id="server-id" class="field" type="text"
-               maxlength="40" placeholder="optional" aria-label="its name (default: from the address)"></label>
+        <label class="small">id <input id="server-id" class="field" type="text"
+               maxlength="40" placeholder="optional"
+               aria-label="its id, what agents call it (default: from the address)"></label>
+        <label class="small">shown as <input id="server-name" class="field" type="text"
+               maxlength="60" placeholder="optional"
+               aria-label="the name it is shown by (default: what the server calls itself)"></label>
         <label class="small">as <input id="server-account" class="field" type="text"
                value="personal" maxlength="40" aria-label="your name for this account"></label>
         <select id="server-level" aria-label="what agents may use">

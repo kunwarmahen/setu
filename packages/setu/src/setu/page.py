@@ -482,6 +482,7 @@ class Api:
         url = str(body.get("url") or "").strip()
         command = str(body.get("command") or "").strip()
         sid = str(body.get("id") or "").strip().lower()
+        shown = str(body.get("name") or "").strip()
         account = str(body.get("account") or "personal").strip()
         level = str(body.get("level") or "write")
         token = str(body.get("token") or "").strip()
@@ -517,6 +518,10 @@ class Api:
                                          ["--server-command", command]),
                 "--as", account, "--level", level, "--json"]
         argv += ["--id", sid] if sid else []
+        if shown:
+            if len(shown) > 60 or "\n" in shown:
+                raise ApiError(400, "the name it is shown by: one line, up to 60 letters")
+            argv += ["--name", shown]
         argv += ["--token-stdin"] if token else []
         argv += ["--header", header] if header else []
         if url and not token and not local:

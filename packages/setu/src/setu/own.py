@@ -491,13 +491,20 @@ def connect(server_id: str | None, account: str, *, vault: Vault, http: httpx.Cl
             token: str | None = None, header: str | None = None,
             env: dict[str, str] | None = None, level: str | None = None,
             sign_in: Callable[[str, str], dict[str, Any]] | None = None,
-            signed_in: dict[str, Any] | None = None) -> dict[str, Any]:
+            signed_in: dict[str, Any] | None = None,
+            display_name: str | None = None) -> dict[str, Any]:
     """Try the server, write its file, keep the connection. The entry
     comes back with ``tools`` (how many) and ``manifest_path``.
 
     ``sign_in(url, challenge)`` is called when the server asks for a
     sign-in on its own page (mcp_auth.sign_in, with the caller's browser
-    or paste road); ``signed_in`` is one already made (``again``)."""
+    or paste road); ``signed_in`` is one already made (``again``).
+
+    THE NAME SHOWN IS THE PERSON'S WHEN THEY GIVE ONE. ``display_name``
+    (``--name``) is what cards and pages call it; without one, a name
+    already in its file is kept (the person may have edited it), and a
+    new server is called what it calls itself. The id (``--id``) is
+    separate: it names the connection and the agent's tools."""
     from setu import connections
     if (url is None) == (command is None):
         raise ServerError("give the server's address (--server URL) or the command that "
@@ -505,6 +512,9 @@ def connect(server_id: str | None, account: str, *, vault: Vault, http: httpx.Cl
     argv = shlex.split(command) if isinstance(command, str) else list(command or [])
     if command is not None and not argv:
         raise ServerError("the command is empty")
+    if display_name is not None and (not display_name.strip() or "\n" in display_name
+                                     or len(display_name.strip()) > 60):
+        raise ServerError("--name is the name it is shown by: one line, up to 60 letters")
     if header and not token:
         raise ServerError("--header names where a token goes; give the token too "
                           "(--ask-token)")
@@ -546,9 +556,11 @@ def connect(server_id: str | None, account: str, *, vault: Vault, http: httpx.Cl
             raise ServerError("Setu cannot make a name from that address or from the "
                               "server; give one with --id")
         server_id = _checked_id(named, account)
-    name = str(info.get("title") or info.get("name") or server_id).strip()[:60] or server_id
-    ref = connections.ref_for(server_id, account)
     known = installed().get(server_id)
+    own_name = known.name if known is not None and known.auth == "own" else ""
+    name = ((display_name or "").strip() or own_name
+            or str(info.get("title") or info.get("name") or server_id).strip())[:60] or server_id
+    ref = connections.ref_for(server_id, account)
     manifest = write(draft(server_id, name=name, tools=found["tools"], url=url,
                            program=" ".join(argv), before=known))
     held = manifest.level(level or ADDED_LEVEL)
