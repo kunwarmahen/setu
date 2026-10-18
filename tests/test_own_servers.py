@@ -320,6 +320,10 @@ class TestAdding:
         with pytest.raises(own.ServerError, match="--id"):
             own.id_from(url="http://192.168.1.5:9000/mcp")
 
+    def test_with_no_name_in_the_address_the_server_names_itself(self, home, server):
+        entry = add(server.url, sid=None)            # http://127.0.0.1:PORT/mcp
+        assert entry["connector"] == "team-docs"
+
 
 # ---- using one -------------------------------------------------------------------------
 

@@ -507,15 +507,13 @@ def connect(server_id: str | None, account: str, *, vault: Vault, http: httpx.Cl
     for name in env or {}:
         if not ENV_NAME_RE.fullmatch(name):
             raise ServerError(f"{name!r} is not an environment variable's name")
-    server_id = (server_id or id_from(url=url, command=argv)).lower()
-    if not ID_RE.fullmatch(server_id):
-        raise ServerError(f"{server_id!r} cannot name a server: letters, digits, - and _ only")
-    ref = connections.ref_for(server_id, account)
-    known = installed().get(server_id)
-    if known is not None and known.auth != "own":
-        how = "a site added here" if known.local else "an installed connector"
-        raise ServerError(f"Setu already has {known.name} ({server_id}, {how}); give this "
-                          "server another name with --id")
+    if server_id is None:
+        try:
+            server_id = id_from(url=url, command=argv)
+        except ServerError:
+            server_id = None          # the server's own name, once it has said it
+    if server_id is not None:
+        server_id = _checked_id(server_id.lower(), account)
     secret: dict[str, Any]
     if url:
         address(url)
@@ -531,7 +529,15 @@ def connect(server_id: str | None, account: str, *, vault: Vault, http: httpx.Cl
         where, server = Path(argv[0]).name, {"command": argv}
         secret = {"env": dict(env or {})} if env else {}
     info = found["server"]
+    if server_id is None:
+        named = _word(str(info.get("name") or info.get("title") or ""))
+        if not named or not ID_RE.fullmatch(named):
+            raise ServerError("Setu cannot make a name from that address or from the "
+                              "server; give one with --id")
+        server_id = _checked_id(named, account)
     name = str(info.get("title") or info.get("name") or server_id).strip()[:60] or server_id
+    ref = connections.ref_for(server_id, account)
+    known = installed().get(server_id)
     manifest = write(draft(server_id, name=name, tools=found["tools"], url=url,
                            program=" ".join(argv), before=known))
     held = manifest.level(level or ADDED_LEVEL)
@@ -552,6 +558,20 @@ def connect(server_id: str | None, account: str, *, vault: Vault, http: httpx.Cl
         entry["base_url"] = address(url)[0]
     vault.put(ref, entry)
     return {**entry, "tools": len(found["tools"]), "manifest_path": str(path_for(server_id))}
+
+
+def _checked_id(server_id: str, account: str) -> str:
+    """An id this server may have: a plain word no connector or site has."""
+    from setu import connections
+    if not ID_RE.fullmatch(server_id):
+        raise ServerError(f"{server_id!r} cannot name a server: letters, digits, - and _ only")
+    connections.ref_for(server_id, account)        # the account is a plain word too
+    known = installed().get(server_id)
+    if known is not None and known.auth != "own":
+        how = "a site added here" if known.local else "an installed connector"
+        raise ServerError(f"Setu already has {known.name} ({server_id}, {how}); give this "
+                          "server another name with --id")
+    return server_id
 
 
 def again(ref: str, *, vault: Vault, http: httpx.Client,

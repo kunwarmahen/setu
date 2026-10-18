@@ -249,10 +249,14 @@ def _server_secrets(args: argparse.Namespace) -> tuple[str | None, dict[str, str
 def _add_server(args: argparse.Namespace, on_started: Callable[[str], None] | None = None):
     from setu import own
     token, env = _server_secrets(args)
-    sid = args.id or own.id_from(url=args.server, command=(
-        shlex.split(args.server_command) if args.server_command else None))
+    sid = args.id
+    if sid is None:
+        with contextlib.suppress(own.ServerError, ValueError):
+            sid = own.id_from(url=args.server, command=(
+                shlex.split(args.server_command) if args.server_command else None))
     if on_started is not None:
-        on_started(connections.ref_for(sid.lower(), args.account))
+        # with no name yet, the server's own is taken once it answers
+        on_started(connections.ref_for((sid or "server").lower(), args.account))
     with httpx.Client() as http:
         return own.connect(sid, args.account, vault=FileVault(), http=http,
                            url=args.server, command=args.server_command, token=token,
