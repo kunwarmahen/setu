@@ -223,6 +223,8 @@ closes, because what Setu keeps is the token, as at the computer, never a
 Google session. It runs with a window (on Xvfb) when Xvfb is installed,
 since a headless Chrome is a different build. With `--paste` as well, an
 address pasted back still counts, and whichever comes first finishes it.
+Run for real from Telegram: Google took a password typed into the
+streamed window on a phone, and the connection came back.
 
 There is no program to run for these, so `setu run` and `setu mcp-config` say
 so. Your agent's own browser opens the profile instead. In
