@@ -300,7 +300,7 @@ In [Yantra](https://github.com/kunwarmahen/yantra) the agent is told to
 use the app, and Sparsh is handed the rules (its `SPARSH_APP_RULES`). On
 the emulator, a Messages stand-in at Read only had its Send refused, and
 at the level above it was held for a yes. The real Amazon app has been
-worked this way on an iPhone 17; the real X app not yet.
+worked this way on an iPhone 17. X is used through the browser road.
 
 ### Any other site
 
