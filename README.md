@@ -493,6 +493,11 @@ so a browser that is already running doesn't print its lines ("Opening in
 existing browser session", a broken pipe) into Setu's terminal. If you
 are already signed in to the service, its page may go straight to its
 own allow step; finishing that sends the browser back to Setu by itself.
+The sign-in asks for the scope the server's 401 names; when it names
+none, for the scopes its sign-in details offer (`scopes_supported`), as
+MCP's sign-in says. Robinhood's trading server is one that needs this:
+asked for nothing, its page stops at its own allow step and never sends
+the browser back.
 The refresh token goes into the vault beside the connection, and Setu
 renews the access token when it runs out, so neither ever reaches an
 agent, a container or a chat. A renewal the server refuses marks the

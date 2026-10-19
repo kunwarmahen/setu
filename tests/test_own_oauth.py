@@ -55,6 +55,8 @@ class SignInServer:
         self.revoked: list[str] = []
         self.resources: list[str] = []
         self.asked: list[dict[str, str]] = []
+        self.challenge_scope: str | None = "read write"
+        self.offered: list[str] | None = None
 
     def _new_tokens(self) -> dict[str, Any]:
         self.issued += 1
@@ -82,8 +84,11 @@ class SignInServer:
             def do_GET(self) -> None:  # noqa: N802
                 parts = urlparse(self.path)
                 if parts.path == "/.well-known/oauth-protected-resource":
-                    return self._json(200, {"resource": fake.base + "/mcp",
-                                            "authorization_servers": [fake.base]})
+                    meta = {"resource": fake.base + "/mcp",
+                            "authorization_servers": [fake.base]}
+                    if fake.offered is not None:
+                        meta["scopes_supported"] = fake.offered
+                    return self._json(200, meta)
                 if parts.path == "/.well-known/oauth-authorization-server":
                     meta = {"issuer": fake.base,
                             "authorization_endpoint": fake.base + "/authorize",
@@ -113,9 +118,11 @@ class SignInServer:
                 if self.path == "/mcp":
                     if not fake.access or \
                             self.headers.get("Authorization") != f"Bearer {fake.access}":
-                        return self._json(401, {}, {"WWW-Authenticate": (
-                            f'Bearer realm="OAuth", resource_metadata="{fake.base}'
-                            '/.well-known/oauth-protected-resource", scope="read write"')})
+                        said = (f'Bearer realm="OAuth", resource_metadata="{fake.base}'
+                                '/.well-known/oauth-protected-resource"')
+                        if fake.challenge_scope:
+                            said += f', scope="{fake.challenge_scope}"'
+                        return self._json(401, {}, {"WWW-Authenticate": said})
                     body = json.loads(raw)
                     if body.get("id") is None:
                         return self._json(202, {})
@@ -215,6 +222,20 @@ def test_the_scope_the_challenge_names_is_the_one_asked_for(home, signs_in):
     add(signs_in.url)
     assert signs_in.asked[0]["scope"] == "read write"
     assert mcp_auth.asked_scope('Bearer resource_metadata="https://x/m"') is None
+
+
+def test_with_no_scope_named_the_scopes_the_server_offers_are_asked_for(home, signs_in):
+    # Robinhood's 401 names none, its details offer ["internal"], and its
+    # sign-in page never comes back to Setu when the scope is left out
+    signs_in.challenge_scope, signs_in.offered = None, ["internal"]
+    add(signs_in.url)
+    assert signs_in.asked[0]["scope"] == "internal"
+
+
+def test_with_no_scope_named_or_offered_none_is_asked_for(home, signs_in):
+    signs_in.challenge_scope = None
+    add(signs_in.url)
+    assert "scope" not in signs_in.asked[0]
 
 
 def test_a_token_that_is_due_is_renewed_and_a_rotated_one_kept(home, signs_in):

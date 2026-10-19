@@ -82,8 +82,9 @@ def resource_metadata_url(challenge: str) -> str | None:
 
 def asked_scope(challenge: str) -> str | None:
     """``scope="…"`` from the challenge: what the server says a sign-in
-    should ask for (Linear's and Notion's both name one). None: ask for
-    nothing in particular, and the server gives its default."""
+    should ask for (Linear's and Notion's both name one). None: the
+    scopes the server's details offer, as MCP's sign-in says, and with
+    none offered either, nothing in particular, the server's default."""
     match = re.search(r'\bscope\s*=\s*"([^"]*)"', challenge or "", re.IGNORECASE)
     return match.group(1).strip() or None if match else None
 
@@ -144,6 +145,9 @@ class AuthServer:
     registration_endpoint: str | None
     revocation_endpoint: str | None
     resource: str
+    #: What a sign-in asks for when the 401 names nothing: the server's own
+    #: ``scopes_supported`` (Robinhood's sign-in wants its one scope named).
+    scope: str | None = None
 
 
 def discover(url: str, said: str, http: httpx.Client) -> AuthServer:
@@ -178,7 +182,15 @@ def discover(url: str, said: str, http: httpx.Client) -> AuthServer:
                       token_endpoint=str(auth["token_endpoint"]),
                       registration_endpoint=auth.get("registration_endpoint") or None,
                       revocation_endpoint=auth.get("revocation_endpoint") or None,
-                      resource=str(meta.get("resource") or url))
+                      resource=str(meta.get("resource") or url),
+                      scope=_offered_scope(meta) or _offered_scope(auth))
+
+
+def _offered_scope(details: dict[str, Any]) -> str | None:
+    offered = details.get("scopes_supported")
+    if not isinstance(offered, list):
+        return None
+    return " ".join(str(s) for s in offered if str(s).strip()) or None
 
 
 def register(server: AuthServer, redirect_uri: str, http: httpx.Client) -> str:
@@ -260,7 +272,7 @@ def sign_in(url: str, said: str, *, http: httpx.Client,
                   "redirect_uri": listener.redirect_uri, "state": state,
                   "code_challenge": code_challenge, "code_challenge_method": "S256",
                   "resource": server.resource}
-        scope = asked_scope(said)
+        scope = asked_scope(said) or server.scope
         if scope:
             params["scope"] = scope
         address += urlencode(params)
