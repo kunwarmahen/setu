@@ -47,6 +47,8 @@ import hashlib
 import json
 import queue
 import secrets
+import shutil
+import subprocess
 import threading
 import time
 import webbrowser
@@ -65,6 +67,22 @@ REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 
 #: How long the person gets to finish in the browser.
 SIGN_IN_TIMEOUT = 300.0
+
+
+def open_quietly(url: str) -> bool:
+    """Open ``url`` in the person's browser without its chatter. A browser
+    that is already running prints lines such as "Opening in existing
+    browser session" or a zygote's broken pipe into the terminal Setu is
+    talking in, which read like Setu's own errors."""
+    opener = shutil.which("xdg-open")
+    if opener is None:
+        return webbrowser.open(url)
+    try:
+        subprocess.Popen([opener, url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        return webbrowser.open(url)
+    return True
 
 
 class GoogleAuthError(Exception):
@@ -294,7 +312,7 @@ def revoke(token: str, *, http: httpx.Client) -> bool:
 
 
 def sign_in(client: Client, scopes: Iterable[str], *, http: httpx.Client,
-            open_browser: Callable[[str], Any] | None = webbrowser.open,
+            open_browser: Callable[[str], Any] | None = open_quietly,
             on_url: Callable[[str], Any] | None = None,
             login_hint: str | None = None,
             timeout: float = SIGN_IN_TIMEOUT,

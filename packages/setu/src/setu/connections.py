@@ -79,7 +79,6 @@ import re
 import shutil
 import tempfile
 import time
-import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -148,7 +147,7 @@ def public(entry: dict[str, Any]) -> dict[str, Any]:
 
 def connect(manifest: Manifest, account: str, *, level: str | None,
             client: google.Client, vault: Vault, http: httpx.Client,
-            open_browser: Callable[[str], Any] | None = webbrowser.open,
+            open_browser: Callable[[str], Any] | None = google.open_quietly,
             on_url: Callable[[str], Any] | None = None,
             timeout: float = google.SIGN_IN_TIMEOUT,
             pasted: google.Pasted | None = None) -> dict[str, Any]:
@@ -205,7 +204,7 @@ def connect(manifest: Manifest, account: str, *, level: str | None,
 def connect_homeassistant(manifest: Manifest, account: str, *, level: str | None,
                           base_url: str, vault: Vault, http: httpx.Client,
                           long_lived: str | None = None,
-                          open_browser: Callable[[str], Any] | None = webbrowser.open,
+                          open_browser: Callable[[str], Any] | None = google.open_quietly,
                           on_url: Callable[[str], Any] | None = None,
                           timeout: float = google.SIGN_IN_TIMEOUT,
                           pasted: google.Pasted | None = None) -> dict[str, Any]:

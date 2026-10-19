@@ -308,3 +308,21 @@ def test_the_page_sends_the_link_and_takes_the_address_back(home, signs_in):
     events = [e["event"] for e in state["events"]]
     assert "connected" in events, state
     assert "access-1" not in json.dumps(state) and "refresh-1" not in json.dumps(state)
+
+
+def test_the_browser_opens_without_its_chatter(monkeypatch):
+    """A running browser's own lines ("Opening in existing browser
+    session", a zygote's broken pipe) don't land in Setu's terminal."""
+    from setu import google
+
+    seen = {}
+
+    def popen(args, **kwargs):
+        seen["args"], seen["kwargs"] = args, kwargs
+
+    monkeypatch.setattr(google.shutil, "which", lambda name: "/usr/bin/xdg-open")
+    monkeypatch.setattr(google.subprocess, "Popen", popen)
+    assert google.open_quietly("https://example.test/oauth")
+    assert seen["args"] == ["/usr/bin/xdg-open", "https://example.test/oauth"]
+    for stream in ("stdin", "stdout", "stderr"):
+        assert seen["kwargs"][stream] is google.subprocess.DEVNULL

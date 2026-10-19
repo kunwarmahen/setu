@@ -36,14 +36,13 @@ from __future__ import annotations
 
 import secrets
 import threading
-import webbrowser
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlencode, urlparse
 
 import httpx
 
-from setu.google import SIGN_IN_TIMEOUT, Pasted, RedirectListener
+from setu.google import SIGN_IN_TIMEOUT, Pasted, RedirectListener, open_quietly
 
 
 class HomeAssistantError(Exception):
@@ -100,7 +99,7 @@ def _post(http: httpx.Client, url: str, form: dict[str, str], what: str) -> dict
 
 
 def sign_in(base: str, *, http: httpx.Client,
-            open_browser: Callable[[str], Any] | None = webbrowser.open,
+            open_browser: Callable[[str], Any] | None = open_quietly,
             on_url: Callable[[str], Any] | None = None,
             timeout: float = SIGN_IN_TIMEOUT,
             pasted: Pasted | None = None) -> dict[str, Any]:

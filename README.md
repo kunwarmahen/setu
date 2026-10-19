@@ -488,6 +488,11 @@ setu connect --server https://mcp.linear.app/mcp --id linear
 ```
 
 You sign in there, with your own password, and never type it into Setu.
+The page opens through `xdg-open` with the browser's own output silenced,
+so a browser that is already running doesn't print its lines ("Opening in
+existing browser session", a broken pipe) into Setu's terminal. If you
+are already signed in to the service, its page may go straight to its
+own allow step; finishing that sends the browser back to Setu by itself.
 The refresh token goes into the vault beside the connection, and Setu
 renews the access token when it runs out, so neither ever reaches an
 agent, a container or a chat. A renewal the server refuses marks the

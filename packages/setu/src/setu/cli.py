@@ -105,7 +105,6 @@ import shlex
 import shutil
 import sys
 import threading
-import webbrowser
 from collections.abc import Callable
 from pathlib import Path
 
@@ -196,7 +195,7 @@ def _connect(args: argparse.Namespace) -> int:
         entry = connections.connect(
             manifest, args.account, level=level.name, client=client,
             vault=FileVault(), http=http,
-            open_browser=None if args.no_browser else webbrowser.open,
+            open_browser=None if args.no_browser else google.open_quietly,
             on_url=lambda url: print(f"\nIf no window opened, open this address:\n{url}\n"))
     held = manifest.level(entry["level"])
     print(f"connected {ref} as {entry['email'] or '(address unknown)'} — {held.label}")
@@ -270,7 +269,7 @@ def _server_sign_in(args: argparse.Namespace, http: httpx.Client, emit: bool):
               "there, then come back here.")
         return mcp_auth.sign_in(
             url, said, http=http,
-            open_browser=None if args.no_browser else webbrowser.open,
+            open_browser=None if args.no_browser else google.open_quietly,
             on_url=lambda link: print(f"\nIf no window opened, open this address:\n{link}\n"))
     return sign_in
 
@@ -390,7 +389,7 @@ def _connect_homeassistant(manifest, args: argparse.Namespace) -> int:
         entry = connections.connect_homeassistant(
             manifest, args.account, level=level.name, base_url=base, vault=FileVault(),
             http=http, long_lived=token,
-            open_browser=None if args.no_browser else webbrowser.open,
+            open_browser=None if args.no_browser else google.open_quietly,
             on_url=lambda url: print(f"\nIf no window opened, open this address:\n{url}\n"))
     _remember_ha(base)
     print(f"connected {ref} to {entry['email']} — {level.label}")
