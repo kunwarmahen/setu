@@ -497,7 +497,11 @@ The sign-in asks for the scope the server's 401 names; when it names
 none, for the scopes its sign-in details offer (`scopes_supported`), as
 MCP's sign-in says. Robinhood's trading server is one that needs this:
 asked for nothing, its page stops at its own allow step and never sends
-the browser back.
+the browser back. With the scope asked, it connects, and its 84 tools
+come in marked as Robinhood marks them: 54 read (quotes, positions,
+orders, profit and loss) and 30 write (placing, cancelling and exercising
+orders, watchlists, alerts), so an agent at *All its tools* is asked
+before any trade.
 The refresh token goes into the vault beside the connection, and Setu
 renews the access token when it runs out, so neither ever reaches an
 agent, a container or a chat. A renewal the server refuses marks the
