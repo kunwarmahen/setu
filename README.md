@@ -195,6 +195,7 @@ untouched. Where the page listens is yours to set:
 | `SETU_WINDOW_HOST` | the address it listens on (default `127.0.0.1`) |
 | `SETU_WINDOW_PORT` | its port (default: any free one) |
 | `SETU_WINDOW_URL` | the address in the link, when it differs (a tunnel, a reverse proxy) |
+| `SETU_WINDOW_NAME` | the name in the link instead of the address it listens on: what your home network calls this computer (`beast.local`) |
 | `SETU_WINDOW_DISPLAY` | a screen that is already there (`:1`, your desktop's) instead of Xvfb: the browser gets your graphics card, and anyone at that desktop sees the window |
 
 Which is safe for what: your **home network address** works for people at
@@ -204,6 +205,24 @@ reachable from anywhere they are on your tailnet. For the open internet, put
 it behind **your own HTTPS** (listen on `127.0.0.1`, give the public address
 in `SETU_WINDOW_URL`). A site Setu wrote the rules for itself (`--site`) is
 checked by its page, so it is signed in to at this computer.
+
+**Gmail from a phone goes through the same window.** Google's sign-in
+ends by sending the browser back to `http://127.0.0.1:<port>/`, where Setu
+is listening. Google allows nothing else for a program on your own
+computer: no house name, no address on your network. Opened on a phone,
+that address is the phone itself, and the page won't load. Its address
+still holds the code, so it used to be copied back. A chat app's own
+browser hides that address, though, and its share button sends the first
+`accounts.google.com` link instead, so from Telegram there was nothing to
+copy. `setu connect gmail --json --remote` opens Google's page in the
+streamed window instead, in a browser running here. The return to
+`127.0.0.1` then lands on this computer, Setu hears the code itself, and
+nothing is copied. Home Assistant's sign-in works the same way. That
+browser runs on a new, empty profile that is deleted when the window
+closes, because what Setu keeps is the token, as at the computer, never a
+Google session. It runs with a window (on Xvfb) when Xvfb is installed,
+since a headless Chrome is a different build. With `--paste` as well, an
+address pasted back still counts, and whichever comes first finishes it.
 
 There is no program to run for these, so `setu run` and `setu mcp-config` say
 so. Your agent's own browser opens the profile instead. In
@@ -587,8 +606,10 @@ with nobody there to say yes, it didn't run.)
   folder of their own (`SETU_HOME`); their agent reaches only those
   accounts ([dvara's note 19](https://github.com/kunwarmahen/dvara/blob/main/notes/19-their-own-accounts.md)). They sign in from the chat
   on their phone with `/connect gmail`: dvara runs `setu connect --json
-  --paste` in their folder, and the address of the page their phone
-  couldn't load is pasted back to it
+  --remote --paste` in their folder, and Google's page is streamed to
+  their phone, so its return to `127.0.0.1` lands here. With no window
+  address set, it runs `--paste` alone, and the address of the page their
+  phone couldn't load is pasted back to it
   ([dvara's note 20](https://github.com/kunwarmahen/dvara/blob/main/notes/20-signing-in-from-the-chat.md)). Or at the machine:
   `SETU_HOME=<their folder> setu connect gmail`.
 
@@ -792,8 +813,11 @@ The rest of the page is the terminal's other jobs:
   so, because that one wins. It also says where the streamed window opens.
 
 Opened from another device (with `--host`), the page uses the roads made
-for that: Google's sign-in ends on an address you paste back into the
-page, and a browser sign-in is streamed to you. Adding a site needs you at
+for that: a browser sign-in is streamed to you, and so is Google's or Home
+Assistant's sign-in page whenever the window's link reaches another device
+(`SETU_WINDOW_HOST` beyond this computer, or `SETU_WINDOW_URL` or
+`SETU_WINDOW_NAME`). Without one, Google's sign-in ends on an address you
+paste back into the page. Adding a site needs you at
 the computer, and so does adding a program as a server; a server at an
 address can be added from anywhere. Locking the folder stays a terminal step (`setu lock`), so
 the passphrase is never typed into a page.
@@ -854,7 +878,7 @@ anybody else's.
 * **Only hashes are kept.** The link's code and each device's key live in
   the person's folder as sha256 only, readable by you alone.
 * **The link's address** is `SETU_PAGE_URL` if set, else the streamed
-  window's `SETU_WINDOW_HOST` on port 8775, so the same Tailscale or
+  window's `SETU_WINDOW_NAME` or `SETU_WINDOW_HOST` on port 8775, so the same Tailscale or
   home-network choice covers both. With neither set, there is no link: a
   link to `127.0.0.1` would open nothing on a phone.
 * **Turn it off** with `setu config people-page off` in your own folder.
@@ -1239,8 +1263,9 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   from a person's page or another device), `/api/disconnect` and
   `/api/signin/{answer,paste,cancel}`,
   with `GET /api/signin` for a sign-in's events. A sign-in is `setu connect
-  --json` run as a child process (`--paste` or `--remote` when the request
-  comes from another device). A POST from another site's `Origin` is
+  --json` run as a child process (`--remote` for a browser site, and
+  `--remote --paste` or `--paste` for a sign-in page, when the request
+  comes from another device; `remote.reaches_another_device` decides). A POST from another site's `Origin` is
   refused. It uses only the standard library, port 8775,
   and needs `Authorization: Bearer` on every `/api` call. Each answer is
   built from `status.report()` minus the harness-only `mcp` and `browser`

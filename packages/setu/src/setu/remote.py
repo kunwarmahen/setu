@@ -1,7 +1,6 @@
 """Signing in to a browser-road site from somewhere else: a window, streamed.
 
-Amazon and X have no sign-in link a phone can finish (Google's, pasted
-back, is notes in dvara). The connection IS a browser profile on the
+Amazon and X have no sign-in link a phone can finish. The connection IS a browser profile on the
 computer running Setu, so the sign-in has to happen in a browser there.
 For a person who isn't at that computer, Setu streams it: the browser
 runs on the profile, and a page Setu serves shows them a live picture of
@@ -61,7 +60,9 @@ and binds to the FIRST device that opens it (a cookie): a second one is
 refused. The server stops when they're signed in, when they say they're
 done, or when the time is up. The address it listens on and the address
 in the link are the owner's choice (``SETU_WINDOW_HOST``,
-``SETU_WINDOW_PORT``, ``SETU_WINDOW_URL``):
+``SETU_WINDOW_PORT``, ``SETU_WINDOW_URL``, and ``SETU_WINDOW_NAME``, the
+name the link says in place of the address it listens on -- a house name
+such as ``beast.local`` that every device on the home network finds):
 
 * the computer's own address on the home network: plain HTTP, so what
   they type crosses the Wi-Fi unencrypted beyond the Wi-Fi's own
@@ -93,6 +94,7 @@ import select
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -100,12 +102,14 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from setu import profile_lock
 from setu.browser import COOKIE_KEY_ARG, BrowserSignInFailed, child_env
 
 ENV_HOST, ENV_PORT, ENV_URL = "SETU_WINDOW_HOST", "SETU_WINDOW_PORT", "SETU_WINDOW_URL"
+#: The name in the link, when it is not the address listened on.
+ENV_NAME = "SETU_WINDOW_NAME"
 #: A screen that is already there (``:0``, the desktop's) for the window,
 #: instead of an Xvfb nothing shows.
 ENV_DISPLAY = "SETU_WINDOW_DISPLAY"
@@ -211,10 +215,24 @@ def settings() -> tuple[str, int, str | None]:
     except ValueError:
         raise WindowSettingsError(f"{ENV_PORT} must be a port number, not {raw!r}") from None
     url = os.environ.get(ENV_URL, "").strip() or None
-    if host in ("0.0.0.0", "::") and url is None:
+    if host in ("0.0.0.0", "::") and url is None and not link_name():
         raise WindowSettingsError(f"{ENV_HOST}={host} listens everywhere, so say the address "
-                                  f"a phone opens in {ENV_URL}")
+                                  f"a phone opens in {ENV_URL}, or its name in {ENV_NAME}")
     return host, port, url
+
+
+def reaches_another_device() -> bool:
+    """Whether a window's link opens anywhere but this computer: an address
+    in ``SETU_WINDOW_URL`` or ``SETU_WINDOW_NAME``, or a host that is not
+    this computer alone."""
+    host = os.environ.get(ENV_HOST, "").strip()
+    return bool(os.environ.get(ENV_URL, "").strip() or link_name() or
+                (host and host not in ("127.0.0.1", "localhost", "::1")))
+
+
+def link_name() -> str:
+    """The name a link says, ``SETU_WINDOW_NAME``; empty: the address."""
+    return os.environ.get(ENV_NAME, "").strip()
 
 
 # ---- the browser, over a pipe ---------------------------------------------------------
@@ -380,8 +398,11 @@ class Window:
     """The browser, the page that shows it, and whether they're signed in."""
 
     def __init__(self, browser: Browser, url: str, patterns: tuple[str, ...],
-                 hosts: tuple[str, ...]) -> None:
+                 hosts: tuple[str, ...], *, back_at: str | None = None) -> None:
         self.browser, self.url, self.patterns, self.hosts = browser, url, patterns, hosts
+        #: A sign-in PAGE's own end: the address it sends the browser back
+        #: to. Reached, the sign-in is over, whatever the cookies say.
+        self.back_at = back_at
         self.size = START_SIZE
         self.frame: bytes | None = None
         self.frames = threading.Condition()
@@ -495,6 +516,9 @@ class Window:
         only) AND the page has left the sign-in. The cookie alone was
         fooled by one an earlier session left behind -- the window closed
         on Amazon's password page before anybody typed a thing."""
+        back_at = getattr(self, "back_at", None)
+        if back_at is not None:
+            return str(self._value("location.href") or "").startswith(back_at)
         try:      # the browser's whole cookie jar, asked of the browser itself
             cookies = self.browser.call("Storage.getCookies").get("cookies", [])
         except BrowserSignInFailed:
@@ -663,7 +687,9 @@ def serve(window: Window, site: str, *, host: str, port: int, public: str | None
     server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
     bound = server.server_address[1]
-    base = (public or f"http://{host}:{bound}").rstrip("/")
+    shown = link_name() or host
+    shown = f"[{shown}]" if ":" in shown else shown
+    base = (public or f"http://{shown}:{bound}").rstrip("/")
     threading.Thread(target=server.serve_forever, daemon=True, name="setu-window").start()
     on_link(f"{base}{prefix}", time.time() + open_for)
     try:
@@ -753,3 +779,70 @@ def window_for(on_link: Callable[[str, float], Any], on_opened: Callable[[], Any
             raise BrowserSignInFailed(f"nobody signed in to {site} within "
                                       f"{int(open_for // 60)} minutes; nothing was saved")
     return window
+
+
+class SignInPage:
+    """An ``open_browser`` for a sign-in PAGE -- Google's, Home Assistant's
+    -- opened from another device, in the same streamed window.
+
+    Such a page ends by sending the browser to ``http://127.0.0.1:<port>/``,
+    where this process listens (google.RedirectListener). Opened on a phone,
+    that is the phone, and the page fails to load; its address had to be
+    copied back, and a chat app's own browser hides it (Telegram's share
+    button sent the first ``accounts.google.com`` link instead). In the
+    window the browser runs HERE, so 127.0.0.1 is this computer and the
+    listener hears the code itself: nothing to copy.
+
+    THE PROFILE IS THROWN AWAY. Nothing of the sign-in is kept in a browser
+    -- what is kept is the token, as at the computer -- so Chrome runs on
+    a new empty folder, removed when the window closes, and a Google
+    session never lingers in it. HEADED WHEN IT CAN BE: a headless Chrome
+    is a different build, which Google's sign-in may turn away, so it gets
+    a screen nothing shows (Xvfb) when there is one, and runs headless when
+    there is not. ``close`` stops it whichever way the sign-in ended (a
+    pasted address, the time running out)."""
+
+    def __init__(self, on_link: Callable[[str, float], Any],
+                 on_opened: Callable[[], Any] = lambda: None, *, site: str, browser: str,
+                 open_for: float = OPEN_FOR) -> None:
+        self.host, self.port, self.public = settings()
+        self.on_link, self.on_opened = on_link, on_opened
+        self.site, self.browser, self.open_for = site, browser, open_for
+        self.window: Window | None = None
+        self.stopped = threading.Event()
+        self.started = False
+        self.ended = threading.Event()
+
+    def __call__(self, url: str) -> None:
+        self.started = True
+        back = parse_qs(urlsplit(url).query).get("redirect_uri", [""])[0] or None
+        try:
+            with tempfile.TemporaryDirectory(prefix="setu-signin-") as profile:
+                screen = Screen() if shutil.which("Xvfb") or os.environ.get(ENV_DISPLAY) \
+                    else None
+                try:
+                    chrome = Browser(shutil.which(self.browser) or self.browser,
+                                     Path(profile), headless=screen is None,
+                                     display=screen.display if screen else None,
+                                     extra=[SOFTWARE_GL] if screen and screen.proc else None)
+                    try:
+                        self.window = Window(chrome, url, (), (), back_at=back)
+                        if not self.stopped.is_set():
+                            serve(self.window, self.site, host=self.host, port=self.port,
+                                  public=self.public, open_for=self.open_for,
+                                  on_link=self.on_link, on_opened=self.on_opened)
+                    finally:
+                        chrome.close()
+                finally:
+                    if screen is not None:
+                        screen.close()
+        finally:
+            self.ended.set()
+
+    def close(self) -> None:
+        """End the window, and wait for its browser to be gone."""
+        self.stopped.set()
+        if self.window is not None:
+            self.window.done.set()
+        if self.started:
+            self.ended.wait(30)

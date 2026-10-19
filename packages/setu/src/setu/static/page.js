@@ -449,6 +449,9 @@ function describe(e, running) {
       return h("p.meta", {}, e.level_label ? `At "${e.level_label}".` : "Starting…");
     case "url": {
       if (!running) return null;          // a link to a sign-in that is over
+      if (e.window)                       // opened in the streamed window: its link follows
+        return h("p.meta", {}, "The sign-in page opens in a window on the computer " +
+                               "running Setu, shown here through the link below.");
       const parts = [h("a.btn.go", { href: e.url, target: "_blank",
                                      rel: "noopener noreferrer" }, "Open the sign-in page")];
       if (e.paste && running) parts.push(pasteBox());

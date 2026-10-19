@@ -78,7 +78,15 @@ profile and serves a page that streams it (remote.py). Events:
 ``started``, ``link`` (the address to send the person, and when it
 stops working), ``opened`` (a device opened it), then ``connected`` or
 ``error``. Where it listens and the address in the link are
-``SETU_WINDOW_HOST``, ``SETU_WINDOW_PORT`` and ``SETU_WINDOW_URL``.
+``SETU_WINDOW_HOST``, ``SETU_WINDOW_PORT``, ``SETU_WINDOW_URL`` and
+``SETU_WINDOW_NAME``.
+
+``setu connect gmail --json --remote`` is a sign-in PAGE in that same
+window: Google's (or Home Assistant's) page opens in a browser on this
+computer, streamed, so the page's return to ``127.0.0.1`` lands here and
+nothing is copied back. Events: ``started``, ``url`` (with
+``window: true``), ``link``, ``opened``, then ``connected`` or ``error``.
+With ``--paste`` as well, an address pasted back still counts.
 
 ``setu connect --server URL --json`` adds a server of your own (own.py):
 ``started``, then ``connected`` (with ``tools``, how many it listed) or
@@ -661,7 +669,7 @@ def _connect_json(args: argparse.Namespace) -> int:
     if manifest.auth == "own":
         # nothing to sign in to, here or on another device: tried again
         return _connect_own_again(manifest, args, emit=True)
-    if args.remote:
+    if args.remote and manifest.auth == "browser":
         return _connect_remote_json(manifest, args)
     if args.paste and manifest.auth == "browser":
         _emit("error", message=f"{manifest.name} is signed in to in a window on this "
@@ -679,14 +687,22 @@ def _connect_json(args: argparse.Namespace) -> int:
     client = google.client_from_file(Path(path))
     level = manifest.level(args.level)
     ref = connections.ref_for(manifest.id, args.account)
+    window = _sign_in_window(manifest, args)
+    if window is False:
+        return 2
     _emit("started", ref=ref, level=level.name, level_label=level.label,
           scopes=list(level.scopes))
-    with httpx.Client() as http:
-        entry = connections.connect(
-            manifest, args.account, level=level.name, client=client,
-            vault=FileVault(), http=http, open_browser=None,
-            on_url=lambda url: _emit("url", url=url, paste=args.paste),
-            timeout=args.timeout, pasted=_pasted(args))
+    try:
+        with httpx.Client() as http:
+            entry = connections.connect(
+                manifest, args.account, level=level.name, client=client,
+                vault=FileVault(), http=http, open_browser=window,
+                on_url=lambda url: _emit("url", url=url, paste=args.paste,
+                                         window=window is not None),
+                timeout=args.timeout, pasted=_pasted(args))
+    finally:
+        if window is not None:
+            window.close()
     held = manifest.level(entry["level"])
     _emit("connected", ref=ref, email=entry.get("email") or "", level=held.name,
           level_label=held.label, asked_level=entry.get("asked_level", held.name))
@@ -706,6 +722,26 @@ def _pasted(args: argparse.Namespace) -> google.Pasted | None:
 
     threading.Thread(target=read, daemon=True).start()
     return pasted
+
+
+def _sign_in_window(manifest, args: argparse.Namespace):
+    """With ``--remote``, a sign-in PAGE (Google's, Home Assistant's) opened
+    in the streamed window, so the page's return to 127.0.0.1 lands on this
+    computer (remote.SignInPage); None without it; False when the window's
+    settings cannot make a link (said as an error event)."""
+    if not args.remote:
+        return None
+    from setu import remote
+
+    try:
+        return remote.SignInPage(
+            lambda url, until: _emit("link", url=url, expires_at=until),
+            lambda: _emit("opened"), site=manifest.name, browser=_site_browser(args),
+            open_for=(remote.OPEN_FOR if args.timeout == google.SIGN_IN_TIMEOUT
+                      else args.timeout))
+    except remote.WindowSettingsError as exc:
+        _emit("error", message=str(exc), setup="window")
+        return False
 
 
 def _connect_remote_json(manifest, args: argparse.Namespace) -> int:
@@ -758,15 +794,23 @@ def _connect_homeassistant_json(manifest, args: argparse.Namespace) -> int:
         return 2
     level = manifest.level(args.level)
     ref = connections.ref_for(manifest.id, args.account)
-    token = None if args.paste else _read_token(args)
+    token = None if args.paste or args.remote else _read_token(args)
+    window = _sign_in_window(manifest, args) if token is None else None
+    if window is False:
+        return 2
     _emit("started", ref=ref, level=level.name, level_label=level.label, scopes=[],
           base_url=homeassistant.normalise_url(base))
-    with httpx.Client() as http:
-        entry = connections.connect_homeassistant(
-            manifest, args.account, level=level.name, base_url=base, vault=FileVault(),
-            http=http, long_lived=token, open_browser=None,
-            on_url=lambda url: _emit("url", url=url, paste=args.paste),
-            timeout=args.timeout, pasted=_pasted(args))
+    try:
+        with httpx.Client() as http:
+            entry = connections.connect_homeassistant(
+                manifest, args.account, level=level.name, base_url=base, vault=FileVault(),
+                http=http, long_lived=token, open_browser=window,
+                on_url=lambda url: _emit("url", url=url, paste=args.paste,
+                                         window=window is not None),
+                timeout=args.timeout, pasted=_pasted(args))
+    finally:
+        if window is not None:
+            window.close()
     _remember_ha(base)
     _emit("connected", ref=ref, email=entry["email"], level=level.name,
           level_label=level.label, asked_level=level.name)
@@ -1332,8 +1376,9 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument("--no-browser", action="store_true",
                          help="print the address instead of opening a browser")
     connect.add_argument("--remote", action="store_true",
-                         help="with --json: a browser-road site signed in to from another "
-                              "device, through a streamed window (SETU_WINDOW_*)")
+                         help="with --json: signed in to from another device, through a "
+                              "streamed window (SETU_WINDOW_*) -- a browser-road site, or "
+                              "a sign-in page (Google, Home Assistant)")
     connect.add_argument("--paste", action="store_true",
                          help="with --json: also take the address the sign-in ended on, "
                               "pasted back on stdin (signing in on another device)")

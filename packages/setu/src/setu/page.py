@@ -455,8 +455,14 @@ class Api:
         argv = [*self.setu, "connect", connector, "--as", account, "--json"]
         argv += ["--level", level] if level else []
         if not local:
-            # the person is on another device: the roads made for that
-            argv += ["--remote"] if card["road"] == "browser" else ["--paste"]
+            # the person is on another device: the roads made for that. A
+            # sign-in page opens in the streamed window when its link can
+            # reach them, so its return to 127.0.0.1 lands here; a pasted
+            # address still counts, and is all there is without a window
+            from setu import remote
+            argv += (["--remote"] if card["road"] == "browser" else
+                     ["--remote", "--paste"] if remote.reaches_another_device() else
+                     ["--paste"])
         return self._start(argv, f"{connector}:{account}")
 
     def add_site(self, body: dict, local: bool) -> dict[str, Any]:
@@ -746,14 +752,16 @@ def people_dir(raw: str | None) -> Path | None:
 
 def link_base(raw: str | None = None) -> str:
     """The address a person's link opens: ``--url``, ``$SETU_PAGE_URL``, or
-    the streamed window's host (``SETU_WINDOW_HOST``) on the page's port --
+    the streamed window's name or host (``SETU_WINDOW_NAME``,
+    ``SETU_WINDOW_HOST``) on the page's port --
     so one Tailscale or home-network choice covers both. A link to
     127.0.0.1 would open nothing on a phone, so with none of them set
     there is no link."""
     found = public_address(raw)
     if found:
         return found
-    host = os.environ.get("SETU_WINDOW_HOST", "").strip()
+    host = (os.environ.get("SETU_WINDOW_NAME", "").strip() or
+            os.environ.get("SETU_WINDOW_HOST", "").strip())
     if host and host not in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):
         port = os.environ.get("SETU_PAGE_PORT", "").strip() or str(DEFAULT_PORT)
         return f"http://{host}:{port}/"

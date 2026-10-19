@@ -267,17 +267,31 @@ def test_a_connect_that_names_nothing_real_is_refused_before_anything_runs(
     assert caught.value.code == code and stand_in.signin is None
 
 
-def test_from_another_device_google_is_pasted_back_and_a_window_is_streamed(stand_in):
+def test_from_another_device_google_is_pasted_back_and_a_window_is_streamed(
+        stand_in, monkeypatch):
+    for key in ("SETU_WINDOW_HOST", "SETU_WINDOW_URL", "SETU_WINDOW_NAME"):
+        monkeypatch.delenv(key, raising=False)
     stand_in.handle("POST", "/api/connect", {}, {"connector": "gmail"}, local=False)
     stand_in.handle("POST", "/api/signin/paste", {},
                     {"address": "http://127.0.0.1:5555/?code=abc&state=s"})
     state = finished(stand_in)
-    assert "--paste" in started(stand_in)[0]
+    assert "--paste" in started(stand_in)[0] and "--remote" not in started(stand_in)[0]
     assert {"event": "pasted", "address": "http://127.0.0.1:5555/?code=abc&state=s"} \
         in state["events"]
     stand_in.handle("POST", "/api/connect", {}, {"connector": "amazon"}, local=False)
     finished(stand_in)
     assert "--remote" in started(stand_in)[1]
+
+
+def test_from_another_device_with_a_window_googles_page_is_streamed_too(
+        stand_in, monkeypatch):
+    monkeypatch.setenv("SETU_WINDOW_NAME", "beast.local")
+    stand_in.handle("POST", "/api/connect", {}, {"connector": "gmail"}, local=False)
+    stand_in.handle("POST", "/api/signin/paste", {},
+                    {"address": "http://127.0.0.1:5555/?code=abc&state=s"})
+    finished(stand_in)
+    argv = started(stand_in)[0]
+    assert "--remote" in argv and "--paste" in argv
 
 
 def test_a_paste_that_is_not_an_address_never_reaches_setu(stand_in):

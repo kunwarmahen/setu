@@ -238,6 +238,36 @@ Disconnect with `uv run setu disconnect amazon:personal`: the profile is
 deleted, so this computer is signed out. Amazon or X may still list the
 device; remove it in the site's security settings if you want.
 
+## Gmail from your phone, through the window
+
+Google's sign-in ends by sending the browser to `127.0.0.1` on this
+computer. To sign in from a phone, Setu runs Google's page in a browser
+here and shows it on the phone. Use your home network's name for this
+computer, which both devices know:
+
+```
+SETU_WINDOW_HOST=0.0.0.0 SETU_WINDOW_PORT=8790 SETU_WINDOW_NAME=beast.local \
+  setu connect gmail --as phone-test --json --remote --paste
+```
+
+1. It prints `started`, then `url` with `"window": true`, then `link`.
+   Open the `link` address on your phone. You see Google's **Sign in**
+   page, sized for the phone.
+2. Tap the email box, type in the box under the picture, and press your
+   keyboard's Go. Do the same for the password and any code Google sends.
+3. After **Allow**, the page says *Signed in to Gmail*, and the terminal
+   prints `connected`. Nothing was copied from the phone.
+4. Open the same link again from another device. Expect *This sign-in is
+   already open on another device*.
+
+| What you see | What it means |
+|---|---|
+| *This browser or app may not be secure* | Google turned the window's browser away. Sign in at the computer (`setu connect gmail`), or paste the address back: the same run takes it on stdin. |
+| `link` says `127.0.0.1` | Set `SETU_WINDOW_NAME` (or `SETU_WINDOW_HOST` to an address your phone reaches). |
+| The phone can't open the link | A firewall: open the window's port to your home network. |
+
+Then `setu disconnect gmail:phone-test`.
+
 ## Any other site, by its address
 
 Pick a site you have an account on that Setu has no connector for, such as
