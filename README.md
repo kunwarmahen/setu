@@ -1036,7 +1036,28 @@ version that has since been withdrawn.
 step-by-step setup with Podman, HTTPS, publishing, reviewing and backups is
 in [its README](packages/setu-catalog-server/README.md)). It never holds the
 signing key: you sign on your own machine and upload the signed file, and it
-checks the signature before serving it.
+checks the signature before serving it. It listens on 127.0.0.1:8796, and can
+run on your own computer with a public HTTPS name from Tailscale Funnel
+(`deploy/public-name-tailscale.sh`) when you have no domain.
+
+Run on a real computer, it went like this:
+
+```
+$ setu catalog keygen ~/keys/setu.key
+signing key 667df35a2e0c4bdc: private half at ~/keys/setu.key (keep it offline), public half at ~/keys/setu.key.pub
+$ systemctl --user start setu-catalog && curl -s http://127.0.0.1:8796/health
+{"ok":true,"issued":"","keys":["667df35a2e0c4bdc"]}
+$ setu catalog sign index.json --key ~/keys/setu.key
+$ SETU_CATALOG_TOKEN=… setu catalog publish index.json --to http://127.0.0.1:8796
+published to http://127.0.0.1:8796: issued 2026-10-20T12:07:38Z, signed by 667df35a2e0c4bdc, 0 connector(s), 0 recipe(s)
+$ setu catalog trust setu.key.pub && setu catalog use http://127.0.0.1:8796
+catalog from http://127.0.0.1:8796, signed by 667df35a2e0c4bdc: 0 connector(s), 0 recipe(s)
+```
+
+The first try was refused (*"not the maintainer"*). The token had been made
+with `openssl rand -hex 32 | podman secret create`, which keeps `openssl`'s
+newline, and the server compared the token byte for byte. Both sides now
+ignore the newline.
 
 ```
 setu catalog keygen ~/keys/setu.key                       # once; keep it offline

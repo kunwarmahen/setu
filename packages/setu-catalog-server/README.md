@@ -12,9 +12,12 @@ and refuses an index older than the one it already has.
 
 ## What you need
 
-* A small Linux server or VM with Podman, and a domain name pointing at it.
-* Something in front that does HTTPS, such as Caddy, nginx or your host's load
-  balancer. The server speaks plain HTTP on `127.0.0.1:8780`.
+* A Linux computer with Podman: a small server or VM with a domain name
+  pointing at it, or your own computer with a public name from Tailscale
+  Funnel (step 5).
+* Something in front that does HTTPS, such as Caddy, nginx, your host's load
+  balancer or Tailscale Funnel. The server speaks plain HTTP on
+  `127.0.0.1:8796` (not 8780, which is Samay's).
 * Your signing key, made once on **your own computer** (not the server):
 
   ```
@@ -46,7 +49,7 @@ openssl rand -hex 32 | tee ~/setu-catalog-token.txt | podman secret create setu-
 ```
 
 Keep `~/setu-catalog-token.txt` somewhere safe (a password manager), and delete
-it from the server.
+it from the server. (The newline `openssl` ends with is ignored, on both sides.)
 
 **4. Run it as a service** with the Quadlet unit in `deploy/`:
 
@@ -56,20 +59,34 @@ cp packages/setu-catalog-server/deploy/setu-catalog.container ~/.config/containe
 systemctl --user daemon-reload
 systemctl --user start setu-catalog
 loginctl enable-linger "$USER"          # keep it running after you log out
-curl -s http://127.0.0.1:8780/health    # {"ok":true,"issued":"","keys":["…"]}
+curl -s http://127.0.0.1:8796/health    # {"ok":true,"issued":"","keys":["…"]}
 ```
 
 **5. Put HTTPS in front.** With Caddy, the whole config is:
 
 ```
 catalog.example.com {
-    reverse_proxy 127.0.0.1:8780
+    reverse_proxy 127.0.0.1:8796
 }
 ```
 
 The unit runs the server with `--behind-proxy`, so installs are counted per real
 address and not per proxy. Only use that flag behind a proxy you run;
 otherwise anyone can claim any address.
+
+**No domain? Tailscale Funnel.** On your own computer, with no router port
+opened, this gives the server `https://<computer>.<your-tailnet>.ts.net` with
+the certificate handled for you:
+
+```
+packages/setu-catalog-server/deploy/public-name-tailscale.sh
+```
+
+It installs Tailscale if needed, signs this computer in (a link to open, and
+your password for `sudo`), turns Funnel on for port 8796, and checks the public
+address answers. If your tailnet hasn't allowed Funnel for this computer yet,
+Tailscale prints a link to allow it; then run the script again. Undo with
+`sudo tailscale funnel --https=443 off`.
 
 ## Publishing (from your own computer)
 

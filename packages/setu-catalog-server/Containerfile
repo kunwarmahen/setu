@@ -10,9 +10,9 @@ RUN uv pip install --system --no-cache /src/packages/setu /src/packages/setu-cat
 RUN useradd --system --home /data catalog && mkdir -p /data && chown catalog /data
 USER catalog
 VOLUME /data
-EXPOSE 8780
+EXPOSE 8796
 ENV SETU_CATALOG_DATA=/data
 # TLS belongs to whatever is in front (Caddy, nginx, the host's load
 # balancer); with one in front, add --behind-proxy so installs are counted
 # per real address rather than per proxy.
-CMD ["setu-catalog-server", "--host", "0.0.0.0", "--port", "8780"]
+CMD ["setu-catalog-server", "--host", "0.0.0.0", "--port", "8796"]

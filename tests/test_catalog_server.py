@@ -657,3 +657,10 @@ class TestWorks:
         entry = json.loads(path.read_text())["recipes"][0]
         assert entry["works"] == {"worked": 330, "failed": 10}       # not the old version's
         assert catalog.works_line(entry) == "worked 97% of 340 uses"
+
+
+def test_the_token_a_secret_keeps_with_its_newline_is_still_the_token(monkeypatch):
+    from setu_catalog_server.app import token_from_env
+
+    monkeypatch.setenv("SETU_CATALOG_TOKEN", "0f3a9c\n")   # openssl rand -hex | secret
+    assert token_from_env() == "0f3a9c"

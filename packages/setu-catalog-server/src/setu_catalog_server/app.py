@@ -374,6 +374,13 @@ class Catalog:
         return bool(self.token) and hmac.compare_digest(given.encode(), self.token.encode())
 
 
+def token_from_env() -> str:
+    """``$SETU_CATALOG_TOKEN``, stripped: a token made with ``openssl rand
+    -hex 32 | podman secret create`` keeps openssl's newline, and every
+    publish was refused as "not the maintainer" though the token was right."""
+    return os.environ.get("SETU_CATALOG_TOKEN", "").strip()
+
+
 def make_app(data: Path, token: str, *, behind_proxy: bool = False) -> Starlette:
     cat = Catalog(data, token)
 
@@ -565,7 +572,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trust", metavar="KEY.pub",
                         help="trust a maintainer's public key for uploads, then exit")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8780)
+    parser.add_argument("--port", type=int, default=8796)
     parser.add_argument("--behind-proxy", action="store_true",
                         help="the address is the first X-Forwarded-For (only behind a "
                         "proxy you run -- otherwise anyone can claim any address)")
@@ -576,7 +583,7 @@ def main(argv: list[str] | None = None) -> int:
         catalog.trust(pub, home=data)
         print(f"uploads signed by {pub['id']} are accepted")
         return 0
-    token = os.environ.get("SETU_CATALOG_TOKEN", "")
+    token = token_from_env()
     if not token:
         print("setu-catalog-server: set SETU_CATALOG_TOKEN (the maintainer's publish "
               "token); without it nothing can be published", file=sys.stderr)
