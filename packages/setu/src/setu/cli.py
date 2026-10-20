@@ -682,7 +682,7 @@ def _connect_json(args: argparse.Namespace) -> int:
     harness shows the address to the person, in the page they are using --
     except for a site signed in to in a window of its own (``window``)."""
     if args.paste and (args.site or args.token_stdin):
-        _emit("error", message="--paste is for a sign-in page (Google, Home Assistant), "
+        _emit("error", message="--paste is for a sign-in page (Google, Home Assistant, a server's own), "
               "not a browser window or a pasted token")
         return 2
     if args.site:
@@ -1239,7 +1239,7 @@ def _catalog(args: argparse.Namespace) -> int:
         print(f"trusting catalog key {pub['id']}")
         return 0
     if action == "publish":
-        token = os.environ.get("SETU_CATALOG_TOKEN", "")
+        token = os.environ.get("SETU_CATALOG_TOKEN", "").strip()
         if not args.to or not token:
             print("error: setu catalog publish INDEX --to https://catalog.example, with the "
                   "maintainer's token in SETU_CATALOG_TOKEN", file=sys.stderr)
@@ -1276,7 +1276,7 @@ def _catalog(args: argparse.Namespace) -> int:
               + (f": {seen['reason']}" if seen.get("reason") else ""))
         return 0
     if action in ("review", "close"):
-        token = os.environ.get("SETU_CATALOG_TOKEN", "")
+        token = os.environ.get("SETU_CATALOG_TOKEN", "").strip()
         if not args.to or not token:
             print("error: --to URL, with the maintainer's token in SETU_CATALOG_TOKEN",
                   file=sys.stderr)
@@ -1314,7 +1314,7 @@ def _catalog(args: argparse.Namespace) -> int:
                   f"{signed}  {item['at']}")
         return 0
     if action == "upload":
-        token = os.environ.get("SETU_CATALOG_TOKEN", "")
+        token = os.environ.get("SETU_CATALOG_TOKEN", "").strip()
         if not args.to or not token or not args.path:
             print("error: setu catalog upload RECIPE_DIR --to URL, with the maintainer's "
                   "token in SETU_CATALOG_TOKEN", file=sys.stderr)
