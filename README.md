@@ -508,7 +508,11 @@ agent, a container or a chat. A renewal the server refuses marks the
 connection as an expired sign-in, and `setu check` (Dvara's daily check)
 tells you. From Setu's page on another device, or from a chat, you get
 the sign-in link, and you paste back the address it ends on, as with
-Google. A server whose sign-in won't let a program register itself is
+Google. With `--remote` (a window address set, `SETU_WINDOW_*`), the page
+opens in the streamed window instead, as Google's does: on a phone,
+`127.0.0.1` is the phone, so the page's return could never reach Setu,
+and a chat app's browser hides the address to copy. In the window it
+lands here by itself, and nothing is copied. A server whose sign-in won't let a program register itself is
 said to need a client id from its own dashboard. Setu doesn't make one
 up. Disconnecting revokes the sign-in where the server offers that.
 

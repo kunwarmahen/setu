@@ -347,3 +347,41 @@ def test_the_browser_opens_without_its_chatter(monkeypatch):
     assert seen["args"] == ["/usr/bin/xdg-open", "https://example.test/oauth"]
     for stream in ("stdin", "stdout", "stderr"):
         assert seen["kwargs"][stream] is google.subprocess.DEVNULL
+
+
+def test_from_a_phone_the_page_opens_in_the_window_and_its_return_lands_here(
+        home, signs_in, monkeypatch, capsys):
+    # On a phone, 127.0.0.1 is the phone: the page's return can't reach
+    # Setu, and a chat app's browser hides the address to copy back
+    from setu import cli, remote
+
+    opened = []
+
+    class Window:
+        def __init__(self, on_link, on_opened, **kwargs):
+            self.on_link, self.on_opened, self.kwargs = on_link, on_opened, kwargs
+
+        def __call__(self, link):          # the browser runs HERE, so 127.0.0.1 is here
+            opened.append(link)
+            self.on_link("http://beast.local:8790/w/abc", 0.0)
+            self.on_opened()
+            person(link)
+
+        def close(self):
+            opened.append("closed")
+
+    monkeypatch.setattr(remote, "SignInPage", Window)
+    assert cli.main(["connect", "--server", signs_in.url, "--id", "docs", "--json",
+                     "--remote", "--timeout", "20"]) == 0
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    kinds = [e["event"] for e in events]
+    assert kinds == ["started", "url", "link", "opened", "connected"], events
+    assert events[1]["window"] is True
+    assert opened[-1] == "closed"
+    assert FileVault().get("docs:personal")["secret"]["kind"] == "oauth"
+
+
+def test_a_program_you_run_has_no_window_to_sign_in_in(home, capsys):
+    from setu import cli
+    assert cli.main(["connect", "--server-command", "uvx thing", "--json", "--remote"]) == 2
+    assert "no sign-in page" in capsys.readouterr().out

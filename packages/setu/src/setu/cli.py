@@ -92,6 +92,8 @@ With ``--paste`` as well, an address pasted back still counts.
 ``started``, then ``connected`` (with ``tools``, how many it listed) or
 ``error``. A token, and each ``--env`` value, is one line on stdin, in
 that order -- never an argument, which every process here can read.
+A server that signs in on its own page sends ``url`` too, and with
+``--remote`` that page opens in the streamed window, as Google's does.
 """
 
 from __future__ import annotations
@@ -107,6 +109,7 @@ import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -256,15 +259,24 @@ def _server_secrets(args: argparse.Namespace) -> tuple[str | None, dict[str, str
 def _server_sign_in(args: argparse.Namespace, http: httpx.Client, emit: bool):
     """How to sign in to a server that asks on its own page (mcp_auth.py):
     a browser here, or -- for a page (``--json``) -- the link sent as an
-    event, and with ``--paste`` the address it ended on read back."""
+    event, and with ``--paste`` the address it ended on read back. With
+    ``--remote`` the page opens in the streamed window, as Google's does,
+    so its return to 127.0.0.1 lands here and nothing is copied off a
+    phone, where 127.0.0.1 is the phone."""
     from setu import mcp_auth
 
     def sign_in(url: str, said: str) -> dict:
         if emit:
-            return mcp_auth.sign_in(url, said, http=http,
-                                    on_url=lambda link: _emit("url", url=link,
-                                                              paste=args.paste),
-                                    timeout=args.timeout, pasted=_pasted(args))
+            window = _server_window(url, args)
+            try:
+                return mcp_auth.sign_in(
+                    url, said, http=http, open_browser=window,
+                    on_url=lambda link: _emit("url", url=link, paste=args.paste,
+                                              window=window is not None),
+                    timeout=args.timeout, pasted=_pasted(args))
+            finally:
+                if window is not None:
+                    window.close()
         print(f"{url} signs in on its own page. A browser window is opening: sign in "
               "there, then come back here.")
         return mcp_auth.sign_in(
@@ -272,6 +284,24 @@ def _server_sign_in(args: argparse.Namespace, http: httpx.Client, emit: bool):
             open_browser=None if args.no_browser else google.open_quietly,
             on_url=lambda link: print(f"\nIf no window opened, open this address:\n{link}\n"))
     return sign_in
+
+
+def _server_window(url: str, args: argparse.Namespace):
+    """The streamed window for a server's own sign-in page, or None
+    without ``--remote``. Settings that can't make a link are the sign-in's
+    error, said once."""
+    if not args.remote:
+        return None
+    from setu import mcp_auth, remote
+    try:
+        return remote.SignInPage(
+            lambda link, until: _emit("link", url=link, expires_at=until),
+            lambda: _emit("opened"), site=urlsplit(url).hostname or url,
+            browser=_site_browser(args),
+            open_for=(remote.OPEN_FOR if args.timeout == google.SIGN_IN_TIMEOUT
+                      else args.timeout))
+    except remote.WindowSettingsError as exc:
+        raise mcp_auth.McpAuthError(str(exc)) from None
 
 
 def _add_server(args: argparse.Namespace, on_started: Callable[[str], None] | None = None):
@@ -658,10 +688,9 @@ def _connect_json(args: argparse.Namespace) -> int:
     if args.site:
         return _connect_site_json(args)
     if args.server or args.server_command:
-        if args.remote or (args.paste and not args.server):
-            _emit("error", message="a server of your own has no window to stream, and a "
-                  "program you run has no sign-in page: --paste is for a server at an "
-                  "address that signs in on its own page")
+        if (args.remote or args.paste) and not args.server:
+            _emit("error", message="a program you run has no sign-in page: --remote and "
+                  "--paste are for a server at an address that signs in on its own page")
             return 2
         return _connect_server_json(args)
     manifest = find(_connector_named(args))
@@ -1377,7 +1406,7 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument("--remote", action="store_true",
                          help="with --json: signed in to from another device, through a "
                               "streamed window (SETU_WINDOW_*) -- a browser-road site, or "
-                              "a sign-in page (Google, Home Assistant)")
+                              "a sign-in page (Google, Home Assistant, a server's own)")
     connect.add_argument("--paste", action="store_true",
                          help="with --json: also take the address the sign-in ended on, "
                               "pasted back on stdin (signing in on another device)")
