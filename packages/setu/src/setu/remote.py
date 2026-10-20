@@ -84,6 +84,7 @@ machine.
 from __future__ import annotations
 
 import base64
+import contextlib
 import fcntl
 import fnmatch
 import json
@@ -409,16 +410,49 @@ class Window:
         self.signed_in = threading.Event()
         self.done = threading.Event()
         browser.on_event = self._event
+        self.switching = threading.Lock()
+        known = {t.get("targetId") for t in
+                 browser.call("Target.getTargets").get("targetInfos", [])}
         target = browser.call("Target.createTarget", {"url": "about:blank"})["targetId"]
         self.session = browser.call("Target.attachToTarget",
                                     {"targetId": target, "flatten": True})["sessionId"]
-        product = browser.call("Browser.getVersion").get("product", "Chrome/130")
-        self._send("Network.setUserAgentOverride", phone_agent(product))
+        #: The tab the window opened, and the one shown now: a popup or a
+        #: new tab the page opens (a "Continue with Google") is followed,
+        #: and when it closes the window goes back to the first.
+        self.main, self.target, self.main_session = target, target, self.session
+        self.known = known | {target}
+        self.product = browser.call("Browser.getVersion").get("product", "Chrome/130")
+        self._dress()
+        self.resize(*START_SIZE)
+        self._send("Page.navigate", {"url": url})
+        with contextlib.suppress(BrowserSignInFailed):
+            browser.call("Target.setDiscoverTargets", {"discover": True})
+
+    def _dress(self) -> None:
+        """The tab shown looks like the phone it is shown on."""
+        self._send("Network.setUserAgentOverride", phone_agent(self.product))
         self._send("Emulation.setTouchEmulationEnabled", {"enabled": True,
                                                          "maxTouchPoints": 5})
-        self.resize(*START_SIZE)
         self._send("Page.enable")
-        self._send("Page.navigate", {"url": url})
+
+    def _follow(self, target: str) -> None:
+        """Show ``target`` from now on: a tab the page opened, or the first
+        one again when that tab closed."""
+        with self.switching:
+            try:
+                if target == self.main:
+                    session = self.main_session
+                else:
+                    session = self.browser.call("Target.attachToTarget", {
+                        "targetId": target, "flatten": True})["sessionId"]
+                with contextlib.suppress(BrowserSignInFailed):
+                    self._send("Page.stopScreencast")
+                self.session, self.target = session, target
+                if target != self.main:
+                    self._dress()
+                self.resize(*self.size)
+            except (BrowserSignInFailed, OSError, ValueError, KeyError):
+                pass
 
     def _send(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.browser.call(method, params, session=self.session)
@@ -432,7 +466,22 @@ class Window:
                                             "maxWidth": width * 2, "maxHeight": height * 2})
 
     def _event(self, message: dict[str, Any]) -> None:
-        if message.get("method") == "Page.screencastFrame":
+        method = message.get("method")
+        if method == "Target.targetCreated":
+            info = message.get("params", {}).get("targetInfo", {})
+            if info.get("type") == "page" and info.get("targetId") not in self.known:
+                self.known.add(info["targetId"])
+                threading.Thread(target=self._follow, args=(info["targetId"],),
+                                 daemon=True).start()
+            return
+        if method == "Target.targetDestroyed":
+            if message.get("params", {}).get("targetId") == self.target != self.main:
+                threading.Thread(target=self._follow, args=(self.main,),
+                                 daemon=True).start()
+            return
+        if method == "Page.screencastFrame":
+            if message.get("sessionId") not in (None, self.session):
+                return                      # a tab no longer shown
             params = message["params"]
             with self.frames:
                 self.frame = base64.b64decode(params["data"])
@@ -518,7 +567,13 @@ class Window:
         on Amazon's password page before anybody typed a thing."""
         back_at = getattr(self, "back_at", None)
         if back_at is not None:
-            return str(self._value("location.href") or "").startswith(back_at)
+            # in whichever tab it ended: a popup's sign-in may come back there
+            try:
+                pages = self.browser.call("Target.getTargets").get("targetInfos", [])
+            except BrowserSignInFailed:
+                return False
+            return any(str(p.get("url") or "").startswith(back_at) for p in pages
+                       if p.get("type") == "page")
         try:      # the browser's whole cookie jar, asked of the browser itself
             cookies = self.browser.call("Storage.getCookies").get("cookies", [])
         except BrowserSignInFailed:
@@ -531,6 +586,9 @@ class Window:
                 return self._value(STILL_ASKING) is False
         return False
 
+
+NOT_BACK_YET = ("Not finished yet: the page hasn't sent you back. Keep going in the picture "
+                "(Allow, Continue, or a code from your email), and this ends by itself.")
 
 _PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
@@ -573,10 +631,13 @@ document.getElementById("v").onclick=e=>{{t.type=t.type=="password"?"text":"pass
 document.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>post("/input",
  {{type:"key",key:b.dataset.k}}));
 document.getElementById("back").onclick=()=>post("/input",{{type:"back"}});
-document.getElementById("done").onclick=()=>post("/done",{{}});
-setInterval(async()=>{{const r=await fetch(base+"/state");const j=await r.json();
- if(j.state!="open"){{document.getElementById("say").textContent=j.say;s.remove();
- document.getElementById("bar").remove()}}}},2000);
+const say=document.getElementById("say");
+document.getElementById("done").onclick=async()=>{{const r=await post("/done",{{}});
+ const j=await r.json().catch(()=>({{}}));if(j.say){{say.textContent=j.say}}}};
+const end=w=>{{say.textContent=w;s.remove();document.getElementById("bar").remove()}};
+const tick=setInterval(async()=>{{try{{const r=await fetch(base+"/state");const j=await r.json();
+ if(j.state!="open"){{clearInterval(tick);end(j.say)}}}}catch(e){{clearInterval(tick);
+ end("This window has closed. Go back to the chat: it says whether you're connected.")}}}},2000);
 </script></body></html>"""
 
 
@@ -675,6 +736,12 @@ def serve(window: Window, site: str, *, host: str, port: int, public: str | None
                 return self._send(400, b"{}")
             rest = path[len(prefix):]
             if rest == "/done":
+                if getattr(window, "back_at", None) is not None:
+                    # a sign-in PAGE ends when it sends the browser back, not
+                    # on a button: closing it here left Setu waiting on a
+                    # sign-in nobody could finish
+                    say = ("Checking..." if window.look() else NOT_BACK_YET)
+                    return self._send(200, json.dumps({"say": say}).encode())
                 state["value"] = "done"
                 window.done.set()
             elif rest == "/input" and state["value"] == "open":

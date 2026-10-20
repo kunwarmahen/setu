@@ -35,6 +35,7 @@ if started:
         "headless": "--headless=new" in sys.argv, "display": os.environ.get("DISPLAY")}))
 inp, out = os.fdopen(3, "rb", buffering=0), os.fdopen(4, "wb", buffering=0)
 typed, buf, href = [], b"", "about:blank"
+popup = os.environ.get("FAKE_POPUP")     # the page's sign-in opens in a tab of its own
 def send(m): out.write(json.dumps(m).encode() + b"\0")
 while True:
     chunk = inp.read(65536)
@@ -44,14 +45,22 @@ while True:
         raw, buf = buf.split(b"\0", 1)
         m = json.loads(raw); method, result = m["method"], {}
         if method == "Target.createTarget": result = {"targetId": "T1"}
-        elif method == "Target.attachToTarget": result = {"sessionId": "S1"}
+        elif method == "Target.attachToTarget":
+            result = {"sessionId": "S" + m["params"]["targetId"][1:]}
+        elif method == "Target.getTargets":
+            result = {"targetInfos": [{"targetId": "T1", "type": "page", "url": href}]}
+        elif popup and method == "Input.dispatchTouchEvent" and \
+                m["params"]["type"] == "touchStart":
+            send({"method": "Target.targetCreated", "params": {"targetInfo": {
+                "targetId": "T2", "type": "page", "url": href, "openerId": "T1"}}})
         elif method == "Browser.getVersion": result = {"product": "Chrome/130.0"}
         elif method == "Page.navigate": href = m["params"]["url"]
         elif (method == "Input.dispatchKeyEvent" and m["params"]["type"] == "keyDown"
               and m["params"].get("text") not in (None, "\r")):
             typed.append(m["params"]["text"])
         elif (method == "Input.dispatchKeyEvent" and m["params"]["type"] == "keyDown"
-              and m["params"]["key"] == "Enter" and typed):
+              and m["params"]["key"] == "Enter" and typed
+              and (not popup or m.get("sessionId") == "S2")):
             q = urllib.parse.parse_qs(urllib.parse.urlsplit(href).query)
             href = (q["redirect_uri"][0] + "?code=CODE&state=" + q["state"][0])
             urllib.request.urlopen(href).read()      # as the page's end does
@@ -154,3 +163,36 @@ def test_a_window_on_this_computer_alone_reaches_no_other_device(monkeypatch):
     assert not remote.reaches_another_device()
     monkeypatch.setenv(remote.ENV_HOST, "192.168.1.44")
     assert remote.reaches_another_device()
+
+
+def test_a_sign_in_that_opens_a_tab_of_its_own_is_followed_there(chrome, tmp_path,
+                                                                 monkeypatch):
+    # Notion's "Continue with Google" opens one; shown only the first tab,
+    # the person signed in where the window never looked
+    monkeypatch.setenv("FAKE_POPUP", "1")
+    listener = google.RedirectListener()
+    links: list[str] = []
+    window = remote.SignInPage(lambda url, _t: links.append(url), site="Notion",
+                               browser=chrome, open_for=30)
+    threading.Thread(target=window, args=(page_for(listener),), daemon=True).start()
+    try:
+        deadline = time.monotonic() + 10
+        while not links and time.monotonic() < deadline:
+            time.sleep(0.05)
+        me = httpx.Client(timeout=5)
+        link = links[0]
+        me.get(link)
+        me.post(link + "/input", json={"type": "tap", "fx": 0.5, "fy": 0.5})
+        while window.window.target != "T2" and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert window.window.session == "S2"
+        # "I've signed in" before the page came back closes nothing
+        said = me.post(link + "/done", json={}).json()["say"]
+        assert said == remote.NOT_BACK_YET
+        me.post(link + "/input", json={"type": "text", "text": "me@example.com"})
+        threading.Thread(target=me.post, args=(link + "/input",),
+                         kwargs={"json": {"type": "key", "key": "Enter"}}, daemon=True).start()
+        assert listener.wait("STATE", timeout=20) == "CODE"
+    finally:
+        window.close()
+        listener.close()

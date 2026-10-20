@@ -512,7 +512,13 @@ Google. With `--remote` (a window address set, `SETU_WINDOW_*`), the page
 opens in the streamed window instead, as Google's does: on a phone,
 `127.0.0.1` is the phone, so the page's return could never reach Setu,
 and a chat app's browser hides the address to copy. In the window it
-lands here by itself, and nothing is copied. A server whose sign-in won't let a program register itself is
+lands here by itself, and nothing is copied. The window follows a tab the page
+opens of its own (a sign-in that pops up), and goes back when it closes.
+A sign-in page ends when it sends the browser back, not on the window's
+*I've signed in* button: pressed early, the button says what is left
+(Allow, Continue, a code from email) and the window stays open. Notion's
+real page in the window showed its login list, and its Google button
+led to Google's own sign-in there. A server whose sign-in won't let a program register itself is
 said to need a client id from its own dashboard. Setu doesn't make one
 up. Disconnecting revokes the sign-in where the server offers that.
 
