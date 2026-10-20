@@ -864,11 +864,26 @@ It's safe to leave running:
   website you happen to visit can't read your connections, even though it can
   reach `127.0.0.1`.
 * **Only sites you name can show it inside their own page.** By default only
-  the page itself may. `SETU_PAGE_EMBED="http://127.0.0.1:8000"` lets that
-  page (an agent's panel, for example) show it in a frame. Any other site
-  that tries gets an empty frame.
+  the page itself may. `SETU_PAGE_EMBED="http://127.0.0.1:8000"` (or
+  `--embed http://127.0.0.1:8000`) lets that page (an agent's panel, for
+  example) show it in a frame. Any other site that tries gets an empty
+  frame. Framed, the page tells its parent only *that* your connections
+  changed (`{type: "setu-changed"}`), never which, so the agent can pick
+  up the new tools at once.
 * **No key is ever on it.** You see names, levels, addresses and counts. You
   never see a token or cookie, or where a browser sign-in is kept.
+
+**An agent that starts its own.** Yantra's Connections panel runs
+`setu serve --json --port 0 --embed http://127.0.0.1:8811`. That takes any free port, and
+prints one line, the page's address with its key, and nothing else:
+
+```
+{"format": "setu-page/1", "url": "http://127.0.0.1:40651/", "page_url": "http://127.0.0.1:40651/#token=…",
+ "home": "/home/you/.local/state/setu", "embed": ["http://127.0.0.1:8811"]}
+```
+
+It stops when its stdin closes, so the page ends with the program that
+started it, however that program ends.
 
 ### A page for each person (with dvara)
 
@@ -1321,7 +1336,11 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   built from `status.report()` minus the harness-only `mcp` and `browser`
   blocks. A log is served only for a ref the vault holds. Every answer
   carries a CSP with `script-src 'self'` and `frame-ancestors 'self'` plus
-  `$SETU_PAGE_EMBED`. The owner's page also has `GET /api/catalog`,
+  `$SETU_PAGE_EMBED` (or `--embed`, which replaces it). `--json` prints
+  one `setu-page/1` line (`url`, `page_url`, `home`, `embed`) and stops
+  the server when stdin closes. Framed, `page.js` posts
+  `{type: "setu-changed", what}` to its parent when the connections or
+  connectors it draws change, skipping the first draw. The owner's page also has `GET /api/catalog`,
   `/api/certifiers` and `/api/settings`. Its other changes are `POST
   /api/install {connector, sha256}`, which refuses a hash other than the
   catalog's and runs `setu install` as a child, `/api/certifiers/remove`, and

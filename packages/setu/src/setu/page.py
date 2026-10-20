@@ -83,8 +83,21 @@ at this computer, and the owner's page still needs its token.
 EMBEDDING IS BY NAME. A page that holds sign-ins must not be wrapped by
 a site that lays its own buttons over it (click-jacking), so the page
 says who may frame it: ``Content-Security-Policy: frame-ancestors``,
-itself and the origins in ``$SETU_PAGE_EMBED`` (a harness's own page,
-such as Yantra's). Every other site that frames it gets nothing.
+itself and the origins in ``$SETU_PAGE_EMBED`` or ``--embed`` (a
+harness's own page, such as Yantra's). Every other site that frames it
+gets nothing.
+
+A HARNESS STARTS ITS OWN. ``setu serve --json --port 0 --embed ORIGIN``
+takes any free port and prints one line -- the address, the address
+with its key, the folder -- for the program that started it, which then
+shows the page in its own (Yantra's Connections panel), and holds its
+stdin: when the harness ends, however it ends, so does its page. Its own copy,
+not one found running: a page found on 8775 may be another folder's
+(Sarathi's container) and does not name this harness as its embedder.
+Framed, the page tells its parent ``{type: "setu-changed"}`` when the
+connections or connectors it shows change -- that they changed, never
+what, so it can be said to any parent -- and the harness asks Setu again
+at once instead of on its next look.
 
 NOTHING RUNS INLINE. The page is three static files -- HTML, a script,
 a stylesheet -- with no data in them, and the policy allows scripts only
@@ -151,6 +164,8 @@ ENV_TOKEN = "SETU_PAGE_TOKEN"
 ENV_EMBED = "SETU_PAGE_EMBED"
 ENV_PUBLIC = "SETU_PAGE_URL"
 ENV_PEOPLE = "SETU_PAGE_PEOPLE"
+#: The one line ``setu serve --json`` prints: a harness reads it, then nothing.
+SERVE_FORMAT = "setu-page/1"
 TOKEN_FILE = "page.token"
 
 #: The most log lines one request returns.

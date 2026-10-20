@@ -21,6 +21,7 @@ import httpx
 import pytest
 from conftest import REFRESH, TOKEN
 from setu import page, proxy
+from setu.cli import main
 from setu.vault import FileVault
 from test_status import seed
 
@@ -341,6 +342,51 @@ def test_a_named_embedder_may_send_changes(served):
                      headers={"Authorization": f"Bearer {GOOD}",
                               "Origin": "http://127.0.0.1:8000"}, timeout=5)
     assert res.status_code == 404           # past the Origin check, to the router
+
+
+def test_a_harness_starts_its_own_page_and_reads_one_line(home):
+    """``setu serve --json``: one line, any free port, the embedder it was
+    told -- and the address in the line opens the page."""
+    import subprocess
+    seed(FileVault())
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import sys; from setu.cli import main; "
+         "sys.exit(main(sys.argv[1:]))", "serve", "--json", "--port", "0",
+         "--embed", "http://127.0.0.1:8123"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        line = json.loads(child.stdout.readline())
+        assert line["format"] == page.SERVE_FORMAT
+        assert line["embed"] == ["http://127.0.0.1:8123"]
+        assert line["home"] == str(home)
+        assert line["page_url"].startswith(line["url"] + "#token=")
+        assert not line["url"].endswith(":0/")
+        token = line["page_url"].split("#token=", 1)[1]
+        res = httpx.get(line["url"] + "api/status", timeout=5,
+                        headers={"Authorization": f"Bearer {token}"})
+        assert res.status_code == 200
+        policy = httpx.get(line["url"], timeout=5).headers["content-security-policy"]
+        assert "frame-ancestors 'self' http://127.0.0.1:8123" in policy
+        child.stdin.close()                 # the harness ended: so does its page
+        assert child.wait(timeout=10) == 0
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=10)
+
+
+def test_an_embed_flag_that_is_not_an_origin_stops_the_page(home):
+    with pytest.raises(SystemExit, match="is not an origin"):
+        main(["serve", "--json", "--port", "0", "--embed", "https://*.example.com"])
+
+
+def test_a_framed_page_says_only_that_something_changed():
+    """The message to the parent carries no name, no account -- it may be
+    heard by any page that frames this one, so it says only THAT."""
+    from importlib.resources import files
+    script = files("setu").joinpath("static", "page.js").read_text()
+    assert 'postMessage({ type: "setu-changed", what }, "*")' in script
+    assert 'tellParent("connections")' in script and 'tellParent("available")' in script
 
 
 def test_the_pages_script_parses():

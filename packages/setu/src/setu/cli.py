@@ -1119,11 +1119,36 @@ def _serve(args: argparse.Namespace) -> int:
     vault = FileVault()
     folders = page.people_dir(args.people)
     try:
+        embed = page.embedders(" ".join(args.embed)) if args.embed else None
         server = page.PageServer(page.Api(vault), page.page_token(vault.home),
                                  host=args.host, port=args.port, public_url=args.public_url,
-                                 people_dir=folders, also=args.also_host or [])
+                                 embed=embed, people_dir=folders, also=args.also_host or [])
+    except ValueError as exc:
+        raise SystemExit(f"setu serve: {exc}") from None
     except OSError as exc:
         raise SystemExit(f"setu serve: cannot listen there ({exc})") from None
+    if args.json:
+        # one line for a harness that started this page for itself, then
+        # nothing more on stdout: the line is the whole contract
+        print(json.dumps({"format": page.SERVE_FORMAT, "url": server.url,
+                          "page_url": server.page_url, "home": str(vault.home),
+                          "embed": server.embed}), flush=True)
+
+        def until_stdin_closes() -> None:
+            # the harness that started it holds its stdin: when that
+            # program ends, however it ends, so does its page
+            with contextlib.suppress(OSError, ValueError):
+                while sys.stdin.read(4096):
+                    pass
+            server.httpd.shutdown()
+
+        threading.Thread(target=until_stdin_closes, daemon=True,
+                         name="setu-serve-stdin").start()
+        try:
+            server.serve_forever()
+        finally:
+            server.close()
+        return 0
     print(f"Setu's page for {vault.home}:\n  {server.page_url}\n"
           "(the part after # is its key: open it once, the page keeps it. Ctrl-C stops.)",
           flush=True)
@@ -1552,6 +1577,13 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--people", help="the folder people's own Setu folders are in (a "
                        "door's state/setu): each may open their own with a link "
                        "(setu page-link); or $SETU_PAGE_PEOPLE")
+    serve.add_argument("--embed", action="append", metavar="ORIGIN",
+                       help="a page allowed to show this one inside it, as "
+                            "http://127.0.0.1:8000 (or $SETU_PAGE_EMBED); none: only itself")
+    serve.add_argument("--json", action="store_true",
+                       help="print one JSON line (the address, its key, the folder) and "
+                            "nothing else, and stop when stdin closes: for a harness "
+                            "that starts the page itself; --port 0 takes any free port")
 
     plink = sub.add_parser("page-link", help="a one-time link to this folder's page, for "
                            "the person it belongs to")

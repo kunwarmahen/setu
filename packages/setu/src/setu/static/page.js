@@ -171,8 +171,19 @@ function levelPicker(c, current) {
     }));
 }
 
+// Inside a harness's page (Yantra's Connections panel): say that what an
+// agent can use changed, so it asks Setu again now. Only THAT it changed,
+// never what, so any parent may hear it. The first draw is not a change.
+const shown = new Set();
+function tellParent(what) {
+  if (window.top === window.self) return;
+  if (!shown.has(what)) { shown.add(what); return; }
+  try { window.parent.postMessage({ type: "setu-changed", what }, "*"); } catch (_) { /* gone */ }
+}
+
 function drawConnections(rows, names, cards) {
   if (!changed("connections", [rows, Object.keys(cards)])) return;
+  tellParent("connections");
   const box = document.getElementById("connections");
   document.getElementById("n-connections").textContent = rows.length ? `${rows.length}` : "";
   if (!rows.length) {
@@ -274,6 +285,7 @@ async function drawLog(ref, details) {
 
 function drawAvailable(connectors) {
   if (!changed("available", connectors)) return;
+  tellParent("available");
   const free = connectors.filter((c) => !c.connected);
   const box = document.getElementById("available");
   document.getElementById("n-available").textContent = free.length ? `${free.length}` : "";
