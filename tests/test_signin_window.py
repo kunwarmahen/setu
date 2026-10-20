@@ -196,3 +196,28 @@ def test_a_sign_in_that_opens_a_tab_of_its_own_is_followed_there(chrome, tmp_pat
     finally:
         window.close()
         listener.close()
+
+
+def test_a_phone_back_from_another_app_gets_the_picture_again(chrome, tmp_path):
+    # Microsoft's sign-in sends the person to their authenticator app; the
+    # phone dropped the picture meanwhile and showed a broken image after
+    listener = google.RedirectListener()
+    links: list[str] = []
+    window = remote.SignInPage(lambda url, _t: links.append(url), site="Notion",
+                               browser=chrome, open_for=30)
+    threading.Thread(target=window, args=(page_for(listener),), daemon=True).start()
+    try:
+        deadline = time.monotonic() + 10
+        while not links and time.monotonic() < deadline:
+            time.sleep(0.05)
+        me = httpx.Client(timeout=5)
+        page = me.get(links[0]).text
+        assert "visibilitychange" in page and '"/stream?"+Date.now()' in page
+        assert me.get(links[0]).status_code == 200          # a reload, same phone
+        for _ in range(2):                                   # the picture, asked again
+            with me.stream("GET", links[0] + "/stream?123") as r:
+                assert r.status_code == 200
+                assert r.headers["content-type"].startswith("multipart/x-mixed-replace")
+    finally:
+        window.close()
+        listener.close()

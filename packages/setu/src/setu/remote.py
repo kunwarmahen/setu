@@ -632,6 +632,12 @@ document.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>post("/input",
  {{type:"key",key:b.dataset.k}}));
 document.getElementById("back").onclick=()=>post("/input",{{type:"back"}});
 const say=document.getElementById("say");
+// a phone that went to another app (an authenticator, the mail with a
+// code) drops the picture: ask for it again on the way back, or on a break
+const again=()=>{{if(document.body.contains(s)){{s.src=base+"/stream?"+Date.now()}}}};
+document.addEventListener("visibilitychange",()=>{{if(!document.hidden)again()}});
+addEventListener("pageshow",e=>{{if(e.persisted)again()}});
+s.addEventListener("error",()=>setTimeout(again,1500));
 document.getElementById("done").onclick=async()=>{{const r=await post("/done",{{}});
  const j=await r.json().catch(()=>({{}}));if(j.say){{say.textContent=j.say}}}};
 const end=w=>{{say.textContent=w;s.remove();document.getElementById("bar").remove()}};
