@@ -644,6 +644,11 @@ with nobody there to say yes, it didn't run.)
 * **[Samay](https://github.com/kunwarmahen/samay)** runs Yantra on a schedule, so a scheduled run reaches
   your accounts the same way a run at your keyboard does: reads without
   asking, nothing else unless it was allowed when the schedule was made.
+* **[Prahari](https://github.com/kunwarmahen/prahari)** watches for what you're waiting for ("tell me
+  when a mail from the bank comes") by repeating one tool call with no
+  model (`yantra --call`), so a look reaches your accounts exactly as a
+  turn does: a connector's read tools, as Setu's manifest marks them.
+  Nothing that writes runs on a look unless you accepted that exact call.
 * **[dvara](https://github.com/kunwarmahen/dvara)** serves several people, so each person can have a Setu
   folder of their own (`SETU_HOME`); their agent reaches only those
   accounts ([dvara's note 19](https://github.com/kunwarmahen/dvara/blob/main/notes/19-their-own-accounts.md)). They sign in from the chat
