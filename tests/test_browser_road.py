@@ -404,6 +404,17 @@ class TestAnySite:
         with pytest.raises(connections.ConnectionFailed, match="setu connect amazon"):
             site("smile.amazon.com", window=window, dump=dump)
 
+    def test_another_address_with_the_same_name_is_not_signed_in_to_as_the_first(
+            self, home):
+        """example.org added after example.com quietly signed in to
+        example.com again: the name was the same, the site was not."""
+        window, dump, _, _ = a_site([], SIGNED_IN_PAGE)
+        site("example.com", window=window, dump=dump)
+        with pytest.raises(connections.ConnectionFailed, match="pass --id"):
+            site("example.org", window=window, dump=dump)
+        assert site("example.org", window=window, dump=dump,
+                    site_id="example-org")["connector"] == "example-org"
+
     def test_money_stays_read_only_whatever_was_asked(self, home):
         window, dump, _, _ = a_site([], SIGNED_IN_PAGE.replace("<p>", "<title>My Bank</title><p>"))
         entry = site("mybank-online.com", level="write", window=window, dump=dump)

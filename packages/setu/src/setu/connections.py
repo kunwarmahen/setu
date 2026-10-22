@@ -409,8 +409,10 @@ def connect_site(address: str, account: str, *, level: str | None, vault: Vault,
     for known in installed().values():
         covers = any(host == h or host.endswith("." + h) for h in known.hosts)
         if known.id == data["id"] or (covers and not known.generated):
-            if known.local and known.generated:
-                # signing in again to a site made here: its own rules
+            if known.local and known.generated and covers:
+                # signing in again to a site made here: its own rules --
+                # never another address that only shares its name
+                # (example.org is not example.com's "example")
                 return connect_browser(known, account, level=level, vault=vault,
                                        browser=browser, on_window=on_window, window=window,
                                        ask=ask, dump=dump)

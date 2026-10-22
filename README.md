@@ -362,7 +362,9 @@ if you ask for more. The cookies that appeared when you signed in are
 noted in the file. You can edit it, and signing in again never overwrites
 it. `--id` picks the name (the default comes from the address:
 `news.ycombinator.com` becomes `ycombinator`). A site Setu already has a
-connector for gets pointed at that connector instead.
+connector for gets pointed at that connector instead. Another address
+whose name is taken (`example.org` after `example.com`) is refused and
+asks for an `--id`; it is never signed in to as the first one.
 
 The file starts with no guide to the site, so the agent finds its own way
 the first time. A harness can offer to remember what it found ("your
