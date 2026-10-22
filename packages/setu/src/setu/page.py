@@ -77,8 +77,9 @@ second address on the same port, with the same page and the same
 rules: this computer keeps 127.0.0.1 (its links still work), and a
 person's link (``setu page-link``) opens on a phone that reaches that
 address -- a Tailscale or home-network one, not every address at once.
-A caller from there is not "local": adding a site still needs someone
-at this computer, and the owner's page still needs its token.
+A caller from there is not "local": a sign-in it starts, a new site's
+too, opens in the streamed window (remote.py), and the owner's page
+still needs its token.
 
 EMBEDDING IS BY NAME. A page that holds sign-ins must not be wrapped by
 a site that lays its own buttons over it (click-jacking), so the page
@@ -491,13 +492,20 @@ class Api:
             raise ApiError(400, f"account name {account!r} is not a plain word")
         if level not in ("read", "write"):
             raise ApiError(400, f"a site's levels are read and write, not {level!r}")
+        argv = [*self.setu, "connect", "--site", site, "--as", account, "--level", level,
+                "--json"]
         if not local:
-            # Setu learns the site's sign-in by watching the page, which takes
-            # someone at this computer (cli: _connect_remote_json says why)
-            raise ApiError(403, "adding a site needs you at the computer running Setu: "
-                                f"there, run setu connect --site {site} --as {account}")
-        return self._start([*self.setu, "connect", "--site", site, "--as", account,
-                            "--level", level, "--json"], f"{site}:{account}")
+            # the person is on another device: the site opens in the streamed
+            # window, and Setu reads its page once they say they're in --
+            # when the window has an address their device can open
+            from setu import remote
+            if not remote.reaches_another_device():
+                raise ApiError(403, "adding a site from another device needs a window "
+                                    "address it can open (SETU_WINDOW_HOST, _URL or _NAME); "
+                                    f"at the computer running Setu, run setu connect "
+                                    f"--site {site} --as {account}")
+            argv.append("--remote")
+        return self._start(argv, f"{site}:{account}")
 
     def add_server(self, body: dict, local: bool) -> dict[str, Any]:
         url = str(body.get("url") or "").strip()

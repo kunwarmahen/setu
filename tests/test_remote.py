@@ -417,3 +417,42 @@ def test_enter_outside_a_form_and_other_keys_are_only_keys(monkeypatch):
     window.act({"type": "key", "key": "Backspace"})
     assert [p["expression"] for m, p in sent if m == "Runtime.evaluate"] == [
         remote.WATCH_SUBMIT]
+
+
+def test_a_new_site_from_another_device_ends_on_the_persons_word_then_its_page(
+        home, chrome, monkeypatch):
+    """A site Setu writes the rules for has no sign-in cookie to wait
+    for: the window ends on "I've signed in", and the page decides."""
+    import argparse
+
+    from setu import cli, google
+
+    class NoScreen:
+        display, proc = None, None
+
+        def close(self) -> None:
+            pass
+    monkeypatch.setattr(remote, "Screen", NoScreen)
+    seen: dict = {}
+
+    def phone(link: str) -> None:
+        me = httpx.Client(timeout=5)
+        seen["page"] = me.get(link).status_code
+        seen["done"] = me.post(link + "/done", json={}).status_code
+
+    def on_link(url, _until):
+        threading.Thread(target=phone, args=(url,), daemon=True).start()
+    monkeypatch.setattr(cli, "_emit", lambda event, **f: on_link(f["url"], 0)
+                        if event == "link" else None)
+    window = cli._streamed_site_window(
+        "shop.test", argparse.Namespace(timeout=google.SIGN_IN_TIMEOUT))
+    looked: list[str] = []
+
+    def dump(_browser, _profile, url):
+        looked.append(url)
+        return "<title>Shop</title><a href='/logout'>Sign out</a>"
+    entry = connections.connect_site("shop.test", "personal", level=None, vault=FileVault(),
+                                     browser=chrome, window=window, dump=dump)
+    assert seen == {"page": 200, "done": 200}
+    assert entry["connector"] == "shop"
+    assert len(looked) == 3          # twice signed out, once after the window

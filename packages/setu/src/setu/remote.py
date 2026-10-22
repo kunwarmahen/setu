@@ -76,9 +76,10 @@ SIGNED IN MEANS A SIGN-IN COOKIE, as at the machine: the manifest's
 (``Storage.getCookies``, names only) -- AND A PAGE THAT HAS STOPPED
 ASKING: no password or code box, not a sign-in address. A cookie an
 earlier session left is still there when the site wants the password
-again, and the window used to close before anybody typed. A site Setu wrote the rules for
-itself (``--site``) has no names to look for and is signed in to at the
-machine.
+again, and the window used to close before anybody typed. A site Setu writes the rules for
+itself (``--site``) has no names to look for: its window ends when the
+person presses "I've signed in", and Setu then reads the site's page,
+as it does when a window at the machine is closed.
 """
 
 from __future__ import annotations
@@ -601,7 +602,8 @@ button{{font-size:15px;padding:8px 10px}}#say{{padding:8px;color:#bbb}}
 </style></head><body>
 <div id="say">Signing in to {site}. Type in the box below and press Send: it goes into the
 page's first empty box, or the one you tapped on the picture. Your keyboard's Go sends it
-and presses Enter. This page works once, for 10 minutes.</div>
+and presses Enter. Once you're in, this ends by itself, or press I've signed in. This page
+works once, for 10 minutes.</div>
 <img id="s" src="{base}/stream" alt="the sign-in page">
 <div id="bar"><input id="t" autocomplete="off" autocapitalize="off" type="password"
 enterkeyhint="go"

@@ -303,10 +303,14 @@ def test_a_paste_that_is_not_an_address_never_reaches_setu(stand_in):
     finished(stand_in)
 
 
-def test_adding_a_site_asks_the_person_and_needs_them_at_the_computer(stand_in):
+def test_adding_a_site_asks_the_person_and_needs_a_window_their_device_opens(
+        stand_in, monkeypatch):
+    for key in ("SETU_WINDOW_HOST", "SETU_WINDOW_URL", "SETU_WINDOW_NAME"):
+        monkeypatch.delenv(key, raising=False)
     with pytest.raises(page.ApiError) as caught:
         stand_in.handle("POST", "/api/add-site", {}, {"site": "example.com"}, local=False)
     assert caught.value.code == 403 and stand_in.signin is None
+    assert "window address" in caught.value.detail
     with pytest.raises(page.ApiError):
         stand_in.handle("POST", "/api/add-site", {}, {"site": "not a site"})
     stand_in.handle("POST", "/api/add-site", {}, {"site": "https://Example.com/shop"})
@@ -318,6 +322,20 @@ def test_adding_a_site_asks_the_person_and_needs_them_at_the_computer(stand_in):
     stand_in.handle("POST", "/api/signin/answer", {}, {"yes": True})
     assert events(finished(stand_in))[-2:] == ["connected", "done"]
     assert started(stand_in)[0][:3] == ["connect", "--site", "example.com"]
+    assert "--remote" not in started(stand_in)[0]
+
+
+def test_a_site_added_from_another_device_opens_in_the_streamed_window(
+        stand_in, monkeypatch):
+    monkeypatch.setenv("SETU_WINDOW_NAME", "beast.local")
+    stand_in.handle("POST", "/api/add-site", {}, {"site": "example.com"}, local=False)
+    import time
+    while not any(e["event"] == "ask" for e in stand_in.signin.state()["events"]):
+        time.sleep(0.05)
+    stand_in.handle("POST", "/api/signin/answer", {}, {"yes": True})
+    finished(stand_in)
+    argv = started(stand_in)[0]
+    assert argv[:3] == ["connect", "--site", "example.com"] and "--remote" in argv
 
 
 def test_disconnect_is_only_for_a_connection_the_folder_holds(stand_in):

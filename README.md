@@ -203,8 +203,12 @@ home, but it's plain HTTP, so what they type crosses your Wi-Fi with only the
 Wi-Fi's own encryption. A **Tailscale** address is encrypted end to end and
 reachable from anywhere they are on your tailnet. For the open internet, put
 it behind **your own HTTPS** (listen on `127.0.0.1`, give the public address
-in `SETU_WINDOW_URL`). A site Setu wrote the rules for itself (`--site`) is
-checked by its page, so it is signed in to at this computer.
+in `SETU_WINDOW_URL`). A site Setu writes the rules for itself (`--site`)
+goes through the same window. It has no sign-in cookie Setu could wait
+for, so the window ends when the person presses **I've signed in**. Setu
+then reads the site's page, as it does when a window at this computer
+closes, and asks when it can't tell. A site added this way is signed in
+to again the same way.
 
 **Gmail from a phone goes through the same window.** Google's sign-in
 ends by sending the browser back to `http://127.0.0.1:<port>/`, where Setu
@@ -337,6 +341,11 @@ and close it. Setu looks at the site's front page once more. A sign-out
 link there means you are signed in. A password box means you aren't, and
 nothing is saved. If the page shows neither, Setu asks you. (`--signed-in`
 answers yes in advance.)
+
+From another device, a harness runs `setu connect --site example.com
+--json --remote`. The window is streamed to that device, as Amazon's is,
+and ends when you press **I've signed in** in it. Setu's page and
+Yantra's page both do this for you.
 
 Then Setu writes the site's rules to `~/.local/state/setu/sites/example.toml`.
 Nobody has studied this site, so the rules are cautious:
@@ -846,9 +855,11 @@ for that: a browser sign-in is streamed to you, and so is Google's or Home
 Assistant's sign-in page whenever the window's link reaches another device
 (`SETU_WINDOW_HOST` beyond this computer, or `SETU_WINDOW_URL` or
 `SETU_WINDOW_NAME`). Without one, Google's sign-in ends on an address you
-paste back into the page. Adding a site needs you at
-the computer, and so does adding a program as a server; a server at an
-address can be added from anywhere. Locking the folder stays a terminal step (`setu lock`), so
+paste back into the page. Adding a site goes through the streamed window
+too, when its link reaches another device; with no window address, the
+page names the command to run at the computer instead. Adding a program
+as a server needs you at the computer; a server at an address can be
+added from anywhere. Locking the folder stays a terminal step (`setu lock`), so
 the passphrase is never typed into a page.
 
 It's safe to leave running:
@@ -1281,6 +1292,10 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   stdin under `--json`). Only then is `sites/<id>.toml` written, with
   session-like new cookie names as `signed_in`, which may be empty for a
   generated manifest. A failed sign-in leaves no profile and no file.
+  With `--remote` the window is the streamed one (`remote.window_for` with
+  no cookie names), which ends on the person's "I've signed in"; the
+  proof from the page follows as above. A generated site connected again
+  with `--remote` takes the same road.
 * **Sites added by hand.** `installed()` also reads browser-road manifests from
   `sites/*.toml` under Setu's home, after the packages. Each file's stem must
   be its `id`, an installed id wins, and any other road is refused. A file that
@@ -1328,9 +1343,11 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   from a person's page or another device), `/api/disconnect` and
   `/api/signin/{answer,paste,cancel}`,
   with `GET /api/signin` for a sign-in's events. A sign-in is `setu connect
-  --json` run as a child process (`--remote` for a browser site, and
-  `--remote --paste` or `--paste` for a sign-in page, when the request
-  comes from another device; `remote.reaches_another_device` decides). A POST from another site's `Origin` is
+  --json` run as a child process (`--remote` for a browser site or a new
+  one, and `--remote --paste` or `--paste` for a sign-in page, when the
+  request comes from another device; `remote.reaches_another_device`
+  decides, and a new site with no window address is refused with the
+  command). A POST from another site's `Origin` is
   refused. It uses only the standard library, port 8775,
   and needs `Authorization: Bearer` on every `/api` call. Each answer is
   built from `status.report()` minus the harness-only `mcp` and `browser`

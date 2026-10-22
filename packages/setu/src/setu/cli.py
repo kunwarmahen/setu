@@ -79,7 +79,12 @@ profile and serves a page that streams it (remote.py). Events:
 stops working), ``opened`` (a device opened it), then ``connected`` or
 ``error``. Where it listens and the address in the link are
 ``SETU_WINDOW_HOST``, ``SETU_WINDOW_PORT``, ``SETU_WINDOW_URL`` and
-``SETU_WINDOW_NAME``.
+``SETU_WINDOW_NAME``. ``setu connect --site example.com --json --remote``
+is a NEW site in that window: there is no sign-in cookie to wait for,
+so the window ends on the person's "I've signed in", and Setu reads the
+site's page as it does when a window here closes (``ask`` when it can't
+tell). A site Setu wrote the rules for before is signed in to again the
+same way.
 
 ``setu connect gmail --json --remote`` is a sign-in PAGE in that same
 window: Google's (or Home Assistant's) page opens in a browser on this
@@ -662,12 +667,22 @@ def _connect_site(args: argparse.Namespace) -> int:
 
 def _connect_site_json(args: argparse.Namespace) -> int:
     found = _site_browser(args)
+    streamed = {}
+    if args.remote:
+        from setu import remote
+
+        try:
+            streamed["window"] = _streamed_site_window(args.site, args)
+        except remote.WindowSettingsError as exc:
+            _emit("error", message=str(exc), setup="window")
+            return 2
     _emit("started", ref=None, site=args.site, level=args.level or "read", scopes=[])
     entry = connections.connect_site(
         args.site, args.account, level=args.level, vault=FileVault(), browser=found,
         site_id=args.id, ask=_json_ask(args),
-        on_window=lambda _profile: _emit("window", browser=found, url=None,
-                                         login_url=None))
+        on_window=None if args.remote else
+        lambda _profile: _emit("window", browser=found, url=None, login_url=None),
+        **streamed)
     manifest = find(entry["connector"])
     level = manifest.level(entry["level"])
     _emit("connected", ref=connections.ref_for(entry["connector"], args.account),
@@ -675,6 +690,24 @@ def _connect_site_json(args: argparse.Namespace) -> int:
           asked_level=args.level or level.name, note=entry.get("note", ""),
           manifest_path=entry.get("manifest_path", ""))
     return 0
+
+
+def _streamed_site_window(site: str, args: argparse.Namespace):
+    """The streamed window for a site whose sign-in Setu cannot see by a
+    cookie name -- one it writes the rules for now, or wrote before. It
+    ends when the person presses "I've signed in", and Setu then reads
+    the site's page, as it does when a window at this computer closes
+    (connections._prove_by_page). Headed when there is a screen nothing
+    shows, as a sign-in page is: a headless Chrome is a build a site may
+    turn away, and nobody knows yet what this one does."""
+    from setu import remote
+
+    return remote.window_for(
+        lambda url, until: _emit("link", url=url, expires_at=until),
+        lambda: _emit("opened"), site=site, patterns=(), hosts=(),
+        open_for=(remote.OPEN_FOR if args.timeout == google.SIGN_IN_TIMEOUT
+                  else args.timeout),
+        headed=bool(shutil.which("Xvfb") or os.environ.get(remote.ENV_DISPLAY)))
 
 
 def _connect_json(args: argparse.Namespace) -> int:
@@ -781,20 +814,19 @@ def _connect_remote_json(manifest, args: argparse.Namespace) -> int:
         _emit("error", message=f"{manifest.name} signs in with a link, not a browser window: "
               "--paste is its road from another device")
         return 2
-    if manifest.generated or not spec.signed_in:
-        _emit("error", message=f"{manifest.name}'s sign-in is checked by its page, which "
-              "needs someone at this computer: sign in to it here")
-        return 2
     level = manifest.level(args.level)
     ref = connections.ref_for(manifest.id, args.account)
     found = _site_browser(args)
     try:
-        window = remote.window_for(
+        # a site Setu wrote the rules for is checked by its page, after
+        # the person says they're in; the others by their sign-in cookie
+        window = (_streamed_site_window(manifest.name, args)
+                  if manifest.generated or not spec.signed_in else remote.window_for(
             lambda url, until: _emit("link", url=url, expires_at=until),
             lambda: _emit("opened"), site=manifest.name, patterns=spec.signed_in,
             hosts=manifest.hosts, open_for=(remote.OPEN_FOR if args.timeout ==
                                             google.SIGN_IN_TIMEOUT else args.timeout),
-            headed=spec.headed)
+            headed=spec.headed))
     except remote.WindowSettingsError as exc:
         _emit("error", message=str(exc), setup="window")
         return 2
@@ -804,7 +836,8 @@ def _connect_remote_json(manifest, args: argparse.Namespace) -> int:
     # the old one is not carried over (X refused every streamed sign-in on
     # a profile that had failed before)
     entry = connections.connect_browser(manifest, args.account, level=level.name, vault=vault,
-                                        browser=found, window=window, fresh=True)
+                                        browser=found, window=window, fresh=True,
+                                        ask=_json_ask(args))
     # a locked folder with nobody holding its key: the new sign-in is
     # packed away at once, like every other one in it
     if seal.read_lock(vault.home) is not None and seal.held_key(vault.home) is None:
