@@ -296,6 +296,27 @@ setu connect --site news.ycombinator.com --as personal
 | `could not tell whether you signed in` | No one was there to answer (`--json` without the page, or no terminal). Run it in a terminal, or add `--signed-in`. |
 | `Setu already has Amazon` | That site has a ready-made connector: use `setu connect amazon`. |
 | `connected Read only` after `--level write` | The site looks like a bank or a payment service. Edit its file to allow more. |
+| `Setu already has Example (example, …): … or pass --id` for a new address | Another site you added has the same name (`example.org` after `example.com`). Add `--id example-org`. |
+
+**From your phone.** The same site, through the streamed window:
+
+```
+SETU_WINDOW_HOST=0.0.0.0 SETU_WINDOW_PORT=8790 SETU_WINDOW_NAME=beast.local \
+  setu connect --site news.ycombinator.com --as phone-test --json --remote
+```
+
+1. It prints `started`, then `link`. Open the link on your phone and sign
+   in in the picture.
+2. The window can't tell by itself when you're in, so press **I've signed
+   in**. The terminal prints `ask` if the page shows neither a sign-out
+   link nor a password box: type `yes` and Enter.
+3. Expect `connected`. **Add a site** on Setu's page does the same when
+   you open the page from your phone.
+
+**A picture of the page.** In Yantra, ask "take a screenshot of my Hacker
+News front page". Expect `ycombinator_open`, then `ycombinator_screenshot`,
+and a `.jpg` under `screenshots/` in Yantra's folder. A local model that
+lists vision describes it; one that doesn't says it saved the picture.
 
 ## Setu's page, and a page for someone else
 

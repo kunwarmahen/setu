@@ -119,14 +119,15 @@ def draft(address: str, site_id: str | None = None) -> dict[str, Any]:
                     "pace": PACE, "max_actions": MAX_ACTIONS, "headed": True, "guide": ""},
         "levels": {
             "read": {"label": "Read only",
-                     "description": "Open pages, follow links, scroll and search. Nothing "
-                                    "is clicked or typed except a search."},
+                     "description": "Open pages, follow links, scroll, search and take a "
+                                    "picture of a page. Nothing is clicked or typed except "
+                                    "a search."},
             "write": {"label": "Read and act",
                       "description": "Also click and type, each asked about first. Buying, "
                                      "paying and deleting are still handed to you."},
         },
         "verbs": {"open": "read", "follow": "read", "scroll": "read", "search": "read",
-                  "click": "write", "fill": "write"},
+                  "screenshot": "read", "click": "write", "fill": "write"},
     }
 
 

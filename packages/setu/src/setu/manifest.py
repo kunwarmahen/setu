@@ -131,7 +131,8 @@ BROWSER_KEYS = {"start_url", "login_url", "signed_in", "home_from_cookie", "spen
 #: change something on the site -- never classed read.
 #: The phone road's own keys, in its ``[phone]`` table.
 PHONE_KEYS = {"android", "ios", "act_words", "spend_words", "pace", "guide"}
-BROWSER_TOOLS = ("open", "follow", "scroll", "search", "click", "fill")
+#: ``screenshot`` is a picture of the open page: it presses and loads nothing.
+BROWSER_TOOLS = ("open", "follow", "scroll", "search", "screenshot", "click", "fill")
 BROWSER_ACTS = ("click", "fill")
 
 

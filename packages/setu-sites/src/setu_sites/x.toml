@@ -47,6 +47,7 @@ open = "read"
 follow = "read"
 scroll = "read"
 search = "read"
+screenshot = "read"
 click = "write"
 fill = "write"
 

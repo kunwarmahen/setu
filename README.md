@@ -233,12 +233,13 @@ streamed window on a phone, and the connection came back.
 There is no program to run for these, so `setu run` and `setu mcp-config` say
 so. Your agent's own browser opens the profile instead. In
 [Yantra](https://github.com/kunwarmahen/yantra) that gives the agent tools
-like `amazon_open`, `amazon_follow`, `amazon_scroll` and `amazon_search`, kept
+like `amazon_open`, `amazon_follow`, `amazon_scroll`, `amazon_search` and
+`amazon_screenshot` (a picture of the open page), kept
 to the rules in the site's manifest:
 
 | Level | The agent can |
 |---|---|
-| **Read only** (default) | open pages, follow links, scroll, and type into a search box. It cannot click a button or type anywhere else |
+| **Read only** (default) | open pages, follow links, scroll, type into a search box, and take a picture of the page. It cannot click a button or type anywhere else |
 | **Read and act** (Amazon) / **Read and post** (X) | also click and type (add to cart, post, reply, like), asked about each time |
 
 At **no** level does it buy, pay, cancel, return, subscribe or delete. On those
@@ -419,6 +420,7 @@ open = "read"
 follow = "read"
 scroll = "read"
 search = "read"
+screenshot = "read"
 click = "write"
 fill = "write"
 ```
@@ -1272,7 +1274,9 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   never one whose words spend, delete or send) and a short `guide` (`{home}`
   is filled in). Levels are `read` and
   `write` only; verbs are the browser tools (`open`, `follow`, `scroll`,
-  `search`, `click`, `fill`), and `click` and `fill` are never `read`. The
+  `search`, `screenshot`, `click`, `fill`), and `click` and `fill` are never
+  `read`. A file written before `screenshot` existed gets it at `open`'s
+  class in Yantra, since a picture reads only what `open` read. The
   connection is a profile (`browser.py`): a plain window of the person's
   browser, `--password-store=basic` on both halves, the browser that wrote it
   recorded. Every Setu window on a profile (plain, streamed, or the headless

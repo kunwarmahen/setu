@@ -88,6 +88,11 @@ class TestTheManifest:
         with pytest.raises(ManifestError, match=said):
             parse({**BASE, **change})
 
+    def test_a_picture_of_the_page_is_a_verb_a_file_may_name(self):
+        manifest = parse({**BASE, "verbs": {"open": "read", "screenshot": "write"}})
+        assert manifest.verbs["screenshot"] == "write"
+        assert find("amazon").verbs["screenshot"] == find("x").verbs["screenshot"] == "read"
+
     def test_a_browser_table_on_another_road_is_refused(self):
         with pytest.raises(ManifestError, match="belongs to"):
             parse({**BASE, "road": "api", "auth": "homeassistant", "command": ["x"]})
