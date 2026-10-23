@@ -44,6 +44,13 @@ folder of servers of your own (a tool reclassed in its file). A harness
 mid-session compares their times before each turn and asks again only
 when one moved -- cheaper than running ``setu status`` every turn.
 
+A GOOGLE SIGN-IN'S END, WHEN IT HAS ONE. Google ends the sign-ins of an
+app in Testing 7 days after they are made, and says so only by refusing
+the next use. So a Google connection carries ``ends``: the day it will
+stop, worked out from when it was made -- unless ``setu config
+google-published on`` says the app is In production, where sign-ins
+don't end. ``expired`` is what happened; ``ends`` is what will.
+
 The ``format`` field names the shape. A harness should refuse a format it
 does not know rather than guess at one.
 """
@@ -220,6 +227,10 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
         index = None
         problems.append(f"catalog: {exc}")
     rows = []
+    try:
+        published = config.google_published()
+    except ValueError:
+        published = False
     home = getattr(vault, "home", None) or default_home()
     sealed = set(seal.sealed_profiles(home / site_browser.PROFILES))
     for ref in vault.list():
@@ -250,6 +261,8 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
             "health": health.week(ref) if entry.get("auth") == "browser" else {},
             # the site refused its sign-in: when and why, until signed in again
             "expired": entry.get(connections.EXPIRED) or None,
+            # when Google will end it (an app in Testing: 7 days after)
+            "ends": connections.ends(entry, published),
             "installed": manifest is not None,
             "base_url": entry.get("base_url"),
             "mcp": (None if entry.get("auth") in ("browser", "phone") else

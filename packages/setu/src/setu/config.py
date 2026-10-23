@@ -41,9 +41,9 @@ ENV_BROWSER = "SETU_BROWSER"
 #: The settings ``setu config`` knows, by the name a person types.
 KEYS = {"client-file": "google_client_file", "homeassistant-url": "homeassistant_url",
         "browser": "browser", "share-installs": "share_installs",
-        "people-page": "people_page"}
+        "people-page": "people_page", "google-published": "google_published"}
 #: The ones that are on or off.
-SWITCHES = ("share-installs", "people-page")
+SWITCHES = ("share-installs", "people-page", "google-published")
 
 
 def path() -> Path:
@@ -130,6 +130,13 @@ def share_installs() -> bool:
     """Whether Setu tells the catalog server, anonymously, which listed
     connectors are installed (catalog.ping_installs). On unless turned off."""
     return str(load().get("share_installs") or "on").lower() != "off"
+
+
+def google_published() -> bool:
+    """Whether the Google app the client file belongs to is published (In
+    production). Off unless said: an app in Testing is what the setup
+    steps make, and its sign-ins end 7 days after they are made."""
+    return str(load().get("google_published") or "off").lower() == "on"
 
 
 def people_page(home: Path | None = None) -> bool:

@@ -88,7 +88,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -591,6 +591,45 @@ def _who(manifest: Manifest, access_token: str, http: httpx.Client) -> str:
 #: refresh works again or the connection is signed in to again (which
 #: writes a new entry without it).
 EXPIRED = "expired"
+#: How long Google keeps a sign-in for an app in Testing.
+TESTING_DAYS = 7
+
+
+def ends(entry: dict[str, Any], published: bool) -> str | None:
+    """When Google will end this sign-in: 7 days after it was made, for an
+    app in Testing. None for anything that isn't a Google sign-in, for a
+    published app, and when nobody wrote down when it was made."""
+    if published or entry.get("auth", "google") != "google":
+        return None
+    try:
+        made = datetime.fromisoformat(str(entry.get("created") or ""))
+    except ValueError:
+        return None
+    if made.tzinfo is None:
+        made = made.replace(tzinfo=UTC)
+    return (made + timedelta(days=TESTING_DAYS)).isoformat(timespec="seconds")
+
+
+#: How close a sign-in's end is before it is said.
+ENDS_SOON_DAYS = 3
+
+
+def ends_line(entry: dict[str, Any], published: bool,
+              now: datetime | None = None) -> str:
+    """``Google ends this sign-in Mon 26 Oct 02:44 ...``, when that is
+    within ENDS_SOON_DAYS and it hasn't ended already; else empty."""
+    at = ends(entry, published)
+    if not at or entry.get(EXPIRED):
+        return ""
+    end = datetime.fromisoformat(at)
+    left = end - (now or datetime.now(UTC))
+    if left > timedelta(days=ENDS_SOON_DAYS):
+        return ""
+    when = end.astimezone().strftime("%a %d %b %H:%M")
+    return (f"SIGN-IN ENDS {when} (Google ends an app in Testing's sign-ins after "
+            f"{TESTING_DAYS} days): sign in again before then, setu connect "
+            f"{entry.get('connector', '?')} --as {entry.get('account', '?')}; or "
+            f"publish the app and `setu config google-published on`")
 
 
 def expired_line(entry: dict[str, Any]) -> str:

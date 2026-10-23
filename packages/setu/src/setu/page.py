@@ -199,6 +199,8 @@ SETTINGS = {
     "browser": "The browser sign-in windows open in",
     "share-installs": "Tell the catalog, anonymously, which of its connectors are installed",
     "people-page": "People may get a link to their own folder's page",
+    "google-published": "Your Google app is published (In production), so its sign-ins "
+                        "don't end after 7 days",
 }
 #: Where a setting can also come from, which wins over the remembered one.
 SETTING_ENV = {"client-file": config.ENV_CLIENT_FILE, "homeassistant-url": config.ENV_HA_URL,
@@ -635,6 +637,8 @@ class Api:
             card["road"] = "browser" if row["browser"] else "api"
             card["health_line"] = " · ".join(filter(None, (
                 connections.expired_line(self.vault.get(row["ref"]) or {}),
+                connections.ends_line(self.vault.get(row["ref"]) or {},
+                                      config.google_published()),
                 health.line(row["ref"], self.vault.home))))
             rows.append(card)
         return rows

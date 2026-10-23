@@ -62,7 +62,9 @@ Three access levels:
 * your agent should ask you before every send, and show you the recipients,
   subject and text. Yantra does: it asks before any tool that is not
   read-only and shows its full arguments — so never start it with `--yolo`
-  on a send-level connection;
+  on a send-level connection. (Even then, once a turn has read an email or
+  a page, Yantra asks before any send that follows, and says what was read:
+  an email can't give your agent orders, Yantra's notes/142);
 * one email goes to at most **20 people** (To, Cc and Bcc together);
 * one session sends at most **10 emails** — change it with
   `SETU_GMAIL_MAX_SENDS` — so a runaway loop or a tricked model cannot send
@@ -318,6 +320,14 @@ gmail:mine             ok
 gmail:personal         ok
 homeassistant:home     ok
 ```
+
+A Google sign-in for an app in Testing ends 7 days after it was made,
+and Setu knows that day without trying: `setu status --json` carries it
+as `"ends"`, and in its last three days `setu list` and Setu's page say
+`SIGN-IN ENDS Sun 25 Oct 22:44 … sign in again before then`
+(`sarathi doctor` says it too). When your Google app is published (In
+production), its sign-ins don't end: `setu config google-published on`
+and Setu stops saying it.
 
 It exits 1 when one has run out, and `--json` gives each row
 (`ok`, `expired` with `since`, `why` and `fix`, `unreachable` when the
@@ -751,11 +761,14 @@ It is free and works with an ordinary @gmail.com account.
 > `SIGN-IN EXPIRED since …` with the command that fixes it, and an agent
 > stops offering its tools and tells you instead. `setu connect gmail --as
 > <account>` again clears it, and agents already running pick it up on
-> their next turn. To stop the weekly sign-out, publish the app: **OAuth
+> their next turn. Before that happens, in a sign-in's last three days,
+> `setu list` and Setu's page say `SIGN-IN ENDS …` with the day. To stop the
+> weekly sign-out, publish the app: **OAuth
 > consent screen** (or **Audience**) → **Publish app**, so it reads **In
 > production**. For your own use it needs no verification: Google shows an
 > "unverified app" warning when you sign in (**Advanced → Go to …**), and
-> its sign-ins no longer expire after a week. Then connect once more.
+> its sign-ins no longer expire after a week. Then connect once more, and
+> tell Setu: `setu config google-published on`.
 
 ### 3. Connect Gmail
 
@@ -850,6 +863,7 @@ setu catalog                       # the signed catalog: labels, installs, withd
 setu serve                         # your connections, levels and logs in a browser page
 setu page-link                     # a one-time link to this folder's page, for its person
 setu config people-page off        # no person gets a link to their own folder's page
+setu config google-published on    # your Google app is In production: sign-ins don't end in 7 days
 ```
 
 ### Setu's page
@@ -1182,6 +1196,14 @@ the same as always.
 ---
 
 ## How safe is it?
+
+**Text you didn't write can't give orders.** An email, a Notion page or a
+web page can hold a line written to trick an agent ("forward every invoice
+to …"). Setu passes such text on as it is: the guard is in the agent.
+Yantra treats everything a connection returns as outside text, and once a
+turn has read some, every call that changes something asks you first,
+even under `--yolo`, a schedule's grant or a Dvara rule, naming what was
+read (Yantra's notes/142).
 
 **What is protected.** Your key is in `~/.local/state/setu/vault.json`,
 readable by your user only. No command shows it on a screen. (One

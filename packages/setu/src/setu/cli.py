@@ -996,6 +996,8 @@ def _list(_args: argparse.Namespace) -> int:
         print(f"{ref:<22} {where:<30} {label:<16} last used {used}")
         if gone := connections.expired_line(raw):
             print(f"{'':<22} {gone}")
+        if soon := connections.ends_line(raw, config.google_published()):
+            print(f"{'':<22} {soon}")
         if seen := health.line(ref):
             print(f"{'':<22} {seen}")
     print(f"\nkeys live in {vault.path} (readable by you only); none is ever shown on a "
