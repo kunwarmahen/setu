@@ -12,6 +12,7 @@ reading a mail does not mark it read.
 
 from __future__ import annotations
 
+import imaplib
 import sys
 
 import setu
@@ -33,10 +34,17 @@ def build(mail: Mail) -> MCPServer:
     server = MCPServer("setu-mail", version=setu.__version__, instructions=INSTRUCTIONS)
 
     def guarded(call):
+        # Said to the model in words: an exception the MCP layer does not
+        # know reaches it as "Error executing tool" and nothing more.
         try:
             return call()
         except MailError as exc:
             raise ToolError(str(exc)) from None
+        except imaplib.IMAP4.error as exc:
+            raise ToolError(f"the mail server said no: {' '.join(str(exc).split())}") \
+                from None
+        except OSError as exc:
+            raise ToolError(f"the mail server could not be reached: {exc}") from None
 
     @server.tool(annotations=READ)
     def search_mail(sender: str = "", subject: str = "", text: str = "",

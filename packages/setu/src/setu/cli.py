@@ -998,7 +998,8 @@ def _list(_args: argparse.Namespace) -> int:
             print(f"{'':<22} {gone}")
         if seen := health.line(ref):
             print(f"{'':<22} {seen}")
-    print(f"\nkeys live in {vault.path} (readable by you only); no command prints them")
+    print(f"\nkeys live in {vault.path} (readable by you only); none is ever shown on a "
+          "screen")
     return 0
 
 

@@ -1184,7 +1184,9 @@ the same as always.
 ## How safe is it?
 
 **What is protected.** Your key is in `~/.local/state/setu/vault.json`,
-readable by your user only. No command prints it.
+readable by your user only. No command shows it on a screen. (One
+command hands a key to a program: `setu login`, for a mail account's
+password, to the program that asked; see *any other mail*.)
 
 **The connector never holds your key.** A connector is somebody's program,
 even when that somebody is us. So `setu run` gives it no key at all. It runs

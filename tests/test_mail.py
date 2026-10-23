@@ -158,3 +158,15 @@ class TestTheConnector:
         assert "Receipts" in mail.list_folders()
         with pytest.raises(MailError, match="number after 'message'"):
             mail.read("abc")
+
+
+def test_a_server_that_says_no_is_said_in_words_not_as_a_bare_failure(imap):
+    import asyncio
+
+    from setu_mail.server import build
+
+    server = build(Mail({"server": "127.0.0.1", "port": imap.port, "user": "me",
+                         "password": "wrong", "folder": "INBOX", "tls": False}))
+    from mcp.server.mcpserver.exceptions import ToolError
+    with pytest.raises(ToolError, match="refused the user and password"):
+        asyncio.run(server.call_tool("search_mail", {}))
