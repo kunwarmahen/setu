@@ -47,13 +47,18 @@ get_thread = "read"
 get_message = "read"
 list_labels = "read"
 list_drafts = "read"
+# Changes no mail, but tells a Pub/Sub topic each time mail arrives: asked
+# about, like a write, though the Read only grant allows it.
+watch_mailbox = "write"
+stop_watching_mailbox = "write"
 create_draft = "write"
 send_message = "write"
 
 # What Setu itself lets each level send to Gmail, whatever the
 # connector's code asks for -- a second wall underneath Google's scopes.
 [requests.read]
-allow = ["GET /gmail/v1/users/me/*"]
+allow = ["GET /gmail/v1/users/me/*", "POST /gmail/v1/users/me/watch",
+         "POST /gmail/v1/users/me/stop"]
 
 [requests.draft]
 allow = ["POST /gmail/v1/users/me/drafts"]

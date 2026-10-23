@@ -76,6 +76,7 @@ class FakeGmail:
         self.sent: list[dict[str, Any]] = []
         self.calls: list[str] = []
         self.email = "me@example.com"
+        self.watching: dict[str, Any] | None = None
 
     # ---- one request -> (status, json) ---------------------------------------
 
@@ -118,6 +119,12 @@ class FakeGmail:
             return 200, {"drafts": [{"id": d} for d in self.drafts]}
         if method == "GET" and rest.startswith("/drafts/"):
             return 200, self.drafts[rest.split("/")[2]]
+        if method == "POST" and rest == "/watch":
+            self.watching = json.loads(body)
+            return 200, {"historyId": "4242", "expiration": "1793000000000"}
+        if method == "POST" and rest == "/stop":
+            self.watching = None
+            return 204, {}
         if method == "POST" and rest == "/messages/send":
             if "send" not in self.scopes:
                 return 403, {"error": {"code": 403, "message": "Request had insufficient "

@@ -125,6 +125,33 @@ class TestToolsFollowTheGrant:
         assert tools["create_draft"].annotations.read_only_hint is False
 
 
+class TestPush:
+    def test_watch_mailbox_names_the_topic_and_the_label(self):
+        fake = FakeGmail()
+        out = gmail(fake).watch_mailbox("projects/my-house/topics/gmail-push")
+        assert fake.watching == {"topicName": "projects/my-house/topics/gmail-push",
+                                 "labelIds": ["INBOX"], "labelFilterBehavior": "include"}
+        assert "until" in out and "history 4242" in out and "once a day" in out
+
+    def test_a_topic_that_is_not_a_full_name_is_refused_before_gmail_is_asked(self):
+        fake = FakeGmail()
+        with pytest.raises(GmailError, match="projects/<project>/topics/<name>"):
+            gmail(fake).watch_mailbox("gmail-push")
+        assert not any("/watch" in c for c in fake.calls)
+
+    def test_stop_says_so(self):
+        fake = FakeGmail()
+        gmail(fake).watch_mailbox("projects/my-house/topics/gmail-push")
+        assert "no longer" in gmail(fake).stop_watching_mailbox()
+        assert fake.watching is None
+
+    def test_push_is_offered_on_read_only_and_is_asked_about(self):
+        server = build(gmail(FakeGmail()), frozenset({READ}))
+        tools = {t.name: t for t in asyncio.run(server.list_tools())}
+        assert tools["watch_mailbox"].annotations.read_only_hint is False
+        assert "stop_watching_mailbox" in tools
+
+
 class TestDrafting:
     def test_a_reply_joins_the_thread_with_the_right_headers(self):
         fake = FakeGmail(scopes=("compose",))

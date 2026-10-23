@@ -11,6 +11,13 @@ is the honest answer and the cheaper one. (Tools come from the grant,
 not the level name, so a person who unticked a box on Google's consent
 screen gets the tools for what they actually allowed.)
 
+PUSH IS ASKED ABOUT, THOUGH READ ONLY ALLOWS IT. ``watch_mailbox`` works
+on the Read only grant (Google allows ``users.watch`` there) and changes
+no mail, but it tells a topic -- one that could be anybody's -- each time
+mail arrives. So it is classed ``write``: a harness asks before it runs,
+and a program that keeps it renewed (Prahari) runs only the exact call
+the person accepted.
+
 SENDING IS ITS OWN PERMISSION. ``send_message`` appears only when the
 grant includes ``gmail.send`` -- the "Read, draft and send" level, whose
 consent screen says "Send email on your behalf" in so many words. Google's
@@ -102,6 +109,21 @@ def build(gmail: Gmail, scopes: frozenset[str]) -> MCPServer:
     def list_drafts(max_results: int = 10) -> str:
         """List drafts waiting in the Drafts folder: id, recipient and subject."""
         return guarded(lambda: gmail.list_drafts(max_results))
+
+    @server.tool(annotations=WRITE)
+    def watch_mailbox(topic: str, label: str = "INBOX") -> str:
+        """Ask Gmail to tell a Google Cloud Pub/Sub topic when new mail arrives
+        (Gmail's push). `topic` is the topic's full name,
+        `projects/<project>/topics/<name>`, in the person's own Google Cloud
+        project; `label` is the label to watch (INBOX). Gmail sends only the address
+        and a history number, never mail text. It lasts 7 days: call it again
+        daily. For a program that tells the person when mail comes (Prahari)."""
+        return guarded(lambda: gmail.watch_mailbox(topic, label))
+
+    @server.tool(annotations=WRITE)
+    def stop_watching_mailbox() -> str:
+        """Stop Gmail's push for this account: no topic is told about new mail."""
+        return guarded(gmail.stop_watching_mailbox)
 
     if COMPOSE in scopes or FULL in scopes:
         @server.tool(annotations=WRITE)

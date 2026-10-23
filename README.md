@@ -37,9 +37,14 @@ leaves your machine at all.
 | `list_drafts` | What is waiting in Drafts |
 | `create_draft` | *Read and draft, and above:* write a draft for you to check and send yourself |
 | `send_message` | *Read, draft and send only:* send an email now — asked about every time |
+| `watch_mailbox` | Gmail's push: tell a Google Cloud Pub/Sub topic of yours each time mail arrives (only the address and a number, never mail text) — asked about, though Read only allows it |
+| `stop_watching_mailbox` | Stop that push |
 
 You only get the tools your level allows: a Read only connection does not even
-see `create_draft`, and only the send level has `send_message`. The first six
+see `create_draft`, and only the send level has `send_message`. The push tools
+are on every level (Google allows them with `gmail.readonly`) and change no
+mail, but each tells a topic, which could be anybody's, when mail comes, so
+they are classed as writes and asked about. The first six
 tools have the same names as Google's own Gmail MCP server, so anything written
 for one works with the other.
 
@@ -649,6 +654,9 @@ with nobody there to say yes, it didn't run.)
   model (`yantra --call`), so a look reaches your accounts exactly as a
   turn does: a connector's read tools, as Setu's manifest marks them.
   Nothing that writes runs on a look unless you accepted that exact call.
+  For mail that should be news at once, Prahari can keep Gmail's push
+  alive with `watch_mailbox` (the call you accepted, once a day), and the
+  push wakes the watch's look; its README has the Google Cloud steps.
 * **[dvara](https://github.com/kunwarmahen/dvara)** serves several people, so each person can have a Setu
   folder of their own (`SETU_HOME`); their agent reaches only those
   accounts ([dvara's note 19](https://github.com/kunwarmahen/dvara/blob/main/notes/19-their-own-accounts.md)). They sign in from the chat

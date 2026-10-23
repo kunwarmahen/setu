@@ -75,7 +75,7 @@ Each step checks one more thing. If a step fails, the ones after it will too.
 
 | # | Ask | What it checks | Expect |
 |---|---|---|---|
-| 1 | *What Gmail tools do you have?* | the connector started and the key reached it | five read tools; plus `create_draft` from Read and draft up; plus `send_message` **only** at Read, draft and send |
+| 1 | *What Gmail tools do you have?* | the connector started and the key reached it | five read tools and the two push tools (`watch_mailbox`, `stop_watching_mailbox`); plus `create_draft` from Read and draft up; plus `send_message` **only** at Read, draft and send |
 | 2 | *How many unread emails are in my inbox?* | a first real call to Gmail | a number matching Gmail |
 | 3 | *Show me my 5 most recent emails.* | listing and summaries | sender, subject, date, a snippet each |
 | 4 | *Any emails from Amazon in the last 7 days?* | turning a question into a Gmail search | the agent searches `from:amazon newer_than:7d` or similar |
