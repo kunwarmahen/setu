@@ -850,6 +850,7 @@ setu log gmail:personal            # the requests Setu made for it, and what it 
 setu lock set | unlock | seal      # a folder only your passphrase opens (see "How safe is it?")
 setu disconnect gmail:personal     # revoke at Google, then delete the key
 setu status --json                 # everything above, for a harness to read (no keys)
+setu keeps --json                  # where your accounts are kept, for a backup (Sarathi's sarathi backup)
 setu config client-file PATH       # remember the Google client file's path (--unset forgets)
 setu config homeassistant-url URL  # remember where your Home Assistant is
 setu connect amazon --as personal  # a site with no API: sign in in a window, then close it
@@ -1271,7 +1272,10 @@ setu lock status       # locked or not, and whether the key is held right now
 Locked, every key in the vault is sealed, and so are your browser
 sign-ins (Amazon's, X's cookies), packed and encrypted. Nobody can read
 them from the folder without your passphrase: not the computer's owner
-browsing files, not a backup, not a stolen disk. What stays readable is
+browsing files, not a backup, not a stolen disk. A backup of the house
+(`sarathi backup`, which asks `setu keeps --json` where Setu's folder is)
+carries a locked folder as it is: sealed, and opened again by your
+passphrase after a restore. What stays readable is
 which accounts exist, so you can be told which one is locked.
 Whatever you unlock for holds the key (`SETU_VAULT_KEY`); Setu never
 passes it on to a connector or a browser.
@@ -1302,7 +1306,8 @@ reads are sent to that provider.
 
 ```
 packages/setu/        the core: vault, Google sign-in, connections, the request proxy and sandbox, setu.http(),
-                      and servers of your own (own.py: try, write down, the setu-own-mcp bridge)
+                      and servers of your own (own.py: try, write down, the setu-own-mcp bridge);
+                      keeps.py: where it all is, for a backup (setu.keeps.v1), caches and Chrome's locks left out
 packages/setu-gmail/  the Gmail connector: an MCP server, and its manifest
 packages/setu-homeassistant/  two Home Assistant connectors: REST tools, and a bridge to its MCP server
 packages/setu-sites/  Amazon and X: browser-road manifests, no code

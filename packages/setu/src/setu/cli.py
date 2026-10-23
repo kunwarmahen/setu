@@ -13,6 +13,7 @@
     setu mcp-config gmail:personal       the snippet a harness needs
     setu disconnect gmail:personal       revoke at Google, then forget
     setu status --json                   the same, for a harness to read
+    setu keeps [--json]                  where your accounts are kept, for a backup
     setu serve [--port 8775]             all of it in a browser, at the address it prints
     setu config client-file PATH         remember the client file, for every harness
     setu connect homeassistant --as home   your Home Assistant's own login page
@@ -1215,6 +1216,20 @@ def _status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _keeps(args: argparse.Namespace) -> int:
+    """``setu keeps``: the places a backup takes (keeps.py). Paths only."""
+    from setu.keeps import report
+
+    data = report()
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 0
+    for place in data["keeps"]:
+        missing = "" if place["exists"] else "  (not there yet)"
+        print(f"{place['id']:<14} {place['path']}{missing}\n{'':<14} {place['what']}")
+    return 0
+
+
 def _serve(args: argparse.Namespace) -> int:
     """``setu serve``: the page (page.py), until Ctrl-C."""
     from setu import page
@@ -1686,6 +1701,9 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="connections and connectors, for a harness")
     status.add_argument("--json", action="store_true", help="machine-readable, no secrets")
 
+    keeps = sub.add_parser("keeps", help="where Setu keeps your accounts, for a backup")
+    keeps.add_argument("--json", action="store_true", help="setu.keeps.v1")
+
     serve = sub.add_parser("serve", help="Setu's page: connections, levels and logs in a "
                            "browser")
     serve.add_argument("--host", default="127.0.0.1",
@@ -1752,7 +1770,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list, "check": _check,
             "run": _run, "login": _login, "log": _log, "lock": _lock,
-            "mcp-config": _mcp_config, "status": _status,
+            "mcp-config": _mcp_config, "status": _status, "keeps": _keeps,
             "serve": _serve, "page-link": _page_link,
             "disconnect": _disconnect, "config": _config, "catalog": _catalog,
             "site": _site, "install": _install, "certify": _certify}
