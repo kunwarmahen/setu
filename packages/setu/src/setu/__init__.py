@@ -12,11 +12,14 @@ work for them. Three promises shape every module here:
   so the limit holds whatever any code does (manifest.py, google.py).
   Where a site has no scopes (Home Assistant), the connector holds the
   level, and the levels say so (homeassistant.py).
+* **One exception, said plainly: mail by IMAP.** IMAP is not HTTP, so
+  whatever holds the connection must hold the password; it goes to that
+  one program over a pipe, never further (mail.py).
 * **Everything stays on the person's computer.** No Setu server sees a
   token, a message or an order.
 """
 
-from setu.client import NoToken, granted_level, granted_scopes, http
+from setu.client import NoToken, granted_level, granted_scopes, http, login
 
-__all__ = ["NoToken", "granted_level", "granted_scopes", "http"]
+__all__ = ["NoToken", "granted_level", "granted_scopes", "http", "login"]
 __version__ = "0.1.0"

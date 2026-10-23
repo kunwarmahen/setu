@@ -1,0 +1,22 @@
+# What Setu's mail connector is, in words a person can check before adding
+# one. IMAP signs in with a user and a password -- an app password, for
+# Gmail, iCloud and Outlook -- so the account is kept by that password,
+# checked against the server before anything is saved.
+id = "mail"
+name = "Mail (IMAP)"
+summary = "Search and read mail on any service that speaks IMAP: Fastmail, iCloud, Outlook, your own server. Read only: nothing is sent, moved, deleted or marked read."
+road = "api"
+auth = "password"
+command = ["setu-mail"]
+# IMAP is not HTTP: Setu cannot make its requests, so the connector holds
+# the connection, and the password reaches it over a private pipe.
+token_mode = "callback"
+
+[levels.read]
+label = "Read only"
+description = "Search and read mail and see folders. The folder is opened read-only, so nothing is marked read; nothing is sent, moved or deleted."
+
+[verbs]
+list_folders = "read"
+search_mail = "read"
+read_mail = "read"

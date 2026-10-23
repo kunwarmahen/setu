@@ -36,6 +36,10 @@ ONE LINE OF JSON EACH WAY:
        "level": "read"}
     ← {"error": "why not, in words"}
 
+A MAIL ACCOUNT HAS NO TOKEN (mail.py). Its connector asks ``{"op":
+"login"}`` and gets the server, user and password of that one
+connection; asked of any other connection, ``login`` is refused.
+
 What a connector does with the token it gets is not enforced here:
 this mode trusts the connector with an access token for its lifetime
 (about an hour at Google). In the proxy mode the connector's code is
@@ -78,8 +82,15 @@ ENV_PROXY_KEY = "SETU_PROXY_KEY"
 
 def answer(request: dict[str, Any], ref: str, *, vault: Vault,
            http: httpx.Client) -> dict[str, Any]:
+    if request.get("op") == "login":
+        # a mail account's password, to the mail connector this pipe was
+        # made for (mail.py): there is no token to give it
+        try:
+            return connections.login(ref, vault=vault)
+        except connections.ConnectionFailed as exc:
+            return {"error": str(exc)}
     if request.get("op") != "token":
-        return {"error": f"unknown op {request.get('op')!r}; the only one is 'token'"}
+        return {"error": f"unknown op {request.get('op')!r}; known: 'token', 'login'"}
     try:
         got = connections.token(ref, vault=vault, http=http, force=bool(request.get("force")))
     except connections.ConnectionFailed as exc:

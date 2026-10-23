@@ -107,6 +107,20 @@ class PipeSource:
             return self._cached
 
 
+    def login(self) -> dict:
+        """A mail account's login (mail.py): asked once, over the same pipe."""
+        with self._lock:
+            self._stream.write(json.dumps({"op": "login"}).encode() + b"\n")
+            self._stream.flush()
+            line = self._stream.readline()
+            if not line:
+                raise NoToken("setu closed the pipe")
+            reply = json.loads(line)
+            if "error" in reply:
+                raise NoToken(reply["error"])
+            return reply
+
+
 class EnvSource:
     """A token pasted into the environment: no refresh, no expiry known."""
 
@@ -213,3 +227,14 @@ def granted_level() -> str:
     """The level this connection was given -- for a provider with no
     scopes (Home Assistant), the only word on which tools to offer."""
     return source().get().level
+
+
+def login() -> dict:
+    """A mail connector's login -- server, port, user, password, folder --
+    from the pipe ``setu run`` made for its one connection. A mail account
+    has no token: IMAP is not HTTP, so Setu cannot make its requests."""
+    tokens = source()
+    if not isinstance(tokens, PipeSource):
+        raise NoToken("a mail account's password comes only from `setu run "
+                      "mail:<account>`")
+    return tokens.login()

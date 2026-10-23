@@ -14,6 +14,8 @@ API on the same server:
                                                                 connector for
     POST /api/add-server   {url | command, id?, account, level, token?, header?,
                             env?}                               an MCP server of your own
+    POST /api/add-mail     {server, user, password, account, port?, folder?}
+                                                                mail by IMAP (mail.py)
     GET  /api/signin       the sign-in in progress, and what it has said so far
     POST /api/signin/answer {yes}        "did you sign in?", when the page can't tell
     POST /api/signin/paste  {address}    the address a sign-in ended on, pasted back
@@ -53,6 +55,11 @@ them back. A server at an address may be added from any page, a
 person's too, into their own folder. A program (``command``) only from
 the owner's page opened on this computer: Setu would run it as the
 service's user, which is the owner's to decide, at the machine.
+
+MAIL BY IMAP, FROM ANY PAGE (``add-mail``). A server, an address and an
+app password: the password goes to ``setu connect mail --json`` on its
+stdin, never its arguments, and no answer carries it back. A person's
+page adds it to their own folder.
 
 A WRITE COMES FROM THE PAGE ITSELF. On top of the token, a POST whose
 ``Origin`` is another site is refused -- a form on a page you happen to
@@ -408,6 +415,8 @@ class Api:
             return 200, self.connect(body, local)
         if parts == ["add-site"]:
             return 200, self.add_site(body, local)
+        if parts == ["add-mail"]:
+            return 202, self.add_mail(body)
         if parts == ["add-server"]:
             return 200, self.add_server(body, local)
         if parts == ["disconnect"]:
@@ -506,6 +515,31 @@ class Api:
                                     f"--site {site} --as {account}")
             argv.append("--remote")
         return self._start(argv, f"{site}:{account}")
+
+    def add_mail(self, body: dict) -> dict[str, Any]:
+        server = str(body.get("server") or "").strip().lower()
+        user = str(body.get("user") or "").strip()
+        password = str(body.get("password") or "")
+        account = str(body.get("account") or "mail").strip()
+        folder = str(body.get("folder") or "INBOX").strip()
+        port = body.get("port") or 993
+        if not server or not SITE_RE.match(server):
+            raise ApiError(400, f"{server!r} is not a mail server's name (try "
+                                "imap.fastmail.com)")
+        if not user or any(c.isspace() for c in user):
+            raise ApiError(400, "your address is the one you sign in to your mail with")
+        if not password or "\n" in password:
+            raise ApiError(400, "an app password, on one line")
+        if not ACCOUNT_RE.match(account):
+            raise ApiError(400, f"account name {account!r} is not a plain word")
+        if not isinstance(port, int) or not 1 <= port <= 65535:
+            raise ApiError(400, "port is a number (993)")
+        argv = [*self.setu, "connect", "mail", "--as", account, "--mail-server", server,
+                "--user", user, "--mail-port", str(port), "--folder", folder, "--json"]
+        started = self._start(argv, f"mail:{account}")
+        assert self.signin is not None
+        self.signin.say(password)          # on stdin, never in the arguments
+        return started
 
     def add_server(self, body: dict, local: bool) -> dict[str, Any]:
         url = str(body.get("url") or "").strip()

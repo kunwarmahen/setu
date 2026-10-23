@@ -314,7 +314,36 @@ function availableCard(c) {
     c.ready ? null : h("div.warn", {}, person
       ? "Not ready to connect yet: your owner sets it up first."
       : `First it ${c.not_ready}.`),
-    c.ready ? connectForm(c) : null);
+    c.ready ? (c.auth === "password" ? mailForm(c) : connectForm(c)) : null);
+}
+
+// Mail by IMAP: a server, an address and an app password, checked against the
+// server before anything is kept; the password goes to Setu on its stdin and is
+// cleared from the page whatever happens.
+function mailForm(c) {
+  const field = (attrs) => h("input.field", { type: "text", ...attrs });
+  const server = field({ placeholder: "imap.fastmail.com", "aria-label": "mail server" });
+  const user = field({ placeholder: "you@example.com", "aria-label": "your address" });
+  const password = field({ type: "password", autocomplete: "off",
+                           placeholder: "app password", "aria-label": "app password" });
+  const account = field({ value: "mail", maxlength: "40",
+                          "aria-label": "your name for this account" });
+  const go = h("button.btn.go", { type: "button" }, "Add");
+  go.addEventListener("click", () => {
+    if (!server.value.trim() || !user.value.trim() || !password.value) {
+      say("Fill in the mail server, your address and an app password.", true); return;
+    }
+    startSignIn("/api/add-mail", { server: server.value.trim(), user: user.value.trim(),
+                                   password: password.value,
+                                   account: account.value.trim() || "mail" })
+      .finally(() => { password.value = ""; });
+  });
+  return h("div", {},
+    h("div.actions", {}, server, user),
+    h("div.actions", {}, password, h("label.small", {}, "as ", account), go),
+    h("p.meta", {}, "For Gmail, iCloud and Outlook, make an app password in your " +
+      "account's security settings: never your own password. Gmail: imap.gmail.com; " +
+      "iCloud: imap.mail.me.com; Outlook: outlook.office365.com."));
 }
 
 function connectForm(c) {

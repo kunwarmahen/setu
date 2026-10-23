@@ -151,7 +151,8 @@ def _connector(manifest: Manifest, connected: bool,
         "contained": contained(manifest.road, list(manifest.hosts), manifest.name,
                                token_mode=manifest.token_mode,
                                rules=bool(manifest.requests or manifest.mcp_path),
-                               program=manifest.auth == "own" and not manifest.api_base),
+                               program=manifest.auth == "own" and not manifest.api_base,
+                               password=manifest.auth == "password"),
         # a server of your own (own.py): its tools were classed from its list
         "own": manifest.auth == "own",
     }
@@ -159,7 +160,7 @@ def _connector(manifest: Manifest, connected: bool,
 
 def contained(road: str, hosts: list[str], name: str, *, token_mode: str = "proxy",
               rules: bool | None = None, confined: bool | None = None,
-              program: bool = False) -> str:
+              program: bool = False, password: bool = False) -> str:
     """One honest line on what a connector can reach -- as it is on this
     computer, not as hoped. Under the proxy the connector holds no key
     and Setu makes its requests (proxy.py); bubblewrap is what takes its
@@ -174,6 +175,10 @@ def contained(road: str, hosts: list[str], name: str, *, token_mode: str = "prox
     if program:
         return ("runs as you: a program on this computer, with your network and your files; "
                 "Setu keeps its keys and its level, not a sandbox")
+    if password:
+        return ("runs as its own program holding the account's password (an app password), "
+                "handed over a private pipe: IMAP is not HTTP, so Setu cannot make its "
+                "requests; it opens your mail read-only and connects only to your mail server")
     if token_mode == "callback":
         return (f"runs as its own program holding a short-lived {name} key; declares "
                 f"{where}; Setu does not limit where it connects")

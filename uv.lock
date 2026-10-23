@@ -12,6 +12,7 @@ members = [
     "setu-catalog-server",
     "setu-gmail",
     "setu-homeassistant",
+    "setu-mail",
     "setu-sites",
     "setu-workspace",
 ]
@@ -766,6 +767,21 @@ requires-dist = [
 ]
 
 [[package]]
+name = "setu-mail"
+version = "0.1.0"
+source = { editable = "packages/setu-mail" }
+dependencies = [
+    { name = "mcp" },
+    { name = "setu" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mcp", specifier = ">=2.2,<3" },
+    { name = "setu", editable = "packages/setu" },
+]
+
+[[package]]
 name = "setu-sites"
 version = "0.1.0"
 source = { editable = "packages/setu-sites" }
@@ -789,6 +805,7 @@ dev = [
     { name = "setu-catalog-server" },
     { name = "setu-gmail" },
     { name = "setu-homeassistant" },
+    { name = "setu-mail" },
     { name = "setu-sites" },
 ]
 
@@ -802,6 +819,7 @@ dev = [
     { name = "setu-catalog-server", editable = "packages/setu-catalog-server" },
     { name = "setu-gmail", editable = "packages/setu-gmail" },
     { name = "setu-homeassistant", editable = "packages/setu-homeassistant" },
+    { name = "setu-mail", editable = "packages/setu-mail" },
     { name = "setu-sites", editable = "packages/setu-sites" },
 ]
 

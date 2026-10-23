@@ -64,6 +64,13 @@ and it is sent in the header the person named (``Authorization:
 Bearer`` unless they said ``X-API-Key``). Disconnecting forgets it, and
 the server's file goes with its last connection.
 
+A MAIL ACCOUNT HOLDS ITS PASSWORD (``auth = "password"``, mail.py): an
+IMAP server, a user and an app password, checked against the server
+before anything is saved. It has no token: ``token`` refuses it, and the
+password goes only to one program over a pipe (``login``). There is
+nothing to revoke from here; disconnecting forgets it, and the person
+deletes the app password in their account.
+
 A SITE SETU WROTE THE RULES FOR is proved by its page (``connect_site``):
 nobody named its sign-in cookies, so after the window the start page is
 looked at once more, and a page that still shows a sign-in saves
@@ -88,7 +95,7 @@ from typing import Any
 import httpx
 
 from setu import browser as site_browser
-from setu import google, homeassistant, sites
+from setu import google, homeassistant, mail, sites
 from setu.manifest import Manifest, installed, parse
 from setu.vault import Vault
 
@@ -253,6 +260,72 @@ def connect_homeassistant(manifest: Manifest, account: str, *, level: str | None
         if old.get("kind") == "oauth" and old.get("refresh_token") != secret.get("refresh_token"):
             homeassistant.revoke(previous["base_url"], old["refresh_token"], http=http)
     return entry
+
+
+def connect_mail(manifest: Manifest, account: str, *, level: str | None, server: str,
+                 user: str, password: str, vault: Vault, port: int = 993,
+                 folder: str = "INBOX", tls: bool = True,
+                 opener: Callable[..., Any] | None = None) -> dict[str, Any]:
+    """A mail account by IMAP: signed in to and its folder opened first,
+    so a wrong password or a missing folder saves nothing."""
+    if manifest.auth != "password":
+        raise ConnectionFailed(f"{manifest.id} does not sign in with a password")
+    ref = ref_for(manifest.id, account)
+    asked = manifest.level(level)
+    server = server.strip().lower()
+    try:
+        mail.check_settings(server=server, user=user.strip(), port=int(port),
+                            folder=folder, tls=tls)
+        if not password:
+            raise mail.MailError("a mail account needs its password (an app password, "
+                                 "for most services)")
+        login = {"server": server, "port": int(port), "user": user.strip(),
+                 "password": password, "folder": folder.strip(), "tls": bool(tls)}
+        said = mail.try_login(login, opener)
+    except mail.MailError as exc:
+        raise ConnectionFailed(f"{ref}: {exc}. Nothing was saved.") from None
+    entry = {
+        "connector": manifest.id,
+        "account": account,
+        "auth": "password",
+        "base_url": f"{'imaps' if tls else 'imap'}://{server}:{int(port)}",
+        "email": login["user"],
+        "level": asked.name,
+        "asked_level": asked.name,
+        "scopes": [],
+        "created": _now(),
+        "last_used": None,
+        "imap": {"server": server, "port": int(port), "user": login["user"],
+                 "folder": login["folder"], "tls": bool(tls)},
+        "said": said,
+        "secret": {"kind": "password", "password": password},
+    }
+    vault.put(ref, entry)
+    return entry
+
+
+def login(ref: str, *, vault: Vault) -> dict[str, Any]:
+    """A mail connection's login -- server, port, user, password, folder --
+    for the one program it is handed to (mail.py says which)."""
+    entry = vault.get(ref)
+    if entry is None:
+        raise ConnectionFailed(f"no connection {ref!r}; add it with `setu connect mail "
+                               f"--as {ref.partition(':')[2] or 'personal'} --mail-server "
+                               "HOST --user ADDRESS`")
+    if entry.get("auth") != "password":
+        raise ConnectionFailed(f"{ref} is not a mail account: only a mail password is "
+                               "handed out, and every other key stays with Setu")
+    if entry.get("locked"):
+        raise ConnectionFailed(f"{ref} is locked: its folder opens with its person's "
+                               "passphrase (setu lock unlock)")
+    imap = entry.get("imap") or {}
+    entry["last_used"] = _now()
+    vault.put(ref, entry)
+    return {"server": imap.get("server", ""), "port": int(imap.get("port") or 993),
+            "user": imap.get("user", ""), "folder": imap.get("folder") or "INBOX",
+            "tls": bool(imap.get("tls", True)),
+            "password": str((entry.get("secret") or {}).get("password") or ""),
+            "account": entry.get("account", ""), "level": entry.get("level", "")}
 
 
 def connect_browser(manifest: Manifest, account: str, *, level: str | None, vault: Vault,
@@ -554,6 +627,10 @@ def token(ref: str, *, vault: Vault, http: httpx.Client, force: bool = False) ->
     if entry.get("auth") == "phone":
         raise ConnectionFailed(f"{ref} is an app on the phone, not a token: the harness's "
                                "phone tools open it")
+    if entry.get("auth") == "password":
+        raise ConnectionFailed(f"{ref} is a mail account kept by its password, not a "
+                               "token: it is handed only to the program `setu run` starts "
+                               "for it, over a pipe")
     if entry.get("locked"):
         raise ConnectionFailed(f"{ref} is locked: its folder opens with its person's "
                                "passphrase (setu lock unlock)")
@@ -696,6 +773,22 @@ def check(*, vault: Vault, http: httpx.Client) -> list[dict[str, Any]]:
                                "email": entry.get("email", "")}
         auth = entry.get("auth", "google")
         signed_in = auth == "own" and (entry.get("secret") or {}).get("kind") == "oauth"
+        if auth == "password" and not entry.get("locked"):
+            # a mail password: signed in to now, as a refresh would be
+            try:
+                mail.try_login(login(ref, vault=vault))
+                rows.append({**row, "state": "ok"})
+            except mail.MailError as exc:
+                if "refused the user and password" in str(exc):
+                    _refused(ref, vault.get(ref) or entry, vault, str(exc))
+                    rows.append({**row, "state": "expired", "since": _now(),
+                                 "why": str(exc),
+                                 "fix": f"setu connect {row['connector']} --as "
+                                        f"{row['account']} --mail-server ... (a new app "
+                                        "password)"})
+                else:
+                    rows.append({**row, "state": "unreachable", "why": str(exc)})
+            continue
         if (auth in ("browser", "phone") or (auth == "own" and not signed_in)
                 or entry.get("locked")
                 or (entry.get("secret") or {}).get("kind") == "long_lived"):
@@ -727,6 +820,9 @@ def disconnect(ref: str, *, vault: Vault, http: httpx.Client) -> tuple[bool, boo
         return False, False
     if entry.get("auth") == "phone":
         vault.delete(ref)              # the app's sign-in is on the phone
+        return True, False
+    if entry.get("auth") == "password":
+        vault.delete(ref)              # the app password is the person's to delete
         return True, False
     if entry.get("auth") == "own":
         # a pasted token is the server's to revoke; a sign-in Setu made is

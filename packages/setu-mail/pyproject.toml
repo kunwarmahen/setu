@@ -1,0 +1,22 @@
+[project]
+name = "setu-mail"
+version = "0.1.0"
+description = "Mail by IMAP for Setu -- any mail service, read only, kept by an app password"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = ["setu", "mcp>=2.2,<3"]
+
+[project.scripts]
+setu-mail = "setu_mail.server:main"
+
+# How `setu connect mail` finds this connector: installing the package IS
+# the registration.
+[project.entry-points."setu.connectors"]
+mail = "setu_mail:MANIFEST"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/setu_mail"]

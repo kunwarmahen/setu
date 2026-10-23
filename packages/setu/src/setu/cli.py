@@ -24,6 +24,10 @@
                                          an MCP server of your own, at an address
     setu connect --server-command 'uvx weather-mcp' --id weather [--env API_KEY]
                                          or a program of yours that speaks MCP (runs as you)
+    setu connect mail --as work --mail-server imap.fastmail.com --user me@example.com
+                                         mail by IMAP, any service: its app password asked, hidden
+    setu login mail:work --json          a mail account's login, for the program that asked
+                                         (Prahari keeping a mailbox open); never to a screen
     setu site guide example [--set TEXT] a site added here: its short guide, shown or replaced
     setu site event amazon:personal robot_check   a harness noting what went wrong (a week kept)
     setu config browser PATH             which browser that window is (default: Chrome on PATH)
@@ -179,6 +183,8 @@ def _connect(args: argparse.Namespace) -> int:
     manifest = find(_connector_named(args))
     if manifest.auth == "own":
         return _connect_own_again(manifest, args)
+    if manifest.auth == "password":
+        return _connect_mail(manifest, args)
     if args.phone:
         return _connect_phone(manifest, args)
     if manifest.auth == "homeassistant":
@@ -211,6 +217,65 @@ def _connect(args: argparse.Namespace) -> int:
         print(f"note: you asked for '{level.label}' but Google granted less, so this "
               f"connection is '{held.label}'.")
     print(f"next: setu mcp-config {ref}")
+    return 0
+
+
+def _connect_mail(manifest, args: argparse.Namespace, emit: bool = False) -> int:
+    """Mail by IMAP: the server and user on the command line, the password
+    asked for hidden -- or the first line of stdin -- never in argv."""
+    ref = connections.ref_for(manifest.id, args.account)
+    if not args.mail_server or not args.user:
+        message = (f"{manifest.name} needs --mail-server HOST and --user ADDRESS "
+                   "(imap.fastmail.com, imap.gmail.com, imap.mail.me.com, "
+                   "outlook.office365.com)")
+        if emit:
+            _emit("error", message=message)
+        else:
+            print(f"error: {message}", file=sys.stderr)
+        return 2
+    if emit:
+        _emit("started", ref=ref, level=manifest.default_level.name,
+              level_label=manifest.default_level.label, scopes=[])
+    try:
+        password = _stdin_secret("the mail password (an app password)",
+                                 "no password was given on stdin")
+        entry = connections.connect_mail(
+            manifest, args.account, level=args.level, server=args.mail_server,
+            user=args.user, password=password, vault=FileVault(), port=args.mail_port,
+            folder=args.folder, tls=not args.no_tls)
+    except connections.ConnectionFailed as exc:
+        if emit:
+            _emit("error", message=str(exc))
+        else:
+            print(f"error: {exc}", file=sys.stderr)
+        return 2
+    held = manifest.level(entry["level"])
+    if emit:
+        _emit("connected", ref=ref, email=entry["email"], level=held.name,
+              level_label=held.label, asked_level=held.name)
+    else:
+        print(f"connected {ref}: {entry['said']} — {held.label}")
+        print(f"next: setu mcp-config {ref}")
+    return 0
+
+
+def _login(args: argparse.Namespace) -> int:
+    """``setu login mail:work --json``: a mail account's login, for the
+    program that started this one (Prahari keeping a mailbox open). Never
+    to a screen: a password printed there is a password shown to anyone
+    behind you, and kept in the terminal's scrollback."""
+    if not args.json:
+        print("error: setu login is for a program: add --json", file=sys.stderr)
+        return 2
+    if sys.stdout.isatty():
+        print("error: setu login hands a password to the program that asked; it is "
+              "not printed to a screen", file=sys.stderr)
+        return 2
+    try:
+        print(json.dumps(connections.login(args.ref, vault=FileVault())))
+    except connections.ConnectionFailed as exc:
+        print(json.dumps({"error": str(exc)}))
+        return 2
     return 0
 
 
@@ -715,8 +780,8 @@ def _connect_json(args: argparse.Namespace) -> int:
     harness shows the address to the person, in the page they are using --
     except for a site signed in to in a window of its own (``window``)."""
     if args.paste and (args.site or args.token_stdin):
-        _emit("error", message="--paste is for a sign-in page (Google, Home Assistant, a server's own), "
-              "not a browser window or a pasted token")
+        _emit("error", message="--paste is for a sign-in page (Google, Home Assistant, a "
+              "server's own), not a browser window or a pasted token")
         return 2
     if args.site:
         return _connect_site_json(args)
@@ -730,6 +795,8 @@ def _connect_json(args: argparse.Namespace) -> int:
     if manifest.auth == "own":
         # nothing to sign in to, here or on another device: tried again
         return _connect_own_again(manifest, args, emit=True)
+    if manifest.auth == "password":
+        return _connect_mail(manifest, args, emit=True)
     if args.remote and manifest.auth == "browser":
         return _connect_remote_json(manifest, args)
     if args.paste and manifest.auth == "browser":
@@ -1506,6 +1573,20 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument("--env", action="append", metavar="NAME",
                          help="with --server-command: an environment value it needs (a key); "
                               "read from stdin, hidden, and kept in the vault. Repeatable")
+    connect.add_argument("--mail-server", metavar="HOST",
+                         help="mail by IMAP (setu connect mail): the mail server, "
+                              "imap.fastmail.com; its password is asked for, hidden (an "
+                              "app password for Gmail, iCloud, Outlook)")
+    connect.add_argument("--user", metavar="ADDRESS",
+                         help="with --mail-server: the address you sign in with")
+    connect.add_argument("--mail-port", type=int, default=993, metavar="PORT",
+                         help="with --mail-server: IMAP over TLS (default 993)")
+    connect.add_argument("--folder", default="INBOX",
+                         help="with --mail-server: the folder to watch and read "
+                              "(default INBOX)")
+    connect.add_argument("--no-tls", action="store_true", dest="no_tls",
+                         help="with --mail-server: plain IMAP, to this computer only (a "
+                              "test server)")
     connect.add_argument("--signed-in", action="store_true",
                          help="if the page cannot show whether you signed in, take it "
                          "that you did")
@@ -1571,6 +1652,11 @@ def build_parser() -> argparse.ArgumentParser:
     chk = sub.add_parser("check", help="try every sign-in that can run out, now "
                                        "(exit 1 when one has)")
     chk.add_argument("--json", action="store_true")
+
+    lg = sub.add_parser("login", help="a mail account's login, for the program that "
+                                      "asked (never to a screen)")
+    lg.add_argument("ref", help="e.g. mail:work")
+    lg.add_argument("--json", action="store_true", help="required: one JSON object")
 
     run = sub.add_parser("run", help="start a connector for a connection")
     run.add_argument("ref", help="e.g. gmail:personal")
@@ -1662,7 +1748,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 COMMANDS = {"connectors": _connectors, "connect": _connect, "list": _list, "check": _check,
-            "run": _run, "log": _log, "lock": _lock, "mcp-config": _mcp_config, "status": _status,
+            "run": _run, "login": _login, "log": _log, "lock": _lock,
+            "mcp-config": _mcp_config, "status": _status,
             "serve": _serve, "page-link": _page_link,
             "disconnect": _disconnect, "config": _config, "catalog": _catalog,
             "site": _site, "install": _install, "certify": _certify}

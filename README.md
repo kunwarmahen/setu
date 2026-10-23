@@ -78,6 +78,49 @@ no such caveat.
 
 ---
 
+## What you get: any other mail (IMAP)
+
+Fastmail, iCloud, Outlook, a mail server of your own, or a Gmail account
+kept by an app password: anything that speaks IMAP.
+
+```bash
+setu connect mail --as work --mail-server imap.fastmail.com --user me@example.com
+#   the mail password (an app password) (not shown):
+#   connected mail:work: opened INBOX on imap.fastmail.com as me@example.com (1832 messages) — Read only
+```
+
+| Tool | What it does |
+|---|---|
+| `search_mail` | Search by `sender`, `subject`, `text`, `since_days`, `unread`; each result starts `message <uid>` |
+| `read_mail` | Read one mail: who, when, subject, the words, attachment names (never opened) |
+| `list_folders` | The account's folders |
+
+**Read only, by the protocol.** The folder is opened read-only and mail
+is read with `BODY.PEEK`, so nothing is ever marked read, and there is no
+command here that sends, moves or deletes.
+
+**Use an app password**, never your own: Gmail, iCloud and Outlook make
+one in the account's security settings (Gmail: `imap.gmail.com`, iCloud:
+`imap.mail.me.com`, Outlook: `outlook.office365.com`). Setu signs in and
+opens the folder before it keeps anything, so a wrong password or a
+missing folder saves nothing. It's kept like every other key, in your
+folder's vault, sealed with it when the folder is locked, and `setu check`
+signs in once a day to tell you when it stops working. Disconnecting
+forgets it; delete the app password in your account too. On Setu's page,
+the **Mail (IMAP)** card has the same form, and a person's page adds it
+to their own folder.
+
+**The one key that leaves Setu.** IMAP isn't HTTP, so Setu can't make
+the connector's requests the way it does for Gmail: whatever holds the
+mail connection must hold the password. It goes over a private pipe, to
+one program, for that one account: the connector `setu run mail:work`
+starts, or a program that asks `setu login mail:work --json`, such as
+[Prahari](https://github.com/kunwarmahen/prahari) keeping your mailbox
+open so a mail is news the moment it lands. `setu login` refuses to
+print it to a screen, and refuses any account that isn't mail.
+
+---
+
 ## What you get: Home Assistant
 
 Your Home Assistant is your own server, so there is nothing to register and no
@@ -657,6 +700,9 @@ with nobody there to say yes, it didn't run.)
   For mail that should be news at once, Prahari can keep Gmail's push
   alive with `watch_mailbox` (the call you accepted, once a day), and the
   push wakes the watch's look; its README has the Google Cloud steps.
+  Any other mail (and Gmail by app password) Prahari keeps open with IMAP
+  IDLE, asking `setu login mail:<account> --json` for the login: you add
+  the account here, once, and the password stays in your vault.
 * **[dvara](https://github.com/kunwarmahen/dvara)** serves several people, so each person can have a Setu
   folder of their own (`SETU_HOME`); their agent reaches only those
   accounts ([dvara's note 19](https://github.com/kunwarmahen/dvara/blob/main/notes/19-their-own-accounts.md)). They sign in from the chat
@@ -1260,6 +1306,9 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   short-lived token over a private pipe instead, for an API that cannot go
   through Setu (streaming, signed URLs). The card then says it holds a key.
   `setu run REF --callback` does the same for trying a connector by hand.
+  Mail by IMAP (`auth = "password"`) is the same road with no token at
+  all: its connector asks the pipe `{"op": "login"}` (`setu.login()`) and
+  gets its one account's server, user and password.
 * **Tools follow the grant**: a connector asks `setu.granted_scopes()` and
   offers only the tools those permissions can carry out. A site with no
   scopes (Home Assistant) has levels without them; its connector asks

@@ -193,6 +193,9 @@ if "--site" in args:
     if sys.stdin.readline().strip() != "yes":
         say(event="error", message="not signed in: nothing was saved")
         sys.exit(2)
+elif "--mail-server" in args:
+    with open(sys.argv[0] + ".stdin", "w") as out:
+        out.write(sys.stdin.readline())
 elif "--paste" in args:
     say(event="url", url="https://accounts.example/o?x=1", paste=True)
     line = sys.stdin.readline().strip()
@@ -532,3 +535,24 @@ def test_one_more_address_serves_the_same_page_and_the_same_rules(home):
         assert server.url == f"http://127.0.0.1:{port}/"  # this computer's link stays
     finally:
         server.stop()
+
+
+def test_mail_is_added_with_its_password_on_stdin_never_in_the_arguments(stand_in):
+    stand_in.handle("POST", "/api/add-mail", {}, {
+        "server": "imap.fastmail.com", "user": "me@example.com",
+        "password": "app-password-123", "account": "work"}, local=False)
+    finished(stand_in)
+    argv = started(stand_in)[-1]
+    assert argv[:4] == ["connect", "mail", "--as", "work"]
+    assert "imap.fastmail.com" in argv and "app-password-123" not in json.dumps(argv)
+    kept = (stand_in.script.parent / (stand_in.script.name + ".stdin")).read_text()
+    assert kept.strip() == "app-password-123"
+
+
+def test_mail_needs_a_server_an_address_and_a_password(stand_in):
+    import pytest as _pytest
+    for body in ({"user": "me@x.com", "password": "p"},
+                 {"server": "imap.x.com", "password": "p"},
+                 {"server": "imap.x.com", "user": "me@x.com"}):
+        with _pytest.raises(page.ApiError):
+            stand_in.handle("POST", "/api/add-mail", {}, body, local=True)
