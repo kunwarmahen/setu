@@ -960,7 +960,13 @@ for that: a browser sign-in is streamed to you, and so is Google's or Home
 Assistant's sign-in page whenever the window's link reaches another device
 (`SETU_WINDOW_HOST` beyond this computer, or `SETU_WINDOW_URL` or
 `SETU_WINDOW_NAME`). Without one, Google's sign-in ends on an address you
-paste back into the page. Adding a site goes through the streamed window
+paste back into the page. The window's link names the computer the
+way your page's address did: open the page as `beast.lan` over a VPN (or
+by its number) and the link says `beast.lan` too, not the `beast.local`
+that only the home Wi-Fi finds. That swap happens only when the window
+lives on the page's own computer under the page's own name (its public
+address, `--public-url`); a window behind a tunnel of its own keeps its
+link. Adding a site goes through the streamed window
 too, when its link reaches another device; with no window address, the
 page names the command to run at the computer instead. Adding a program
 as a server needs you at the computer; a server at an address can be

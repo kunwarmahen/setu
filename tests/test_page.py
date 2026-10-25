@@ -298,6 +298,71 @@ def test_from_another_device_with_a_window_googles_page_is_streamed_too(
     assert "--remote" in argv and "--paste" in argv
 
 
+# ---- the window's link, by the name the page was opened at --------------------------
+#
+# The bias: A LINK THAT NAMES A HOUSE THE PHONE CAN'T FIND. ``beast.local``
+# is found only on the home Wi-Fi; over a VPN the same page is reached as
+# ``beast.lan`` or by its number, and a window link saying ``.local`` hangs.
+
+
+def test_the_windows_link_says_the_name_the_page_was_reached_by(home, monkeypatch):
+    monkeypatch.setenv("SETU_WINDOW_URL", "http://beast.local:8791")
+    server = page.PageServer(page.Api(FileVault()), GOOD, port=0,
+                             public_url="http://beast.local:8775/")
+    try:
+        assert server.reached_as("beast.lan:8775") == "beast.lan"
+        assert server.reached_as("192.168.1.44:8775") == "192.168.1.44"
+        assert server.reached_as("beast.local:8775") is None       # its own: as it is
+        for odd in ("", None, "evil.com/x", "[::1]:8775", "a b", "x:1:2"):
+            assert server.reached_as(odd) is None
+        # a window somewhere else (a tunnel's own name) keeps its link
+        monkeypatch.setenv("SETU_WINDOW_URL", "https://window.example.net")
+        assert server.reached_as("beast.lan:8775") is None
+    finally:
+        server.httpd.server_close()
+
+
+def test_without_its_own_address_the_page_leaves_the_link_alone(home, monkeypatch):
+    monkeypatch.setenv("SETU_WINDOW_URL", "http://beast.local:8791")
+    server = page.PageServer(page.Api(FileVault()), GOOD, port=0)
+    try:
+        assert server.reached_as("beast.lan:8775") is None
+    finally:
+        server.httpd.server_close()
+
+
+def test_a_link_keeps_its_scheme_port_and_path_with_the_new_name():
+    from setu import remote
+    assert remote.link_on("beast.lan", {"SETU_WINDOW_URL": "http://beast.local:8791"}) \
+        == "http://beast.lan:8791"
+    assert remote.link_on("beast.lan", {"SETU_WINDOW_URL": "https://beast.local/w"}) \
+        == "https://beast.lan/w"
+    assert remote.link_on("beast.lan", {"SETU_WINDOW_NAME": "beast.local",
+                                        "SETU_WINDOW_PORT": "8791"}) == "http://beast.lan:8791"
+    assert remote.link_on("beast.lan", {"SETU_WINDOW_NAME": "beast.local"}) is None
+
+
+def test_a_sign_in_from_another_name_runs_with_that_name_in_its_window_link(
+        stand_in, monkeypatch):
+    monkeypatch.setenv("SETU_WINDOW_URL", "http://beast.local:8791")
+    seen = []
+    real = page.SignIn
+
+    def keep(argv, ref, env=None):
+        seen.append(env)
+        return real(argv, ref, env)
+    monkeypatch.setattr(page, "SignIn", keep)
+    stand_in.handle("POST", "/api/connect", {}, {"connector": "gmail"}, local=False,
+                    reached="beast.lan")
+    stand_in.handle("POST", "/api/signin/cancel", {}, {})
+    finished(stand_in)
+    stand_in.handle("POST", "/api/connect", {}, {"connector": "gmail"}, local=False)
+    stand_in.handle("POST", "/api/signin/cancel", {}, {})
+    finished(stand_in)
+    assert seen[0]["SETU_WINDOW_URL"] == "http://beast.lan:8791"
+    assert seen[1] is None or seen[1].get("SETU_WINDOW_URL") == "http://beast.local:8791"
+
+
 def test_a_paste_that_is_not_an_address_never_reaches_setu(stand_in):
     stand_in.handle("POST", "/api/connect", {}, {"connector": "gmail"}, local=False)
     with pytest.raises(page.ApiError):

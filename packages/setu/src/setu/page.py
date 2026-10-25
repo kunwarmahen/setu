@@ -51,6 +51,16 @@ reached from elsewhere (``--host``) gets the roads made for another
 device: the address pasted back, or the streamed window (``--remote``).
 A request says which it wants only by where it comes from.
 
+THE WINDOW'S LINK SAYS THE NAME THE PAGE WAS OPENED AT. A house name
+such as ``beast.local`` is found only on the home Wi-Fi; over a VPN the
+same page is reached as ``beast.lan`` or by its number, and a window link
+saying ``.local`` would hang. So when the window's link names the page's
+own host (``--public-url``) -- the same computer, the same name -- a
+sign-in started from another device runs with that link's host swapped
+for the request's ``Host``: a plain name or address, nothing else. A
+window behind a tunnel of its own keeps its link. The Host is the
+caller's to say, and the swapped link goes back only to that caller.
+
 A SERVER OF YOUR OWN, FROM THE PAGE (``add-server``). Its token and
 environment values come in the request's body and go to ``setu connect
 --server --json`` on its stdin, never its arguments; no answer carries
@@ -193,6 +203,9 @@ MAX_BODY = 64 * 1024
 #: What a person may call an account, and what a site's address may be.
 ACCOUNT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$")
 SITE_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+#: A name or an IPv4 address a request's Host may say (no port, no brackets).
+_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?"
+HOST_RE = re.compile(rf"^{_LABEL}(?:\.{_LABEL})*$")
 #: How long an install may take before the page says it failed.
 INSTALL_SECONDS = 600
 #: What a person's page answers; the rest of the API is the owner's.
@@ -390,14 +403,14 @@ class Api:
         return cls(FileVault(home), setu, person=person, env=env)
 
     def handle(self, method: str, path: str, query: dict[str, list[str]],
-               body: dict | None = None, *, local: bool = True
-               ) -> tuple[int, dict[str, Any]]:
+               body: dict | None = None, *, local: bool = True,
+               reached: str | None = None) -> tuple[int, dict[str, Any]]:
         parts = [p for p in path.split("/") if p][1:]      # after "api"
         if self.person is not None and tuple(parts) not in (
                 PERSON_POST if method == "POST" else PERSON_GET):
             raise ApiError(403, "that part of the page is your owner's")
         if method == "POST":
-            return self._write(parts, body or {}, local)
+            return self._write(parts, body or {}, local, reached)
         if method != "GET":
             raise ApiError(405, f"no such endpoint: {method} /api/{'/'.join(parts)}")
         if parts == ["signin"]:
@@ -426,15 +439,16 @@ class Api:
 
     # ---- writes ---------------------------------------------------------------
 
-    def _write(self, parts: list[str], body: dict, local: bool) -> tuple[int, dict[str, Any]]:
+    def _write(self, parts: list[str], body: dict, local: bool,
+               reached: str | None = None) -> tuple[int, dict[str, Any]]:
         if parts == ["connect"]:
-            return 200, self.connect(body, local)
+            return 200, self.connect(body, local, reached)
         if parts == ["add-site"]:
-            return 200, self.add_site(body, local)
+            return 200, self.add_site(body, local, reached)
         if parts == ["add-mail"]:
             return 202, self.add_mail(body)
         if parts == ["add-server"]:
-            return 200, self.add_server(body, local)
+            return 200, self.add_server(body, local, reached)
         if parts == ["disconnect"]:
             return 200, self.disconnect(str(body.get("ref") or ""))
         if parts == ["server-tools"]:
@@ -476,15 +490,24 @@ class Api:
             raise ApiError(409, "no sign-in is waiting")
         return self.signin
 
-    def _start(self, argv: list[str], ref: str) -> dict[str, Any]:
+    def _start(self, argv: list[str], ref: str,
+               reached: str | None = None) -> dict[str, Any]:
+        env = self.env
+        if reached:
+            # the window's link names the name this page was opened by
+            from setu import remote
+            base = dict(os.environ if env is None else env)
+            link = remote.link_on(reached, base)
+            env = {**base, remote.ENV_URL: link} if link else env
         with self._signin_lock:
             if self.signin is not None and self.signin.running:
                 raise ApiError(409, f"a sign-in to {self.signin.ref} is already waiting -- "
                                     "finish or cancel it first")
-            self.signin = SignIn(argv, ref, self.env)
+            self.signin = SignIn(argv, ref, env)
         return {"ref": ref, "started": True}
 
-    def connect(self, body: dict, local: bool) -> dict[str, Any]:
+    def connect(self, body: dict, local: bool,
+                reached: str | None = None) -> dict[str, Any]:
         connector = str(body.get("connector") or "")
         account = str(body.get("account") or "personal").strip()
         level = str(body.get("level") or "")
@@ -510,9 +533,10 @@ class Api:
             argv += (["--remote"] if card["road"] == "browser" else
                      ["--remote", "--paste"] if remote.reaches_another_device() else
                      ["--paste"])
-        return self._start(argv, f"{connector}:{account}")
+        return self._start(argv, f"{connector}:{account}", reached)
 
-    def add_site(self, body: dict, local: bool) -> dict[str, Any]:
+    def add_site(self, body: dict, local: bool,
+                 reached: str | None = None) -> dict[str, Any]:
         site = str(body.get("site") or "").strip().lower()
         site = site.removeprefix("https://").removeprefix("http://").split("/")[0]
         account = str(body.get("account") or "personal").strip()
@@ -536,7 +560,7 @@ class Api:
                                     f"at the computer running Setu, run setu connect "
                                     f"--site {site} --as {account}")
             argv.append("--remote")
-        return self._start(argv, f"{site}:{account}")
+        return self._start(argv, f"{site}:{account}", reached)
 
     def add_mail(self, body: dict) -> dict[str, Any]:
         server = str(body.get("server") or "").strip().lower()
@@ -563,7 +587,8 @@ class Api:
         self.signin.say(password)          # on stdin, never in the arguments
         return started
 
-    def add_server(self, body: dict, local: bool) -> dict[str, Any]:
+    def add_server(self, body: dict, local: bool,
+                   reached: str | None = None) -> dict[str, Any]:
         url = str(body.get("url") or "").strip()
         command = str(body.get("command") or "").strip()
         sid = str(body.get("id") or "").strip().lower()
@@ -615,7 +640,7 @@ class Api:
             argv += ["--paste"]
         for name in env:
             argv += ["--env", name]
-        started = self._start(argv, f"{sid or 'server'}:{account}")
+        started = self._start(argv, f"{sid or 'server'}:{account}", reached)
         assert self.signin is not None
         # the secrets go on stdin, in the order the arguments named them
         for line in ([token] if token else []) + list(env.values()):
@@ -923,6 +948,21 @@ class PageServer:
     def page_url(self) -> str:
         return f"{self.url}#token={self.token}"
 
+    def reached_as(self, offered: str | None) -> str | None:
+        """The name a request reached this page by, when the streamed
+        window's link should say it instead of its own: the window is on
+        the page's computer under the page's own name, and this request
+        came by another (a VPN's, a router's). None otherwise."""
+        from setu import remote
+        name = (offered or "").strip().lower()
+        name = name.rsplit(":", 1)[0] if name.count(":") == 1 else name
+        if not self.public_url or not HOST_RE.match(name):
+            return None
+        own = (urlparse(self.public_url).hostname or "").lower()
+        if name == own or remote.link_host() != own:
+            return None
+        return name
+
     def people_on(self) -> bool:
         """People's pages: given a folder for them, and not switched off in
         the owner's folder. Asked on every request, so the switch is
@@ -1084,7 +1124,9 @@ def _handler(server: PageServer):
                     code, data = 200, {"closed": True}
                 else:
                     code, data = api.handle(method, url.path, parse_qs(url.query), body,
-                                            local=local)
+                                            local=local,
+                                            reached=None if local else
+                                            server.reached_as(self.headers.get("Host")))
             except ApiError as exc:
                 return self._json(exc.code, {"detail": exc.detail})
             except Exception as exc:     # a bug is a 500 that says what, not a hang

@@ -237,6 +237,30 @@ def link_name() -> str:
     return os.environ.get(ENV_NAME, "").strip()
 
 
+def link_host(env: dict[str, str] | None = None) -> str:
+    """The host a window's link names: ``SETU_WINDOW_URL``'s, else
+    ``SETU_WINDOW_NAME``, else ``SETU_WINDOW_HOST``; empty when none is set."""
+    env = os.environ if env is None else env
+    url = env.get(ENV_URL, "").strip()
+    if url:
+        return (urlsplit(url).hostname or "").lower()
+    return (env.get(ENV_NAME, "").strip() or env.get(ENV_HOST, "").strip()).lower()
+
+
+def link_on(host: str, env: dict[str, str] | None = None) -> str | None:
+    """The window's link with its host swapped for ``host`` -- the same
+    scheme, port and path -- or None when its port is not fixed (a free
+    port is chosen, so the link can't be written in advance)."""
+    env = os.environ if env is None else env
+    url = env.get(ENV_URL, "").strip()
+    if url:
+        parts = urlsplit(url)
+        port = f":{parts.port}" if parts.port else ""
+        return parts._replace(netloc=f"{host}{port}").geturl()
+    raw = env.get(ENV_PORT, "").strip()
+    return f"http://{host}:{raw}" if raw.isdigit() and int(raw) else None
+
+
 # ---- the browser, over a pipe ---------------------------------------------------------
 
 
