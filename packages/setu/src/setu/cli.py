@@ -407,8 +407,8 @@ def _connect_server(args: argparse.Namespace) -> int:
     print(f"connected {ref} ({entry['email']}) -- {level.label}, {entry['tools']} tools")
     reads = len(own.read_tools(manifest))
     print(f"  {reads} of them only read (they may run unasked); the rest are asked about. "
-          f"Its file is {entry['manifest_path']}: change any tool's line there "
-          f"(setu site file {entry['connector']})")
+          f"Change any: setu site tools {entry['connector']} NAME=read (or its tools on "
+          f"Setu's page); its file is {entry['manifest_path']}")
     if "command" in entry["server"]:
         print("  it runs as you, on this computer, with your network and files: Setu keeps "
               "its keys and its level, not a sandbox")
@@ -541,6 +541,8 @@ def _connect_browser_json(manifest, args: argparse.Namespace) -> int:
 def _site(args: argparse.Namespace) -> int:
     if args.site_command == "file":
         return _site_file(args)
+    if args.site_command == "tools":
+        return _site_tools(args)
     return _site_event(args) if args.site_command == "event" else _site_guide(args)
 
 
@@ -557,6 +559,34 @@ def _site_file(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(f"{manifest.id}: saved")
+    return 0
+
+
+def _site_tools(args: argparse.Namespace) -> int:
+    """``setu site tools ID [NAME=read|write ...]``: a server of your own's
+    tools and their marks, or some of them changed (own.set_marks)."""
+    from setu import own
+    changes: dict[str, str] = {}
+    for word in args.changes:
+        name, sep, klass = word.rpartition("=")
+        if not sep or not name:
+            print(f"error: {word!r}: say NAME=read or NAME=write", file=sys.stderr)
+            return 2
+        changes[name] = klass
+    try:
+        found = (own.set_marks(args.id, changes).verbs if changes
+                 else own.marks(args.id))
+    except ManifestError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json_out:
+        print(json.dumps({"id": args.id, "verbs": dict(found),
+                          "described": own.described(args.id)}))
+        return 0
+    for name, klass in found.items():
+        print(f"{name:<40} {klass}" + ("   (any tool it adds later)" if name == "*" else ""))
+    if changes:
+        print(f"{args.id}: saved; agents use the new marks from their next turn")
     return 0
 
 
@@ -1618,6 +1648,12 @@ def build_parser() -> argparse.ArgumentParser:
                                 "--set: replace it from stdin, checked first")
     sfile.add_argument("id")
     sfile.add_argument("--set", action="store_true")
+    stools = site_sub.add_parser("tools", help="a server of your own's tools, each marked "
+                                 "read (may run unasked) or write (asked first); "
+                                 "NAME=read|write changes one")
+    stools.add_argument("id")
+    stools.add_argument("changes", nargs="*", metavar="NAME=read|write")
+    stools.add_argument("--json", action="store_true", dest="json_out")
     event = site_sub.add_parser("event", help="a site's tools: note what went wrong "
                                 "(robot_check, signed_out, refused, limit, handoff)")
     event.add_argument("ref", help="the connection, e.g. amazon:personal")

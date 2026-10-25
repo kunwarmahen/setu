@@ -618,16 +618,38 @@ of its own, `~/.local/state/setu/servers/<id>.toml`, each one marked
 and everything else is `write`. A `read` tool may run without asking you.
 A `write` tool is asked about first. A tool the server adds later counts
 as `write` until you say otherwise. The marks are the server's own claim,
-so look them over and change any line: `setu site file docs` shows the
-file, and `--set` replaces it. Adding the server again keeps your lines
-and adds any new tools. A Yantra that is already running sees the change
-to the file and restarts that one connection, so you don't restart it.
+so look them over and change any of them. On Setu's page, the server's
+card has **Its tools: which only read**: each tool with the server's own
+description and a switch (*only reads — runs unasked* or *changes
+things — asked first*), and **Save**. In a terminal:
+
+```
+$ setu site tools weather
+forecast                                 read
+set_alert                                write
+station_list                             write
+*                                        write   (any tool it adds later)
+$ setu site tools weather station_list=read
+...
+weather: saved; agents use the new marks from their next turn
+```
+
+Only the lines you name change; the descriptions and every other line
+stay, and the file is checked before it's kept (the old one as `.bak`).
+A name the server never listed is refused, and `*` stays `write`: a tool
+nobody has seen is asked about first. A person's page marks the servers
+in their own folder. `setu site file docs` still shows the whole file,
+and `--set` replaces it. Adding the server again keeps your marks and
+adds any new tools. A Yantra that is already running sees the change
+and restarts that one connection, so you don't restart it; Dvara uses
+it from the next message.
 
 **A server that marks nothing read** comes in with every tool as `write`.
 At *Only its reading tools*, or for a package whose need is `:read`
 (`"*:read"` included), that is no tools at all: the agent sees the
-connection but none of its tools. Mark the reading ones `read` in its
-file (`setu site file docs`), or give the package `docs:write`. A server
+connection but none of its tools. Mark the reading ones `read` (on
+Setu's page, or `setu site tools docs NAME=read`), or give the package
+`docs:write`. A server
 that sends MCP's `readOnlyHint` on its tools needs neither: a real one
 on the internet, behind a Bearer token, came in with all 51 of its
 tools `read`, and a household agent with `"*:read"` was given all 51,
@@ -857,6 +879,7 @@ setu connect amazon --as personal  # a site with no API: sign in in a window, th
 setu connect --site example.com    # any other site: Setu writes cautious rules for it
 setu site guide example --set "…"  # that site's short guide (shown without --set)
 setu site file example [--set]     # its whole file; --set replaces it from stdin, checked first
+setu site tools docs [NAME=read|write ...]   # a server of your own's tools and their marks
 setu connect --server URL --id docs [--name "Team docs"] [--ask-token]   # an MCP server of your own: a token, none, or its own sign-in page
 setu connect --server-command 'uvx weather-mcp' --id weather --env WEATHER_KEY   # or a program
 setu config browser PATH           # which browser that window is (default: Chrome on PATH)
@@ -1306,7 +1329,7 @@ reads are sent to that provider.
 
 ```
 packages/setu/        the core: vault, Google sign-in, connections, the request proxy and sandbox, setu.http(),
-                      and servers of your own (own.py: try, write down, the setu-own-mcp bridge);
+                      and servers of your own (own.py: try, write down, each tool's mark changed by name, the setu-own-mcp bridge);
                       keeps.py: where it all is, for a backup (setu.keeps.v1), caches and Chrome's locks left out
 packages/setu-gmail/  the Gmail connector: an MCP server, and its manifest
 packages/setu-homeassistant/  two Home Assistant connectors: REST tools, and a bridge to its MCP server
@@ -1429,6 +1452,12 @@ tests/                fakes of Gmail, Google and Home Assistant, and the rules t
   itself (`own.run_command`), its stdio relayed through `own.Level`.
   `installed()` reads `servers/` after `sites/`, accepting `auth = "own"`
   only. Cards carry `own`, and connection rows carry `server`.
+  `own.set_marks` (`setu site tools ID NAME=read|write`, the page's `GET`/`POST
+  /api/server-tools`, run as `setu site tools` in the page's own folder)
+  rewrites only the named `[verbs]` values, checks the file by loading it, and
+  keeps the old one as `.bak`; an unlisted name, a mark that isn't read or
+  write, and `"*" = "read"` are refused. `own.described` reads each tool's
+  description back from the comment `draft` wrote above its line.
 * **One grant per app per Google account.** Revoking any token of a grant ends
   all of it, so Setu never revokes a grant another connection still uses.
 * **The page** (`page.py`, `static/`): `setu serve` serves four static

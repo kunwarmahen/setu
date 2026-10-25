@@ -594,3 +594,79 @@ class TestAgain:
         add(server.url)
         assert main(["connect", "docs", "--as", "work"]) == 2
         assert "setu connect --server URL --id docs --as work" in capsys.readouterr().err
+
+
+# ---- a tool's mark, changed by name (setu site tools, the page's switches) -----------
+
+
+class TestMarks:
+    """The bias: A MARK CHANGED THAT TAKES THE FILE WITH IT. Marking one
+    tool must not rewrite the rest -- the server's own descriptions, the
+    person's other lines -- nor leave a file Setu can't load; a tool the
+    server never listed, or "*" made read, is refused rather than kept."""
+
+    def test_one_line_changes_and_every_other_line_stays(self, home, server):
+        add(server.url)
+        before = (servers_dir() / "docs.toml").read_text()
+        own.set_marks("docs", {"add_page": "read"})
+        after = (servers_dir() / "docs.toml").read_text()
+        assert after == before.replace('add_page = "write"', 'add_page = "read"')
+        assert (servers_dir() / "docs.toml.bak").read_text() == before
+        assert installed()["docs"].verbs["add_page"] == "read"
+        assert "add_page" in own.read_tools(installed()["docs"])
+        assert own.described("docs")["add_page"] == "Add a page."
+
+    @pytest.mark.parametrize("change,said", [
+        ({"publish": "read"}, "has no tool 'publish'"),
+        ({"add_page": "maybe"}, "a mark is read or write"),
+        ({"*": "read"}, "stays write"),
+    ])
+    def test_a_mark_that_cant_be_is_refused_and_nothing_written(self, home, server, change,
+                                                                 said):
+        add(server.url)
+        before = (servers_dir() / "docs.toml").read_text()
+        with pytest.raises(Exception, match=said):
+            own.set_marks("docs", change)
+        assert (servers_dir() / "docs.toml").read_text() == before
+
+    def test_the_cli_lists_and_changes_them(self, home, server, capsys):
+        add(server.url)
+        assert main(["site", "tools", "docs", "--json"]) == 0
+        listed = json.loads(capsys.readouterr().out)
+        assert listed["verbs"] == {"search": "read", "add_page": "write",
+                                   "delete_page": "write", "*": "write"}
+        assert listed["described"]["search"] == "Search the docs."
+        assert main(["site", "tools", "docs", "add_page=read"]) == 0
+        assert "next turn" in capsys.readouterr().out
+        assert main(["site", "tools", "docs", "add_page"]) == 2
+        assert main(["site", "tools", "nope", "a=read"]) == 2
+
+    def test_the_page_shows_and_saves_them(self, home, server):
+        from setu import page
+        add(server.url)
+        api = page.Api(FileVault())
+        _, got = api.handle("GET", "/api/server-tools", {"id": ["docs"]})
+        assert got["verbs"]["delete_page"] == "write"
+        _, saved = api.handle("POST", "/api/server-tools", {},
+                              {"id": "docs", "marks": {"delete_page": "read"}})
+        assert saved["verbs"]["delete_page"] == "read"
+        with pytest.raises(page.ApiError) as caught:
+            api.handle("POST", "/api/server-tools", {}, {"id": "docs", "marks": {"x": "yes"}})
+        assert caught.value.code == 400
+        with pytest.raises(page.ApiError) as caught:
+            api.handle("POST", "/api/server-tools", {}, {"id": "docs", "marks": {"x": "read"}})
+        assert caught.value.code == 400 and "no tool 'x'" in caught.value.detail
+
+    def test_a_persons_page_marks_their_own_servers_not_the_owners(self, home, server,
+                                                                    tmp_path):
+        from setu import page
+        theirs = tmp_path / "people" / "asha"
+        api = page.Api.for_person("asha", theirs)
+        api.handle("POST", "/api/add-server", {}, {"url": server.url, "id": "docs",
+                                                    "token": TOKEN}, local=False)
+        _finished(api)
+        add(server.url)                                   # the owner's own, same id
+        api.handle("POST", "/api/server-tools", {},
+                   {"id": "docs", "marks": {"add_page": "read"}}, local=False)
+        assert 'add_page = "read"' in (theirs / "servers" / "docs.toml").read_text()
+        assert installed()["docs"].verbs["add_page"] == "write"     # the owner's untouched

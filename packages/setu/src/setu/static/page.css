@@ -193,3 +193,10 @@ body.person .owner-only { display: none; }
 .foot #close-session { margin-left: auto; }
 /* a hidden box stays hidden, whatever display its class gives it */
 [hidden] { display: none !important; }
+
+/* a server of your own's tools, each marked read or write (serverTools) */
+.tools .log-body { max-height: none; overflow: visible; }
+.tools .tool-row { display: flex; justify-content: space-between; align-items: center;
+                   gap: 12px; padding: 6px 0; border-top: 1px solid var(--line, #ddd); }
+.tools .tool-row code { overflow-wrap: anywhere; }
+.tools .tool-row select { flex: none; max-width: 55%; }

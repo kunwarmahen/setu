@@ -212,6 +212,7 @@ function connectionCard(row, names, logOpen, c) {
                              "installed here any more."),
     h("span.ref", {}, row.ref));
   if (c) card.append(changeLevel(row, c));
+  if (c && c.own) card.append(serverTools(row.connector));
   card.append(disconnectButton(row, names[row.connector] || row.connector));
   const log = h("details.log", { "data-ref": row.ref },
                 h("summary", {}, "What it did"), h("div.log-body", {}));
@@ -219,6 +220,64 @@ function connectionCard(row, names, logOpen, c) {
   if (logOpen) { log.open = true; }
   card.append(log);
   return card;
+}
+
+// A server of your own: each of its tools marked "read" (runs unasked, and
+// is all "Only its reading tools" shows) or "write" (asked about first),
+// as the server first claimed. Changed here, saved by `setu site tools`.
+const toolsOpen = new Set();
+function serverTools(id) {
+  const box = h("details.log.tools", { "data-server": id },
+                h("summary", {}, "Its tools: which only read"), h("div.log-body", {}));
+  box.addEventListener("toggle", () => {
+    if (box.open) { toolsOpen.add(id); drawServerTools(id, box); } else toolsOpen.delete(id);
+  });
+  if (toolsOpen.has(id)) { box.open = true; }
+  return box;
+}
+
+async function drawServerTools(id, box) {
+  const body = box.querySelector(".log-body");
+  body.replaceChildren(h("p.meta", {}, "…"));
+  let got;
+  try { got = await api(`/api/server-tools?id=${encodeURIComponent(id)}`); }
+  catch (err) { body.replaceChildren(h("p.trouble", {}, err.message)); return; }
+  const names = Object.keys(got.verbs).filter((t) => t !== "*").sort();
+  const picks = {};
+  const rows = names.map((t) => {
+    const pick = h("select", { "aria-label": `${t}: reads or changes` },
+      h("option", { value: "read" }, "only reads — runs unasked"),
+      h("option", { value: "write" }, "changes things — asked first"));
+    pick.value = got.verbs[t];
+    picks[t] = pick;
+    return h("div.tool-row", {},
+      h("div", {}, h("code", {}, t), got.described[t] ? h("div.meta", {}, got.described[t]) : null),
+      pick);
+  });
+  const save = h("button.btn", { type: "button" }, "Save");
+  save.addEventListener("click", async () => {
+    const marks = {};
+    for (const t of names) if (picks[t].value !== got.verbs[t]) marks[t] = picks[t].value;
+    if (!Object.keys(marks).length) { say("Nothing changed."); return; }
+    const reads = Object.values(marks).filter((k) => k === "read").length;
+    if (reads && !confirm(`Let ${reads} tool${reads === 1 ? "" : "s"} of ${id} run without ` +
+                          "asking? A tool marked \"only reads\" is never asked about.")) return;
+    save.disabled = true;
+    try {
+      await api("/api/server-tools", { id, marks });
+      say(`Saved ${id}'s tools. Agents use the new marks from their next turn.`);
+      tellParent("connections");
+      drawServerTools(id, box);
+    } catch (err) {
+      say(`Couldn't save: ${err.message}`, true);
+      save.disabled = false;
+    }
+  });
+  const read = names.filter((t) => got.verbs[t] === "read").length;
+  body.replaceChildren(
+    h("p.meta", {}, `${read} of ${names.length} only read. These marks are the server's, ` +
+      "for every account of it. A tool it adds later is asked about until you mark it."),
+    ...rows, h("div.actions", {}, save));
 }
 
 function changeLevel(row, c) {

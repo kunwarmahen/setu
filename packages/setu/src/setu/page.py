@@ -16,6 +16,9 @@ API on the same server:
                             env?}                               an MCP server of your own
     POST /api/add-mail     {server, user, password, account, port?, folder?}
                                                                 mail by IMAP (mail.py)
+    GET  /api/server-tools?id=ID        a server of your own's tools, each marked
+                                        read or write, with its description
+    POST /api/server-tools {id, marks: {tool: "read"|"write"}}   change some marks
     GET  /api/signin       the sign-in in progress, and what it has said so far
     POST /api/signin/answer {yes}        "did you sign in?", when the page can't tell
     POST /api/signin/paste  {address}    the address a sign-in ended on, pasted back
@@ -55,6 +58,14 @@ them back. A server at an address may be added from any page, a
 person's too, into their own folder. A program (``command``) only from
 the owner's page opened on this computer: Setu would run it as the
 service's user, which is the owner's to decide, at the machine.
+
+A SERVER'S TOOLS, MARKED FROM THE PAGE (``server-tools``). Each tool of
+a server of your own is ``read`` (runs unasked, and is all *Only its
+reading tools* shows) or ``write`` (asked about first), first as the
+server claimed. The page shows each with its description and a switch,
+and a change is ``setu site tools ID NAME=read`` run in the page's own
+folder -- a person's page changes their own servers -- which rewrites
+only those lines and checks the file before keeping it (own.py).
 
 MAIL BY IMAP, FROM ANY PAGE (``add-mail``). A server, an address and an
 app password: the password goes to ``setu connect mail --json`` on its
@@ -185,9 +196,10 @@ SITE_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 #: How long an install may take before the page says it failed.
 INSTALL_SECONDS = 600
 #: What a person's page answers; the rest of the API is the owner's.
-PERSON_GET = {("status",), ("connections",), ("connectors",), ("requests",), ("signin",)}
+PERSON_GET = {("status",), ("connections",), ("connectors",), ("requests",), ("signin",),
+              ("server-tools",)}
 PERSON_POST = {("connect",), ("add-server",), ("disconnect",), ("signin", "answer"),
-               ("signin", "paste"), ("signin", "cancel")}
+               ("signin", "paste"), ("signin", "cancel"), ("server-tools",)}
 #: A server's id, a token's header, an environment variable's name.
 SERVER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 HEADER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$")
@@ -408,6 +420,8 @@ class Api:
             return 200, {"certifiers": self.certifiers()}
         if parts == ["settings"]:
             return 200, self.settings()
+        if parts == ["server-tools"]:
+            return 200, self.server_tools(str((query.get("id") or [""])[0]))
         raise ApiError(404, f"no such endpoint: GET /api/{'/'.join(parts)}")
 
     # ---- writes ---------------------------------------------------------------
@@ -423,6 +437,12 @@ class Api:
             return 200, self.add_server(body, local)
         if parts == ["disconnect"]:
             return 200, self.disconnect(str(body.get("ref") or ""))
+        if parts == ["server-tools"]:
+            marks = body.get("marks")
+            if not isinstance(marks, dict) or not marks or not all(
+                    isinstance(k, str) and v in ("read", "write") for k, v in marks.items()):
+                raise ApiError(400, 'marks is {"tool": "read" or "write", ...}')
+            return 200, self.server_tools(str(body.get("id") or ""), marks)
         if parts == ["signin", "answer"]:
             if not isinstance(body.get("yes"), bool):
                 raise ApiError(400, "yes must be true or false")
@@ -601,6 +621,25 @@ class Api:
         for line in ([token] if token else []) + list(env.values()):
             self.signin.say(line)
         return started
+
+    def server_tools(self, server_id: str,
+                     marks: dict[str, str] | None = None) -> dict[str, Any]:
+        """A server of your own's tools and marks, or some changed, through
+        ``setu site tools`` in this page's folder (own.set_marks)."""
+        if not SERVER_ID_RE.match(server_id):
+            raise ApiError(400, "which server? give its id")
+        argv = [*self.setu, "site", "tools", server_id,
+                *(f"{tool}={klass}" for tool, klass in (marks or {}).items()), "--json"]
+        try:
+            done = subprocess.run(argv, capture_output=True, text=True, timeout=30,
+                                  env=self.env, stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ApiError(500, f"setu site tools: {exc}") from None
+        if done.returncode != 0:
+            said = (done.stderr or done.stdout).strip().splitlines()
+            raise ApiError(400, said[-1].removeprefix("error: ") if said
+                           else "setu site tools failed")
+        return json.loads(done.stdout)
 
     def disconnect(self, ref: str) -> dict[str, Any]:
         if not ref or ref not in self.vault.list():

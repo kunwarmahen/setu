@@ -30,6 +30,16 @@ It is the server's own claim, taken once and written down where the
 person can read and change it (``setu site file ID``); adding the server
 again keeps every line already there and adds the new tools.
 
+A MARK CHANGED BY NAME, NOTHING ELSE TOUCHED. ``set_marks`` (``setu site
+tools ID NAME=read``, and the switches on Setu's page) rewrites only the
+values of the ``[verbs]`` lines it names -- comments, order and every
+other line stay -- and the file is loaded back the way every manifest is
+before it replaces the old one (kept as ``.bak``). Only a tool the file
+already lists can be marked, and only ``read`` or ``write``: a name the
+server never listed would be a mark nothing uses, said as an error. The
+``"*"`` line -- whatever the server adds later -- stays ``write``: a tool
+nobody has seen is asked about before it runs.
+
 TWO LEVELS. *Only its reading tools* is the least, as every manifest's
 first level is; *All its tools* is what adding one gives unless told,
 since the person brought the server. At the first level a ``tools/call``
@@ -460,6 +470,88 @@ def write(data: dict[str, Any]) -> Manifest:
     except ManifestError:
         staged.unlink()
         raise
+    staged.replace(target)
+    return load(target)
+
+
+MARKS = ("read", "write")
+_VERBS_TABLE = re.compile(r"^\s*\[verbs\]\s*$")
+_ANY_TABLE = re.compile(r"^\s*\[")
+_VERB_LINE = re.compile(r'^(\s*)("(?:[^"\\]|\\.)*"|[A-Za-z0-9_*-]+)(\s*=\s*)"(read|write)"(.*)$')
+
+
+def marks(server_id: str) -> dict[str, str]:
+    """Each tool of a server of your own and its mark, as its file says."""
+    target = path_for(server_id)
+    if not target.exists():
+        raise ManifestError(f"{server_id!r} is not a server of your own here")
+    return {t: k for t, k in load(target).verbs.items()}
+
+
+def described(server_id: str) -> dict[str, str]:
+    """Each tool's description, as the comment above its line (``draft``
+    writes the server's own words there)."""
+    said: dict[str, str] = {}
+    inside, comment = False, ""
+    for line in path_for(server_id).read_text(encoding="utf-8").splitlines():
+        if _ANY_TABLE.match(line):
+            inside, comment = bool(_VERBS_TABLE.match(line)), ""
+            continue
+        if not inside:
+            continue
+        if line.lstrip().startswith("#"):
+            comment = line.lstrip()[1:].strip()
+            continue
+        found = _VERB_LINE.match(line)
+        if found is not None and comment:
+            key = found.group(2)
+            said[json.loads(key) if key.startswith('"') else key] = comment
+        comment = ""
+    return said
+
+
+def set_marks(server_id: str, changes: dict[str, str]) -> Manifest:
+    """Mark some of a server's tools ``read`` or ``write``, by name."""
+    target = path_for(server_id)
+    if not target.exists():
+        raise ManifestError(f"{server_id!r} is not a server of your own here; only "
+                            "those have marks Setu may change")
+    known = load(target).verbs
+    for tool, klass in changes.items():
+        if klass not in MARKS:
+            raise ManifestError(f"{tool}: a mark is read or write, not {klass!r}")
+        if tool == "*" and klass != "write":
+            raise ManifestError('"*" (what the server adds later) stays write: a tool '
+                                "nobody has seen is asked about before it runs")
+        if tool not in known:
+            raise ManifestError(f"{server_id} has no tool {tool!r} (it lists "
+                                f"{', '.join(sorted(t for t in known if t != '*'))})")
+    lines = target.read_text(encoding="utf-8").splitlines()
+    inside, left = False, dict(changes)
+    for i, line in enumerate(lines):
+        if _ANY_TABLE.match(line):
+            inside = bool(_VERBS_TABLE.match(line))
+            continue
+        found = _VERB_LINE.match(line) if inside else None
+        if found is None:
+            continue
+        lead, key, eq, _, rest = found.groups()
+        name = json.loads(key) if key.startswith('"') else key
+        if name in left:
+            lines[i] = f'{lead}{key}{eq}"{left.pop(name)}"{rest}'
+    if left:
+        raise ManifestError(f"{target}: couldn't find the line for "
+                            f"{', '.join(sorted(left))} under [verbs]; change it with "
+                            f"`setu site file {server_id}`")
+    staged = target.with_suffix(".toml.new")
+    staged.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        load(staged)
+    except ManifestError:
+        staged.unlink()
+        raise
+    target.with_suffix(".toml.bak").write_text(target.read_text(encoding="utf-8"),
+                                                encoding="utf-8")
     staged.replace(target)
     return load(target)
 
