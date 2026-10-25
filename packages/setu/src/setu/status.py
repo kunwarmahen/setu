@@ -62,8 +62,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from setu import __version__, catalog, certify, config, connections, health, sandbox, seal
 from setu import browser as site_browser
+from setu import catalog, certify, config, connections, health, sandbox, seal, version
 from setu.manifest import Manifest, ManifestError, installed, servers_dir, sites_dir
 from setu.vault import FileVault, Vault, default_home
 
@@ -282,7 +282,8 @@ def report(vault: Vault | None = None) -> dict[str, Any]:
     ready_setup = {**setup, "_ha_connected": {r["connector"] for r in rows if r["base_url"]}}
     return {
         "format": FORMAT,
-        "version": __version__,
+        "version": version.version(),
+        "commit": version.commit(),
         "command": command,
         "connections": rows,
         "connectors": (cards := [{**_connector(m, m.id in connected, ready_setup, index),

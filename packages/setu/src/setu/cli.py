@@ -135,6 +135,7 @@ from setu import (
     homeassistant,
     proxy,
     seal,
+    version,
 )
 from setu.manifest import ManifestError, find, installed
 from setu.vault import FileVault, VaultError
@@ -1564,6 +1565,7 @@ def _catalog(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="setu", description=__doc__.split("\n")[0])
+    parser.add_argument("--version", action=version.Show)
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("connectors", help="installed connectors and their access levels")
