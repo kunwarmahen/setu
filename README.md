@@ -325,7 +325,7 @@ A Google sign-in for an app in Testing ends 7 days after it was made,
 and Setu knows that day without trying: `setu status --json` carries it
 as `"ends"`, and in its last three days `setu list` and Setu's page say
 `SIGN-IN ENDS Sun 25 Oct 22:44 … sign in again before then`
-(`sarathi doctor` says it too). When your Google app is published (In
+(`sarathi doctor` says it too); **Sign in again** on its card does it. When your Google app is published (In
 production), its sign-ins don't end: `setu config google-published on`
 and Setu stops saying it.
 
@@ -918,6 +918,10 @@ You can also make changes there:
   and nothing is saved.
 * **Change level** on a connection signs in again at the new level, as
   `setu connect … --level` does.
+* **Sign in again** on a connection signs in again at the level it has, as
+  `setu connect gmail --as personal` does: the button for a Google sign-in
+  about to end, or one a site refused, and it stands out when the card says
+  so. From your phone it opens in the streamed window, like **Connect**.
 * **Disconnect** asks first, then revokes the key at the site and deletes
   it here (for a browser sign-in, it deletes the profile).
 * **Add a site** opens a window on any site you name. You sign in, and

@@ -291,7 +291,22 @@ function changeLevel(row, c) {
     startSignIn("/api/connect", { connector: row.connector, account: row.account,
                                   level: pick.value });
   });
-  return h("div.actions", {}, pick, go);
+  return h("div.actions", {}, pick, go, signInAgain(row, c));
+}
+
+// The same sign-in at the same level: a Google sign-in about to end (or
+// ended), or one a site dropped. From another device it opens in the
+// streamed window, as connecting does.
+function signInAgain(row, c) {
+  const go = h("button.btn" + (row.health_line ? ".go" : ""), { type: "button" },
+               "Sign in again");
+  go.addEventListener("click", () => {
+    if (!confirm(`Sign in to ${c.name} · ${row.account} again? The sign-in it has now ` +
+                 "stays until you finish.")) return;
+    startSignIn("/api/connect", { connector: row.connector, account: row.account,
+                                  level: row.level });
+  });
+  return go;
 }
 
 function disconnectButton(row, name) {

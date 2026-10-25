@@ -410,6 +410,16 @@ def test_a_framed_page_says_only_that_something_changed():
     assert 'tellParent("connections")' in script and 'tellParent("available")' in script
 
 
+def test_a_connection_can_be_signed_in_again_at_the_level_it_has():
+    """A Google sign-in about to end must be renewable from a phone, where
+    no terminal is: Change level does nothing at the same level, so the
+    card has its own button, and it asks for the level the card shows."""
+    from importlib.resources import files
+    script = files("setu").joinpath("static", "page.js").read_text()
+    assert '"Sign in again"' in script
+    assert "account: row.account,\n                                  level: row.level }" in script
+
+
 def test_the_pages_script_parses():
     import shutil
     import subprocess

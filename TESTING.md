@@ -141,7 +141,7 @@ where sending is normally allowed.
 
 | You see | It means | Do |
 |---|---|---|
-| `SIGN-IN ENDS Sun 25 Oct …` under a Gmail account in `setu list` | the Google app is in Testing, and this sign-in is in its last 3 days | sign in again before then (`setu connect gmail --as ‹account›`), or publish the app and run `setu config google-published on` |
+| `SIGN-IN ENDS Sun 25 Oct …` under a Gmail account in `setu list` | the Google app is in Testing, and this sign-in is in its last 3 days | sign in again before then (`setu connect gmail --as ‹account›`, or **Sign in again** on its card on Setu's page), or publish the app and run `setu config google-published on` |
 | *No working Gmail sign-in* / *could not refresh*, or `SIGN-IN EXPIRED` in `setu list` | Google signed you out — apps in Testing mode expire after 7 days; Setu marks the connection when Google refuses it | `uv run setu connect gmail --level draft --client-file ‹file›`; a running Yantra has it back on its next turn. Publish the Google app to stop it (README, *Testing mode signs you out weekly*) |
 | No Gmail tools listed, and no `setu:` line at startup | Yantra did not find Setu | set `YANTRA_SETU=/path/to/setu/.venv/bin/setu` in Yantra's `.env` (or start with `--setu PATH`, which stops with a reason if it cannot be used) |
 | *does not have permission for that* | the connection is Read only | reconnect with `--level draft` if you want drafts |
