@@ -245,7 +245,7 @@ untouched. Where the page listens is yours to set:
 | `SETU_WINDOW_HOST` | the address it listens on (default `127.0.0.1`) |
 | `SETU_WINDOW_PORT` | its port (default: any free one) |
 | `SETU_WINDOW_URL` | the address in the link, when it differs (a tunnel, a reverse proxy) |
-| `SETU_WINDOW_NAME` | the name in the link instead of the address it listens on: what your home network calls this computer (`beast.local`) |
+| `SETU_WINDOW_NAME` | the name in the link instead of the address it listens on: what your home network calls this computer (`beast.local`; over a VPN, your router's name for it, since `.local` is only found on the Wi-Fi) |
 | `SETU_WINDOW_DISPLAY` | a screen that is already there (`:1`, your desktop's) instead of Xvfb: the browser gets your graphics card, and anyone at that desktop sees the window |
 
 Which is safe for what: your **home network address** works for people at
@@ -782,7 +782,8 @@ It is free and works with an ordinary @gmail.com account.
 > `setu list`, `setu status --json` (`"expired"`) and Setu's page say
 > `SIGN-IN EXPIRED since …` with the command that fixes it, and an agent
 > stops offering its tools and tells you instead. `setu connect gmail --as
-> <account>` again clears it, and agents already running pick it up on
+> <account>` again (or **Sign in again** on its card on Setu's page) clears
+> it, and agents already running pick it up on
 > their next turn. Before that happens, in a sign-in's last three days,
 > `setu list` and Setu's page say `SIGN-IN ENDS …` with the day. To stop the
 > weekly sign-out, publish the app: **OAuth
