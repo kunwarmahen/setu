@@ -620,8 +620,9 @@ A `write` tool is asked about first. A tool the server adds later counts
 as `write` until you say otherwise. The marks are the server's own claim,
 so look them over and change any of them. On Setu's page, the server's
 card has **Its tools: which only read**: each tool with the server's own
-description and a switch (*only reads — runs unasked* or *changes
-things — asked first*), and **Save**. In a terminal:
+description and a drop-down (*only reads — runs unasked* or *changes
+things — asked first*), and **Save**, which asks once before a tool may
+run unasked. In a terminal:
 
 ```
 $ setu site tools weather
