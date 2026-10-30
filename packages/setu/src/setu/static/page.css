@@ -200,3 +200,5 @@ body.person .owner-only { display: none; }
                    gap: 12px; padding: 6px 0; border-top: 1px solid var(--line, #ddd); }
 .tools .tool-row code { overflow-wrap: anywhere; }
 .tools .tool-row select { flex: none; max-width: 55%; }
+.tools .tool-find { display: flex; flex-wrap: wrap; gap: .5em; align-items: center;
+  margin: .5em 0; }

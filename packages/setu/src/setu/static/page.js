@@ -225,7 +225,10 @@ function connectionCard(row, names, logOpen, c) {
 // A server of your own: each of its tools marked "read" (runs unasked, and
 // is all "Only its reading tools" shows) or "write" (asked about first),
 // as the server first claimed. Changed here, saved by `setu site tools`.
+// A long list (Notion has 65) gets a box to find one by its name or what it
+// does, and a choice of which marks to show; Save still covers every row.
 const toolsOpen = new Set();
+const FIND_PAST = 10;
 function serverTools(id) {
   const box = h("details.log.tools", { "data-server": id },
                 h("summary", {}, "Its tools: which only read"), h("div.log-body", {}));
@@ -277,7 +280,32 @@ async function drawServerTools(id, box) {
   body.replaceChildren(
     h("p.meta", {}, `${read} of ${names.length} only read. These marks are the server's, ` +
       "for every account of it. A tool it adds later is asked about until you mark it."),
+    names.length > FIND_PAST ? toolFinder(names, got.described, picks, rows) : null,
     ...rows, h("div.actions", {}, save));
+}
+
+function toolFinder(names, described, picks, rows) {
+  const words = h("input.field.wide", { type: "search", placeholder: "Find a tool",
+                                        "aria-label": "find a tool by its name or what it does" });
+  const which = h("select", { "aria-label": "which tools to show" },
+    h("option", { value: "" }, "every tool"),
+    h("option", { value: "read" }, "only reads"),
+    h("option", { value: "write" }, "asked first"));
+  const shown = h("span.small.meta", {});
+  const show = () => {
+    const want = words.value.trim().toLowerCase();
+    let n = 0;
+    names.forEach((t, i) => {
+      const hit = (!want || `${t} ${described[t] || ""}`.toLowerCase().includes(want))
+                  && (!which.value || picks[t].value === which.value);   // as marked now
+      rows[i].hidden = !hit;
+      n += hit;
+    });
+    shown.textContent = n === names.length ? "" : `${n} of ${names.length} shown`;
+  };
+  words.addEventListener("input", show);
+  which.addEventListener("change", show);
+  return h("div.tool-find", {}, words, which, shown);
 }
 
 function changeLevel(row, c) {

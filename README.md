@@ -622,7 +622,10 @@ so look them over and change any of them. On Setu's page, the server's
 card has **Its tools: which only read**: each tool with the server's own
 description and a drop-down (*only reads — runs unasked* or *changes
 things — asked first*), and **Save**, which asks once before a tool may
-run unasked. In a terminal:
+run unasked. A server with more than ten tools (Notion has 65) gets a
+**Find a tool** box above them, matching a tool's name or what it does,
+and a choice of *every tool*, *only reads* or *asked first*; Save still
+saves every tool, shown or not. In a terminal:
 
 ```
 $ setu site tools weather
