@@ -64,6 +64,7 @@ a { color: var(--teal); }
 }
 .brand { display: flex; align-items: baseline; gap: 10px; }
 .brand h1 { font-size: 22px; }
+.brand .logo { width: 24px; height: 24px; border-radius: 6px; align-self: center; }
 .mark { font-family: var(--deva); color: var(--teal); font-size: 22px; line-height: 1; }
 .facts { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--ink-3); font-size: 13px; }
 .facts .folder { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
