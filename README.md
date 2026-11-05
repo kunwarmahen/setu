@@ -433,6 +433,15 @@ shows the current guide. Only files in `sites/` are ever written, and only
 their `guide` line. A guide you wrote yourself across several lines is
 left alone.
 
+A guide earns its place where a wrong guess fails quietly. Google
+Calendar opens a day at `/calendar/u/0/r/day/2026/11/2`. Given
+`/r/day/2026-11-02`, it shows the small month calendar and an empty
+space where the day should be, with no error. An agent read that as a
+free day and missed a 7 pm event. Two sentences fix it: how the address
+is written, and what a day that opened looks like (its heading, *Monday,
+November 2, 2026, 2 events*), so a page without that heading is opened
+again instead of reported free.
+
 To change the rest (which pages spend money, the pace, the signed-in
 cookie), edit the file, or let a page do it: `setu site file example`
 prints it, and `setu site file example --set` replaces it from stdin.
