@@ -887,6 +887,7 @@ setu lock set | unlock | seal      # a folder only your passphrase opens (see "H
 setu disconnect gmail:personal     # revoke at Google, then delete the key
 setu status --json                 # everything above, for a harness to read (no keys)
 setu keeps --json                  # where your accounts are kept, for a backup (Sarathi's sarathi backup)
+setu keeps --rehome OLD NEW        # restored on a computer whose home is NEW: the vault's browser profiles and the settings' paths moved (Sarathi's restore asks)
 setu config client-file PATH       # remember the Google client file's path (--unset forgets)
 setu config homeassistant-url URL  # remember where your Home Assistant is
 setu connect amazon --as personal  # a site with no API: sign in in a window, then close it
@@ -1355,6 +1356,7 @@ reads are sent to that provider.
 packages/setu/        the core: vault, Google sign-in, connections, the request proxy and sandbox, setu.http(),
                       and servers of your own (own.py: try, write down, each tool's mark changed by name, the setu-own-mcp bridge);
                       keeps.py: where it all is, for a backup (setu.keeps.v1), caches and Chrome's locks left out;
+                      `--rehome`: its own paths moved to a new home after a restore;
                       version.py: `setu --version` and status's "version", the day of the last commit and
                       that day's count (2026.10.25.3) with the commit, from git or the image's VERSION file
 packages/setu-gmail/  the Gmail connector: an MCP server, and its manifest

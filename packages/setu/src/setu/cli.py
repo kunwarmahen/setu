@@ -14,6 +14,7 @@
     setu disconnect gmail:personal       revoke at Google, then forget
     setu status --json                   the same, for a harness to read
     setu keeps [--json]                  where your accounts are kept, for a backup
+    setu keeps --rehome OLD NEW          after a restore: paths under OLD now under NEW
     setu serve [--port 8775]             all of it in a browser, at the address it prints
     setu config client-file PATH         remember the client file, for every harness
     setu connect homeassistant --as home   your Home Assistant's own login page
@@ -1249,8 +1250,22 @@ def _status(args: argparse.Namespace) -> int:
 
 def _keeps(args: argparse.Namespace) -> int:
     """``setu keeps``: the places a backup takes (keeps.py). Paths only."""
-    from setu.keeps import report
+    from setu.keeps import rehome, report
 
+    if args.rehome:
+        try:
+            changed = rehome(*args.rehome)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps({"rehomed": changed}))
+            return 0
+        for row in changed:
+            print(f"{row['file']}: {row['paths']} path(s) moved under {args.rehome[1]}")
+        if not changed:
+            print(f"nothing under {args.rehome[0]} in Setu's files")
+        return 0
     data = report()
     if args.json:
         print(json.dumps(data, indent=2))
@@ -1741,6 +1756,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     keeps = sub.add_parser("keeps", help="where Setu keeps your accounts, for a backup")
     keeps.add_argument("--json", action="store_true", help="setu.keeps.v1")
+    keeps.add_argument("--rehome", nargs=2, metavar=("OLD", "NEW"),
+                       help="after a restore on a new home: move Setu's paths under OLD "
+                            "to under NEW (its vault's browser profiles, its settings)")
 
     serve = sub.add_parser("serve", help="Setu's page: connections, levels and logs in a "
                            "browser")

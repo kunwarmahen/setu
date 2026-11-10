@@ -56,3 +56,52 @@ def test_keeps_json_names_its_format(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("SETU_HOME", str(tmp_path))
     assert main(["keeps", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["format"] == "setu.keeps.v1"
+
+
+# -- a new home ---------------------------------------------------------------------
+# The bias: EVERY SIGN-IN SIGNED OUT AFTER A RESTORE. The vault names each
+# browser profile by its whole path; restored under another home, each one
+# points at a folder that isn't there.
+
+
+def _restored(tmp_path, monkeypatch):
+    home = tmp_path / "new" / ".local" / "state" / "setu"
+    home.mkdir(parents=True)
+    old = "/home/old"
+    (home / "vault.json").write_text(json.dumps({"connections": [
+        {"ref": "amazon-personal", "profile": f"{old}/.local/state/setu/profiles/"
+                                              "amazon-personal",
+         "secret": {"sealed": "AAAA"}},
+        {"ref": "work", "profile": "/media/usb/profiles/work"}]}))
+    (home / "config.json").write_text(json.dumps({"google_client_file":
+                                                  f"{old}/Desktop/client.json",
+                                                  "level": "read"}))
+    monkeypatch.setenv("SETU_HOME", str(home))
+    return home, old
+
+
+def test_a_restore_on_a_new_home_moves_setus_own_paths(tmp_path, monkeypatch):
+    home, old = _restored(tmp_path, monkeypatch)
+    new = str(tmp_path / "new")
+    changed = keeps.rehome(old, new)
+    assert [(r["file"].rsplit("/", 1)[1], r["paths"]) for r in changed] == [
+        ("vault.json", 1), ("config.json", 1)]
+    vault = json.loads((home / "vault.json").read_text())["connections"]
+    assert vault[0]["profile"] == f"{new}/.local/state/setu/profiles/amazon-personal"
+    assert vault[0]["secret"] == {"sealed": "AAAA"}             # sealed left as it was
+    assert vault[1]["profile"] == "/media/usb/profiles/work"     # not under the old home
+    assert json.loads((home / "config.json").read_text())["google_client_file"] == \
+        f"{new}/Desktop/client.json"
+    assert keeps.rehome(old, new) == []                          # twice is nothing
+
+
+def test_rehome_from_the_command_line_and_said_in_keeps(tmp_path, monkeypatch, capsys):
+    _, old = _restored(tmp_path, monkeypatch)
+    assert keeps.report()["rehome"] is True
+    assert main(["keeps", "--rehome", old, str(tmp_path / "new"), "--json"]) == 0
+    assert [r["paths"] for r in json.loads(capsys.readouterr().out)["rehomed"]] == [1, 1]
+    assert main(["keeps", "--rehome", "old", "new"]) == 2        # whole paths only
+    assert "two whole paths" in capsys.readouterr().err
+    # a folder that only starts with the same letters isn't under it
+    assert keeps._moved({"p": "/home/older/x", "q": "/home/old"}, "/home/old", "/n") == (
+        {"p": "/home/older/x", "q": "/n"}, 1)
