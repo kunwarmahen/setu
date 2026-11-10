@@ -206,6 +206,7 @@ function connectionCard(row, names, logOpen, c) {
     h("div.meta", {}, `last used ${ago(row.last_used)}`,
       row.road === "browser" ? " · signed in through a browser window" : ""),
     row.health_line ? h("div.trouble", {}, row.health_line) : null,
+    row.script_links_offer ? h("div.trouble", {}, row.script_links_offer) : null,
     row.locked ? h("div.warn", {}, "Sealed: it can't be used until the folder is " +
                    "opened (setu lock unlock).") : null,
     row.installed ? null : h("div.warn", {}, `Its connector (${row.connector}) is not ` +

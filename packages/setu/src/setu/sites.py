@@ -141,7 +141,8 @@ def to_toml(data: dict[str, Any]) -> str:
              "# Edit freely: add pages that spend to spend_pages, a short guide to the",
              "# site, or the cookie that means signed in to signed_in. A site that",
              "# opens its pages by script, with no address to load (a webmail inbox),",
-             "# reads only with script_links = true under [browser].", ""]
+             "# reads only with script_links = true under [browser]",
+             "# (setu site script-links ID on).", ""]
     for key in ("id", "name", "summary", "road", "auth", "generated", "hosts"):
         lines.append(f"{key} = {_value(data[key])}")
     lines += ["", "[browser]"]
@@ -206,6 +207,45 @@ def set_text(site_id: str, text: str) -> Manifest:
                         f"it must stay {known.road!r}, {known.auth!r}")
     target.with_suffix(".toml.bak").write_text(target.read_text(encoding="utf-8"),
                                                 encoding="utf-8")
+    staged.replace(target)
+    return load(target)
+
+
+_SCRIPT_LINE = re.compile(r"^script_links\s*=\s*(true|false)\s*(#.*)?$")
+
+
+def set_script_links(site_id: str, on: bool) -> Manifest:
+    """``script_links`` on or off under [browser] of a site added here:
+    reading may press a link with no address (never a button, never one
+    whose words spend, delete or send)."""
+    known = installed().get(site_id)
+    if known is None or not known.local:
+        raise SiteError(f"{site_id!r} is not a site added on this computer; only "
+                        "those are Setu's to write")
+    target = path_for(site_id)
+    lines = target.read_text(encoding="utf-8").splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if line.strip() == "[browser]")
+    except StopIteration:
+        raise SiteError(f"{target} has no [browser] table") from None
+    end = next((i for i in range(start + 1, len(lines)) if _TABLE.match(lines[i])),
+               len(lines))
+    new = f"script_links = {'true' if on else 'false'}"
+    at = next((i for i in range(start + 1, end)
+               if lines[i].lstrip().startswith("script_links")), None)
+    if at is None:
+        lines.insert(start + 1, new)
+    elif _SCRIPT_LINE.match(lines[at].strip()):
+        lines[at] = new
+    else:
+        raise SiteError(f"script_links in {target} is written by hand; edit it there")
+    staged = target.with_suffix(".toml.new")
+    staged.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        load(staged)
+    except (ManifestError, ValueError) as exc:
+        staged.unlink()
+        raise SiteError(f"that would break {target}: {exc}") from None
     staged.replace(target)
     return load(target)
 

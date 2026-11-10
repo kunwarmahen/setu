@@ -508,9 +508,15 @@ disappears when you sign out.
 Some sites open a page with a script, not an address: in Yahoo Mail's
 inbox every message is a row you press, with no link behind it. On a
 site like that, *Read only* can list the inbox but can't open a message,
-because reading never presses anything. Add `script_links = true` under
-`[browser]` and the agent's `follow` may press such a row. It still
-won't press a button, or a link whose words spend, delete or send
+because reading never presses anything. Run `setu site script-links
+example on` (or add `script_links = true` under `[browser]`) and the
+agent's `follow` may press such a row. It still won't press a button, or
+a link whose words spend, delete or send. You needn't know which sites
+are like this: each time reading is refused such a link, the agent's tools
+tell Setu (`setu site event … script_link`), and after twice in a week
+`setu list` and the site's card on Setu's page say *"its links open by
+script … `setu site script-links example on` lets reading press such a
+link"*
 ([Yantra's note 128](https://github.com/kunwarmahen/yantra/blob/main/notes/128-a-link-that-runs-a-script.md)).
 
 Only sites reached through the browser can be added this way. A connector

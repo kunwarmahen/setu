@@ -32,6 +32,7 @@
                                          (Prahari keeping a mailbox open); never to a screen
     setu site guide example [--set TEXT] a site added here: its short guide, shown or replaced
     setu site event amazon:personal robot_check   a harness noting what went wrong (a week kept)
+    setu site script-links yahoo on      reading may press a link that opens by script
     setu config browser PATH             which browser that window is (default: Chrome on PATH)
     setu catalog                         the signed catalog: labels, installs, withdrawn
     setu catalog use PATH|URL            check an index (and its .sig) and keep it; a URL
@@ -554,6 +555,17 @@ def _site(args: argparse.Namespace) -> int:
         return _site_file(args)
     if args.site_command == "tools":
         return _site_tools(args)
+    if args.site_command == "script-links":
+        from setu import sites
+        try:
+            sites.set_script_links(args.id, args.state == "on")
+        except sites.SiteError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(f"{args.id}: reading may press a link that opens by script (never a "
+              "button, never one that spends, deletes or sends)" if args.state == "on"
+              else f"{args.id}: reading opens only links with an address")
+        return 0
     return _site_event(args) if args.site_command == "event" else _site_guide(args)
 
 
@@ -1042,9 +1054,24 @@ def _list(_args: argparse.Namespace) -> int:
             print(f"{'':<22} {soon}")
         if seen := health.line(ref):
             print(f"{'':<22} {seen}")
+        if offer := _script_links_offer(ref, raw):
+            print(f"{'':<22} {offer}")
     print(f"\nkeys live in {vault.path} (readable by you only); none is ever shown on a "
           "screen")
     return 0
+
+
+def _script_links_offer(ref: str, raw: dict) -> str:
+    """``setu list``'s line offering script_links to a site that keeps
+    finding links that open by script (health.suggestion)."""
+    if raw.get("auth") != "browser":
+        return ""
+    try:
+        manifest = find(raw.get("connector") or ref.split(":", 1)[0])
+    except Exception:  # noqa: BLE001 -- a listing never fails on one site
+        return ""
+    on = bool(manifest.browser and manifest.browser.script_links)
+    return health.suggestion(ref, on, bool(getattr(manifest, "local", False)))
 
 
 def _check(args: argparse.Namespace) -> int:
@@ -1682,9 +1709,15 @@ def build_parser() -> argparse.ArgumentParser:
     stools.add_argument("changes", nargs="*", metavar="NAME=read|write")
     stools.add_argument("--json", action="store_true", dest="json_out")
     event = site_sub.add_parser("event", help="a site's tools: note what went wrong "
-                                "(robot_check, signed_out, refused, limit, handoff)")
+                                "(robot_check, signed_out, refused, limit, handoff, "
+                                "script_link)")
     event.add_argument("ref", help="the connection, e.g. amazon:personal")
-    event.add_argument("kind", help="robot_check, signed_out, refused, limit or handoff")
+    event.add_argument("kind", help="robot_check, signed_out, refused, limit, handoff "
+                                    "or script_link")
+    sl = site_sub.add_parser("script-links", help="let reading press a link with no "
+                             "address on this site (a webmail inbox's rows): on or off")
+    sl.add_argument("id")
+    sl.add_argument("state", choices=("on", "off"))
 
     inst = sub.add_parser("install", help="install a connector the catalog lists, "
                           "checked by hash")

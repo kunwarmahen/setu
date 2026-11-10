@@ -8,6 +8,12 @@ say when one happens (``setu site event amazon:personal robot_check``),
 and Setu keeps a week of them per connection: ``setu list``, the status
 report and a harness's page show the counts.
 
+A KIND THAT ASKS FOR A SETTING. ``script_link`` -- reading was refused a
+link with no address to load, which a webmail inbox is full of -- is
+more than a count: seen twice in a week on a site added here that
+doesn't have ``script_links``, ``suggestion`` offers it, with the one
+command that turns it on.
+
 KINDS, NOT DETAILS. An event is a kind and a time -- never the page, the
 address or anything on it. What happened on which page is the
 harness's to log; this is the shape of it over days.
@@ -39,7 +45,11 @@ KINDS = {
     "refused": "refused to press",
     "limit": "action limit reached",
     "handoff": "handed to you",
+    "script_link": "a link that opens by script",
 }
+#: A site whose links kept opening by script, this many times in a week,
+#: is offered ``script_links`` (``suggestion``).
+SCRIPT_LINKS_AFTER = 2
 WEEK = 7 * 24 * 3600
 
 
@@ -114,3 +124,19 @@ def forget(ref: str) -> None:
         with os.fdopen(handle, "w", encoding="utf-8") as out:
             json.dump(data, out)
         os.replace(staged, target)
+
+
+def suggestion(ref: str, script_links: bool, local: bool,
+               home: Path | None = None) -> str:
+    """A site's tools kept finding links with no address to load (a
+    webmail inbox's rows): a line offering ``script_links``, with the
+    command, for a site added here that hasn't it. Empty otherwise."""
+    if script_links or not local:
+        return ""
+    seen = week(ref, home=home).get("counts", {})
+    if seen.get("script_link", 0) < SCRIPT_LINKS_AFTER:
+        return ""
+    site = ref.split(":", 1)[0]
+    return (f"its links open by script ({seen['script_link']}× this week), so reading "
+            f"can't open them: `setu site script-links {site} on` lets reading press "
+            "such a link (never a button, never one that spends, deletes or sends)")

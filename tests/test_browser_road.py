@@ -510,6 +510,39 @@ class TestTheGuideGrows:
         assert find("shop").browser.signed_in == ("sess*",)
 
 
+class TestLinksThatOpenByScript:
+    """The bias: A SITE WHOSE READING NEVER OPENS A MESSAGE, AND NOBODY SAYS WHY.
+    A webmail inbox's rows have no address; reading lists them and opens none
+    until script_links is on, which was a hand edit nobody knew to make."""
+
+    def connected(self, home):
+        window, dump, _, _ = a_site([], SIGNED_IN_PAGE)
+        site(window=window, dump=dump)
+        return home / "sites" / "example.toml"
+
+    def test_script_links_on_and_off_and_the_rest_kept(self, home, capsys):
+        path = self.connected(home)
+        path.write_text("# my note\n" + path.read_text())
+        assert main(["site", "script-links", "example", "on"]) == 0
+        assert find("example").browser.script_links is True
+        assert "reading may press a link that opens by script" in capsys.readouterr().out
+        assert main(["site", "script-links", "example", "off"]) == 0
+        assert find("example").browser.script_links is False
+        assert path.read_text().startswith("# my note")
+        assert main(["site", "script-links", "amazon", "on"]) == 2   # not one added here
+
+    def test_twice_in_a_week_offers_it_with_the_command(self, home):
+        from setu import health
+        self.connected(home)
+        health.record("example:personal", "script_link")
+        assert health.suggestion("example:personal", False, True) == ""
+        health.record("example:personal", "script_link")
+        offer = health.suggestion("example:personal", False, True)
+        assert "`setu site script-links example on`" in offer and "2× this week" in offer
+        assert health.suggestion("example:personal", True, True) == ""     # on already
+        assert health.suggestion("example:personal", False, False) == ""   # not ours
+
+
 class TestLastUsed:
     def test_the_profile_says_when_it_was_last_used(self, home):
         import os

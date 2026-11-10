@@ -185,7 +185,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from setu import catalog, certify, config, connections, health, people, proxy, status
-from setu.manifest import installed
+from setu.manifest import find, installed
 from setu.vault import FileVault, default_home
 
 DEFAULT_PORT = 8775
@@ -708,6 +708,16 @@ class Api:
                 connections.ends_line(self.vault.get(row["ref"]) or {},
                                       config.google_published()),
                 health.line(row["ref"], self.vault.home))))
+            if row["browser"]:
+                # a site whose links keep opening by script: offered script_links
+                try:
+                    site = find(row.get("connector") or row["ref"].split(":", 1)[0])
+                except Exception:  # noqa: BLE001 -- a card never fails on one site
+                    site = None
+                if site is not None:
+                    card["script_links_offer"] = health.suggestion(
+                        row["ref"], bool(site.browser and site.browser.script_links),
+                        site.local, self.vault.home)
             rows.append(card)
         return rows
 
