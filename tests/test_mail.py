@@ -170,3 +170,37 @@ def test_a_server_that_says_no_is_said_in_words_not_as_a_bare_failure(imap):
     from mcp.server.mcpserver.exceptions import ToolError
     with pytest.raises(ToolError, match="refused the user and password"):
         asyncio.run(server.call_tool("search_mail", {}))
+
+
+# -- the server from the address ------------------------------------------------------
+# The bias: A KNOWN SERVICE THAT STILL ASKS FOR ITS SERVER. "Add my Yahoo mail"
+# needed imap.mail.yahoo.com typed by someone who had never heard of IMAP.
+
+
+def test_the_common_services_are_found_from_the_address():
+    from setu.mail import known_server
+    assert known_server("asha@yahoo.com")[:2] == ("imap.mail.yahoo.com", "Yahoo")
+    assert known_server("Me@YMail.com")[0] == "imap.mail.yahoo.com"
+    assert "login.yahoo.com/account/security" in known_server("a@yahoo.co.in")[2]
+    assert known_server("me@icloud.com")[0] == "imap.mail.me.com"
+    assert known_server("me@hotmail.com")[0] == "outlook.office365.com"
+    assert known_server("me@example.com") is None and known_server("no-at-sign") is None
+
+
+def test_connect_mail_with_a_yahoo_address_needs_no_server(home, monkeypatch, capsys):
+    from setu import cli
+    seen = {}
+
+    def connect_mail(manifest, account, **kw):
+        seen.update(kw)
+        return {"level": manifest.default_level.name, "email": kw["user"],
+                "said": f"{kw['user']} at {kw['server']}"}
+
+    monkeypatch.setattr(cli.connections, "connect_mail", connect_mail)
+    monkeypatch.setattr(cli, "_stdin_secret", lambda *_a: "app-password")
+    assert cli.main(["connect", "mail", "--as", "yahoo", "--user", "asha@yahoo.com"]) == 0
+    assert seen["server"] == "imap.mail.yahoo.com"
+    err = capsys.readouterr().err
+    assert "Yahoo: imap.mail.yahoo.com. Its app password is made at" in err
+    assert cli.main(["connect", "mail", "--as", "x", "--user", "me@example.com"]) == 2
+    assert "--mail-server HOST for a service Setu doesn't know" in capsys.readouterr().err

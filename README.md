@@ -89,7 +89,15 @@ kept by an app password: anything that speaks IMAP.
 setu connect mail --as work --mail-server imap.fastmail.com --user me@example.com
 #   the mail password (an app password) (not shown):
 #   connected mail:work: opened INBOX on imap.fastmail.com as me@example.com (1832 messages) — Read only
+
+setu connect mail --as yahoo --user asha@yahoo.com     # the server from the address
+#   Yahoo: imap.mail.yahoo.com. Its app password is made at https://login.yahoo.com/account/security (Generate app password)
 ```
+
+For Yahoo, Gmail, iCloud, Outlook, AOL, Fastmail and Zoho addresses
+(`mail.KNOWN`) the server is found from the address and the line says
+where that service makes its app password; any other needs
+`--mail-server`. The page's form leaves the server box empty for them.
 
 | Tool | What it does |
 |---|---|
@@ -101,9 +109,8 @@ setu connect mail --as work --mail-server imap.fastmail.com --user me@example.co
 is read with `BODY.PEEK`, so nothing is ever marked read, and there is no
 command here that sends, moves or deletes.
 
-**Use an app password**, never your own: Gmail, iCloud and Outlook make
-one in the account's security settings (Gmail: `imap.gmail.com`, iCloud:
-`imap.mail.me.com`, Outlook: `outlook.office365.com`). Setu signs in and
+**Use an app password**, never your own: Yahoo, Gmail, iCloud and Outlook
+make one in the account's security settings. Setu signs in and
 opens the folder before it keeps anything, so a wrong password or a
 missing folder saves nothing. It's kept like every other key, in your
 folder's vault, sealed with it when the folder is locked, and `setu check`

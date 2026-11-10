@@ -424,7 +424,8 @@ function availableCard(c) {
 // cleared from the page whatever happens.
 function mailForm(c) {
   const field = (attrs) => h("input.field", { type: "text", ...attrs });
-  const server = field({ placeholder: "imap.fastmail.com", "aria-label": "mail server" });
+  const server = field({ placeholder: "mail server (found for Yahoo, Gmail…)",
+                          "aria-label": "mail server" });
   const user = field({ placeholder: "you@example.com", "aria-label": "your address" });
   const password = field({ type: "password", autocomplete: "off",
                            placeholder: "app password", "aria-label": "app password" });
@@ -432,8 +433,10 @@ function mailForm(c) {
                           "aria-label": "your name for this account" });
   const go = h("button.btn.go", { type: "button" }, "Add");
   go.addEventListener("click", () => {
-    if (!server.value.trim() || !user.value.trim() || !password.value) {
-      say("Fill in the mail server, your address and an app password.", true); return;
+    if (!user.value.trim() || !password.value) {
+      say("Fill in your address and an app password (and the mail server, for a " +
+          "service other than Yahoo, Gmail, iCloud, Outlook, AOL, Fastmail or Zoho).",
+          true); return;
     }
     startSignIn("/api/add-mail", { server: server.value.trim(), user: user.value.trim(),
                                    password: password.value,
@@ -443,9 +446,11 @@ function mailForm(c) {
   return h("div", {},
     h("div.actions", {}, server, user),
     h("div.actions", {}, password, h("label.small", {}, "as ", account), go),
-    h("p.meta", {}, "For Gmail, iCloud and Outlook, make an app password in your " +
-      "account's security settings: never your own password. Gmail: imap.gmail.com; " +
-      "iCloud: imap.mail.me.com; Outlook: outlook.office365.com."));
+    h("p.meta", {}, "Make an app password in your account's security settings: " +
+      "never your own password. For Yahoo, Gmail, iCloud, Outlook, AOL, Fastmail " +
+      "and Zoho the server is found from your address; for another, type it " +
+      "(imap.example.com). Yahoo: login.yahoo.com/account/security, Generate app " +
+      "password."));
 }
 
 function connectForm(c) {

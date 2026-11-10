@@ -44,6 +44,43 @@ HOST_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 LOCAL = ("127.0.0.1", "localhost", "::1")
 
 
+#: THE SERVER FROM THE ADDRESS. The common services, by the address's
+#: domain: their IMAP server, their name, and where their app password is
+#: made. A domain not here still works; it needs its server said.
+KNOWN = {
+    **dict.fromkeys(("yahoo.com", "ymail.com", "rocketmail.com", "yahoo.co.uk",
+                     "yahoo.co.in", "yahoo.ca"),
+                    ("imap.mail.yahoo.com", "Yahoo",
+                     "https://login.yahoo.com/account/security (Generate app password)")),
+    **dict.fromkeys(("aol.com",),
+                    ("imap.aol.com", "AOL",
+                     "https://login.aol.com/account/security (Generate app password)")),
+    **dict.fromkeys(("gmail.com", "googlemail.com"),
+                    ("imap.gmail.com", "Gmail",
+                     "https://myaccount.google.com/apppasswords")),
+    **dict.fromkeys(("icloud.com", "me.com", "mac.com"),
+                    ("imap.mail.me.com", "iCloud",
+                     "https://account.apple.com (Sign-In and Security, App-Specific "
+                     "Passwords)")),
+    **dict.fromkeys(("outlook.com", "hotmail.com", "live.com", "msn.com"),
+                    ("outlook.office365.com", "Outlook",
+                     "https://account.microsoft.com/security (App passwords)")),
+    **dict.fromkeys(("fastmail.com", "fastmail.fm"),
+                    ("imap.fastmail.com", "Fastmail",
+                     "https://app.fastmail.com/settings/security/devicekeys")),
+    **dict.fromkeys(("zoho.com", "zohomail.com"),
+                    ("imap.zoho.com", "Zoho Mail",
+                     "https://accounts.zoho.com/home#security/app_password")),
+}
+
+
+def known_server(user: str) -> tuple[str, str, str] | None:
+    """(server, service, where its app password is made) for an address at
+    a service named in ``KNOWN``; None for any other."""
+    domain = user.rsplit("@", 1)[-1].strip().lower() if "@" in user else ""
+    return KNOWN.get(domain)
+
+
 class MailError(Exception):
     """A mail account that cannot be added or opened, said in words."""
 

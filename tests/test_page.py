@@ -631,3 +631,12 @@ def test_mail_needs_a_server_an_address_and_a_password(stand_in):
                  {"server": "imap.x.com", "user": "me@x.com"}):
         with _pytest.raises(page.ApiError):
             stand_in.handle("POST", "/api/add-mail", {}, body, local=True)
+
+
+def test_a_yahoo_address_needs_no_server_from_the_page(stand_in):
+    stand_in.handle("POST", "/api/add-mail", {}, {
+        "user": "asha@yahoo.com", "password": "app-password-123", "account": "yahoo"},
+        local=False)
+    finished(stand_in)
+    argv = started(stand_in)[-1]
+    assert argv[argv.index("--mail-server") + 1] == "imap.mail.yahoo.com"

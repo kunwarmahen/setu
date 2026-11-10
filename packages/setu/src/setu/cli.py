@@ -226,11 +226,20 @@ def _connect(args: argparse.Namespace) -> int:
 def _connect_mail(manifest, args: argparse.Namespace, emit: bool = False) -> int:
     """Mail by IMAP: the server and user on the command line, the password
     asked for hidden -- or the first line of stdin -- never in argv."""
+    from setu.mail import known_server
+
     ref = connections.ref_for(manifest.id, args.account)
+    known = known_server(args.user or "") if not args.mail_server else None
+    if known is not None:
+        # the server from the address: Yahoo's, iCloud's, Outlook's ...
+        args.mail_server = known[0]
+        if not emit:
+            print(f"{known[1]}: {known[0]}. Its app password is made at {known[2]}",
+                  file=sys.stderr)
     if not args.mail_server or not args.user:
-        message = (f"{manifest.name} needs --mail-server HOST and --user ADDRESS "
-                   "(imap.fastmail.com, imap.gmail.com, imap.mail.me.com, "
-                   "outlook.office365.com)")
+        message = (f"{manifest.name} needs --user ADDRESS, and --mail-server HOST for "
+                   "a service Setu doesn't know (imap.fastmail.com; Yahoo, Gmail, "
+                   "iCloud, Outlook, AOL, Fastmail and Zoho are found from the address)")
         if emit:
             _emit("error", message=message)
         else:
@@ -1640,8 +1649,9 @@ def build_parser() -> argparse.ArgumentParser:
                               "read from stdin, hidden, and kept in the vault. Repeatable")
     connect.add_argument("--mail-server", metavar="HOST",
                          help="mail by IMAP (setu connect mail): the mail server, "
-                              "imap.fastmail.com; its password is asked for, hidden (an "
-                              "app password for Gmail, iCloud, Outlook)")
+                              "imap.fastmail.com -- found from --user for Yahoo, Gmail, "
+                              "iCloud, Outlook, AOL, Fastmail, Zoho; its password is "
+                              "asked for, hidden (an app password)")
     connect.add_argument("--user", metavar="ADDRESS",
                          help="with --mail-server: the address you sign in with")
     connect.add_argument("--mail-port", type=int, default=993, metavar="PORT",

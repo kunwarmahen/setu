@@ -563,8 +563,12 @@ class Api:
         return self._start(argv, f"{site}:{account}", reached)
 
     def add_mail(self, body: dict) -> dict[str, Any]:
+        from setu.mail import known_server
+
         server = str(body.get("server") or "").strip().lower()
         user = str(body.get("user") or "").strip()
+        if not server and known_server(user):
+            server = known_server(user)[0]        # Yahoo's, iCloud's, from the address
         password = str(body.get("password") or "")
         account = str(body.get("account") or "mail").strip()
         folder = str(body.get("folder") or "INBOX").strip()
