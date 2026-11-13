@@ -149,8 +149,9 @@ There are two ways in. Pick one (or both, under different names):
 |---|---|
 | `list_entities` | Every device and sensor, one line each; filter by kind (`fan`, `light`), a word, or a room (`area="Kitchen"`) |
 | `list_areas` | The home's rooms and zones as Home Assistant's areas, with how many entities each has |
-| `get_state` | One device's state and details (brightness, temperature, battery…) |
+| `get_state` | One device's state and details (brightness, temperature, battery…); a camera's `access_token`, a key to its picture, is never shown |
 | `get_history` | How something changed over the last hours |
+| `camera_snapshot` | A camera's picture now (`camera.*` only, asked 1280 wide, Home Assistant scales it), as a picture a model that can see looks at; Prahari's `see` pick reads it on a timer ("is there a package at the door?"). Some cameras hand Home Assistant their last saved frame, not a new one |
 | `list_services` | What a kind of device can be told to do |
 | `call_service` | *See and control, and above:* turn things on and off, set a temperature, a fan speed, a scene |
 | `call_secure_service` | *Top level only:* locks, alarms, garage and entry doors, scripts, automations — asked about every time |

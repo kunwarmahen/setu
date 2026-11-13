@@ -19,7 +19,9 @@ from typing import Any
 
 import setu
 import setu.client
-from mcp.server.mcpserver import MCPServer
+from datetime import datetime
+
+from mcp.server.mcpserver import Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
 
@@ -96,6 +98,16 @@ def build(ha: HomeAssistant, level: str, account: str = "home") -> MCPServer:
         """How an entity changed over the last `hours` (default 24, at most 720):
         each change with its time, newest last."""
         return guarded(lambda: ha.get_history(entity_id, hours))
+
+    @server.tool(annotations=READ)
+    def camera_snapshot(entity_id: str, width: int = 1280) -> list:
+        """A camera's picture right now (a camera.* entity; list_entities with
+        domain="camera" shows them), `width` pixels wide (default 1280). To say
+        what is in it -- a package at the door, a car in the drive -- look at it
+        with a model that can see."""
+        data, kind = guarded(lambda: ha.camera_snapshot(entity_id, width))
+        taken = datetime.now().astimezone().isoformat(timespec="seconds")
+        return [f"{entity_id} at {taken}", Image(data=data, format=kind.split("/")[1])]
 
     @server.tool(annotations=READ)
     def list_services(domain: str) -> str:

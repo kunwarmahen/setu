@@ -50,6 +50,14 @@ MAX_POINTS = 60
 AREA_MAP = ("{% for a in areas() %}{% set es = area_entities(a) %}"
             "{% if es %}{% for e in es %}{{ a }}\t{{ area_name(a) }}\t{{ e }}\n{% endfor %}"
             "{% else %}{{ a }}\t{{ area_name(a) }}\n{% endif %}{% endfor %}")
+#: Attributes that are keys, not facts: never shown to a model.
+KEY_ATTRS = frozenset({"access_token"})
+#: A camera's picture: asked of Home Assistant this wide (it scales it
+#: down itself, so a 4K camera's frame stays small enough for a model),
+#: and refused above this many bytes.
+SNAPSHOT_WIDTH = 1280
+MAX_SNAPSHOT_BYTES = 4 * 1024 * 1024
+SNAPSHOT_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp")
 #: An attribute value longer than this is cut, so one camera's token list
 #: or a media player's queue does not drown the rest.
 MAX_ATTR = 200
@@ -79,6 +87,35 @@ class HomeAssistant:
             return response.json()
         except ValueError:
             return response.text
+
+    def camera_snapshot(self, entity_id: str, width: int = SNAPSHOT_WIDTH
+                        ) -> tuple[bytes, str]:
+        """One camera's picture now, as (bytes, media type).
+
+        ONLY A CAMERA. The path is Home Assistant's camera proxy, which
+        answers for ``camera.*`` entities alone; anything else is refused
+        here, before a request, so a typo is said in words. The picture is
+        asked for ``width`` wide (Home Assistant scales it) and refused if
+        it still isn't a picture of a size a model takes."""
+        entity_id = (entity_id or "").strip()
+        if not entity_id.startswith("camera.") or "/" in entity_id:
+            raise HomeAssistantError(
+                f"{entity_id or '(nothing)'} is not a camera; camera_snapshot takes a "
+                "camera.* entity -- list_entities(domain=\"camera\") shows them")
+        width = max(160, min(int(width or SNAPSHOT_WIDTH), 3840))
+        path = f"/api/camera_proxy/{quote(entity_id)}"
+        response = self.http.get(path, params={"width": width})
+        if response.status_code >= 300:
+            self._answer(response, path)          # raises, in words
+        kind = response.headers.get("content-type", "").split(";")[0].strip().lower()
+        if kind not in SNAPSHOT_TYPES:
+            raise HomeAssistantError(f"{entity_id} sent {kind or 'something'} instead of "
+                                     "a picture (is the camera on?)")
+        if len(response.content) > MAX_SNAPSHOT_BYTES:
+            raise HomeAssistantError(f"{entity_id}'s picture is "
+                                     f"{len(response.content) // 1024} KB; ask a smaller "
+                                     f"width")
+        return response.content, kind
 
     def _template(self, template: str) -> str:
         """Render a FIXED template on Home Assistant's own engine."""
@@ -153,7 +190,10 @@ class HomeAssistant:
         attrs = st.get("attributes") or {}
         lines = [_line(st), f"last changed: {st.get('last_changed', '?')}"]
         for key in sorted(attrs):
-            if key in ("friendly_name", "entity_picture"):
+            # a camera's access_token opens its live picture to whoever holds
+            # it, and entity_picture carries the same token in its address:
+            # a key, never a fact for a model to read or repeat
+            if key in ("friendly_name", "entity_picture") or key in KEY_ATTRS:
                 continue
             value = str(attrs[key])
             lines.append(f"  {key}: {value[:MAX_ATTR]}{'…' if len(value) > MAX_ATTR else ''}")

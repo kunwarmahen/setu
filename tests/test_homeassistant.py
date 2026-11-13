@@ -73,6 +73,10 @@ MCP_TOOLS = [{"name": "homeassistant__GetLiveContext", "description": "states",
               "inputSchema": {"type": "object"}}]
 
 
+#: The smallest picture a camera could send: a JPEG's first and last bytes.
+JPEG = b"\xff\xd8\xff\xe0" + b"\0" * 64 + b"\xff\xd9"
+
+
 class FakeHA:
     """A Home Assistant on a real local port: login, tokens, REST, MCP."""
 
@@ -83,6 +87,7 @@ class FakeHA:
         self.valid = {LONG_LIVED}
         self.refreshes: dict[str, str] = {}       # refresh token -> client id
         self.revoked: list[str] = []
+        self.camera_widths: list[str] = []
 
     def serve(self) -> str:
         fake = self
@@ -123,6 +128,14 @@ class FakeHA:
                 if url.path == "/api/services":
                     return self._send(200, [{"domain": "light", "services": {
                         "turn_on": {"name": "Turn on", "fields": {"brightness_pct": {}}}}}])
+                if url.path.startswith("/api/camera_proxy/"):
+                    eid = url.path.rsplit("/", 1)[1]
+                    fake.camera_widths.append(parse_qs(url.query).get("width", [""])[0])
+                    if eid == "camera.off":
+                        return self._send(200, b"<html>offline</html>", "text/html")
+                    if eid != "camera.porch":
+                        return self._send(404, {"message": "no"})
+                    return self._send(200, JPEG, "image/jpeg")
                 if url.path.startswith("/api/history/period/"):
                     return self._send(200, [[{"state": "off", "last_changed": "t1"},
                                              {"state": "off", "last_changed": "t2"},
@@ -364,7 +377,8 @@ def tool_names(level: str, fake: FakeHA) -> set[str]:
 
 class TestRest:
     def test_tools_follow_the_level(self, ha):
-        reads = {"list_entities", "list_areas", "get_state", "get_history", "list_services"}
+        reads = {"list_entities", "list_areas", "get_state", "get_history", "list_services",
+                 "camera_snapshot"}
         assert tool_names("read", ha) == reads
         assert tool_names("control", ha) == reads | {"call_service"}
         assert tool_names("full", ha) == reads | {"call_service", "call_secure_service"}
@@ -380,6 +394,41 @@ class TestRest:
         assert out == ("1 entities:\nfan.master_bedroom_ceiling — Bedroom fan: on")
         assert "21.5 °C" in rest(ha).list_entities(search="temperature")
         assert "and 4 more" in rest(ha).list_entities(limit=2)
+
+    def test_a_camera_picture_comes_back_as_a_picture_asked_small(self, ha):
+        data, kind = rest(ha).camera_snapshot("camera.porch")
+        assert data == JPEG and kind == "image/jpeg"
+        assert ha.camera_widths == ["1280"]
+
+    def test_only_a_camera_and_only_a_picture(self, ha):
+        with pytest.raises(HomeAssistantError, match="not a camera"):
+            rest(ha).camera_snapshot("light.kitchen")
+        with pytest.raises(HomeAssistantError, match="not a camera"):
+            rest(ha).camera_snapshot("camera.porch/../../api/config")
+        with pytest.raises(HomeAssistantError, match="instead of a picture"):
+            rest(ha).camera_snapshot("camera.off")
+        with pytest.raises(HomeAssistantError, match="nothing at"):
+            rest(ha).camera_snapshot("camera.attic")
+        assert "GET /api/states/light.kitchen" not in ha.calls
+
+    def test_the_tool_hands_a_model_the_picture_and_when_it_was_taken(self, ha):
+        import base64
+        server = build(rest(ha), "read")
+        out = asyncio.run(server.call_tool("camera_snapshot", {"entity_id": "camera.porch"}))
+        blocks = out.content
+        assert [b.type for b in blocks] == ["text", "image"]
+        assert blocks[0].text.startswith("camera.porch at ")
+        assert base64.b64decode(blocks[1].data) == JPEG and blocks[1].mime_type == "image/jpeg"
+
+    def test_a_cameras_access_token_is_never_shown(self, ha, monkeypatch):
+        h = rest(ha)
+        monkeypatch.setattr(h, "_get", lambda path, **_: {
+            "entity_id": "camera.porch", "state": "idle", "last_changed": "t",
+            "attributes": {"friendly_name": "Porch", "access_token": "111defcc-secret",
+                           "entity_picture": "/api/camera_proxy/camera.porch?token=111defcc",
+                           "supported_features": 2}})
+        out = h.get_state("camera.porch")
+        assert "111defcc" not in out and "supported_features: 2" in out
 
     def test_history_is_its_changes(self, ha):
         out = rest(ha).get_history("light.kitchen", 6)
