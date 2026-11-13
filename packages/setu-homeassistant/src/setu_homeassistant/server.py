@@ -15,12 +15,11 @@ classed spend in the manifest, so a harness asks every time.
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from typing import Any
 
 import setu
 import setu.client
-from datetime import datetime
-
 from mcp.server.mcpserver import Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
