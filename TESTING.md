@@ -181,9 +181,15 @@ yantra --setu .venv/bin/setu --provider ollama --model qwen3.8:latest \
     "Using my Home Assistant: which lights are on right now, and what fans do I have?"
 ```
 
-You should see `homeassistant-home (4 tool(s))` when Yantra starts, a
+You should see `homeassistant-home (6 tool(s))` when Yantra starts, a
 `list_entities` call, and an answer naming your real devices. Then ask it to
 turn something on: at See only it has no tool for that and should say so.
+
+A camera, at any level: `yantra --call mcp__homeassistant-home__camera_snapshot
+--args '{"entity_id": "camera.porch"}' --json --call-pictures` should answer
+`"images": 1` and a `pictures` entry (`image/jpeg`). `get_state` on the same
+camera must not show an `access_token`. A camera that only saves a frame on
+motion hands back that frame, with its own old time stamped in the picture.
 
 When you move to *See and control*, try one harmless device first (a lamp),
 and keep `--yolo` off so each change is asked about. Locks, alarms and doors
